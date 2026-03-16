@@ -22,6 +22,8 @@ spec:
       triggerComment: "/kelos pick-up"
       excludeComments:
         - "/kelos needs-input"
+      reporting:
+        enabled: true
   maxConcurrency: 3
   taskTemplate:
     workspaceRef:
@@ -95,6 +97,8 @@ spec:
       draft: false
       excludeComments:
         - /kelos needs-input
+      reporting:
+        enabled: true
   maxConcurrency: 2
   taskTemplate:
     workspaceRef:
