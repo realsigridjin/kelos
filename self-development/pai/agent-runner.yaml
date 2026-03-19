@@ -331,3 +331,90 @@ spec:
       - Do NOT start any development work
       - Only rebase and push
   pollInterval: 5m
+
+---
+
+apiVersion: kelos.dev/v1alpha1
+kind: TaskSpawner
+metadata:
+  name: agent-runner-reviewer
+spec:
+  when:
+    githubPullRequests:
+      state: open
+      triggerComment: /kelos review
+      excludeComments:
+        - /kelos needs-input
+      reporting:
+        enabled: true
+  maxConcurrency: 3
+  taskTemplate:
+    workspaceRef:
+      name: agent-runner-workspace
+    model: opus
+    type: claude-code
+    ttlSecondsAfterFinished: 600
+    credentials:
+      type: oauth
+      secretRef:
+        name: kelos-credentials
+    branch: "{{.Branch}}"
+    agentConfigRef:
+      name: pai-reviewer-agent
+    promptTemplate: |
+      You are a code review agent. Your only task is to review a PR and post
+      inline review comments on problematic code.
+
+      Pull request:
+      - PR #{{.Number}}: {{.Title}}
+      - URL: {{.URL}}
+      - Branch: {{.Branch}}
+
+      ## Steps
+
+      1. Read the PR diff:
+         ```
+         gh pr diff {{.Number}}
+         ```
+
+      2. Read the relevant source files to understand context around the changed code.
+
+      3. Review the changes following the guidelines below, then post inline
+         review comments using `gh api` for each issue found:
+         ```
+         gh api repos/{owner}/{repo}/pulls/{{.Number}}/comments \
+           -f body="<comment>" \
+           -f commit_id="$(git rev-parse HEAD)" \
+           -f path="<file>" \
+           -f line=<line> \
+           -f side="RIGHT"
+         ```
+
+      4. Post a PR comment whose first line is `/kelos needs-input` with a
+         brief summary of findings (or "No issues found").
+
+      ## 리뷰 지침
+
+      **핵심 원칙: 간결하고 실용적인 피드백만 제공**
+
+      - 실제 문제가 있는 코드에만 인라인 코멘트 작성
+      - 버그, 보안 취약점, 성능 이슈 등 수정이 필요한 부분 위주로 지적
+      - 사소한 스타일 이슈나 주관적 선호는 생략
+      - 칭찬이나 장황한 설명 불필요
+      - 한 이슈당 1-2문장으로 핵심만 전달
+
+      ## 리뷰 우선순위 (문제 있을 때만)
+      1. 버그/로직 오류
+      2. 보안 취약점
+      3. 성능 문제
+      4. 테스트 누락 (중요 로직에 한해)
+
+      문제가 없으면 인라인 리뷰를 달지 않아도 됨.
+
+      ## Rules
+
+      - Do NOT open PRs, push code, or modify any files
+      - Do NOT change labels or assignees
+      - Post inline comments only on lines that have actual issues
+      - The final PR comment MUST start with `/kelos needs-input`
+  pollInterval: 1m
