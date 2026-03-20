@@ -19,11 +19,13 @@ spec:
     githubIssues:
       labels:
         - gjkim/auto
-      triggerComment: "/kelos pick-up"
-      excludeComments:
-        - "/kelos needs-input"
+      commentPolicy:
+        triggerComment: "/kelos pick-up"
+        excludeComments:
+          - "/kelos needs-input"
       reporting:
         enabled: true
+      pollInterval: 1m
   maxConcurrency: 3
   taskTemplate:
     workspaceRef:
@@ -79,7 +81,6 @@ spec:
         - You cannot make any progress on the issue, explain why.
       - If you find anything worth considering (e.g. bugs, improvements, follow-up work), create a new issue:
         - gh issue create --title "<title>" --body "<description>" --label gjkim/auto-generated
-  pollInterval: 1m
 
 ---
 
@@ -93,12 +94,14 @@ spec:
       labels:
         - gjkim/auto-generated
       state: open
-      triggerComment: /kelos pick-up
       draft: false
-      excludeComments:
-        - /kelos needs-input
+      commentPolicy:
+        triggerComment: /kelos pick-up
+        excludeComments:
+          - /kelos needs-input
       reporting:
         enabled: true
+      pollInterval: 1m
   maxConcurrency: 2
   taskTemplate:
     workspaceRef:
@@ -150,7 +153,6 @@ spec:
       - If the PR is ready for human review, you need more information, or you cannot make progress, post a PR comment whose first line is `/kelos needs-input` and explain why below it. Maintainers can resume the PR later with `/kelos pick-up`.
       - If you find anything worth considering (e.g. bugs, improvements, follow-up work), create a new issue:
         - gh issue create --title "<title>" --body "<description>" --label gjkim/auto-generated
-  pollInterval: 1m
 
 ---
 
@@ -162,11 +164,13 @@ spec:
   when:
     githubIssues:
       state: open
-      triggerComment: "/kelos plan"
-      excludeComments:
-        - "/kelos needs-input"
+      commentPolicy:
+        triggerComment: "/kelos plan"
+        excludeComments:
+          - "/kelos needs-input"
       reporting:
         enabled: true
+      pollInterval: 1m
   maxConcurrency: 2
   taskTemplate:
     workspaceRef:
@@ -253,7 +257,6 @@ spec:
       - Do NOT trigger other automation (except the `/kelos needs-input` line above)
       - Post exactly one comment per run
       - The comment MUST end with a standalone `/kelos needs-input` line
-  pollInterval: 1m
 
 ---
 
@@ -265,11 +268,13 @@ spec:
   when:
     githubPullRequests:
       state: open
-      triggerComment: /kelos approve
-      excludeComments:
-        - /kelos needs-input
+      commentPolicy:
+        triggerComment: /kelos approve
+        excludeComments:
+          - /kelos needs-input
       reporting:
         enabled: true
+      pollInterval: 5m
   maxConcurrency: 5
   taskTemplate:
     workspaceRef:
@@ -330,7 +335,6 @@ spec:
       - Do NOT modify any source code
       - Do NOT start any development work
       - Only rebase and push
-  pollInterval: 5m
 
 ---
 
@@ -342,11 +346,13 @@ spec:
   when:
     githubPullRequests:
       state: open
-      triggerComment: /kelos review
-      excludeComments:
-        - /kelos needs-input
+      commentPolicy:
+        triggerComment: /kelos review
+        excludeComments:
+          - /kelos needs-input
       reporting:
         enabled: true
+      pollInterval: 1m
   maxConcurrency: 3
   taskTemplate:
     workspaceRef:
@@ -417,4 +423,3 @@ spec:
       - Do NOT change labels or assignees
       - Post inline comments only on lines that have actual issues
       - The final PR comment MUST start with `/kelos needs-input`
-  pollInterval: 1m
