@@ -58,4 +58,5 @@ spec:
             2. If it exists, read the file and follow its format exactly when creating the PR body
             3. If a JIRA issue handle (e.g., `GHEREQ-238`, `PAIP-123`) can be extracted from the commit message, branch name, or conversation context, prefix the PR title with `[$JIRA_ISSUE_HANDLE] `
             4. Use `gh pr create` with a body that matches the template structure
+            5. After creating the PR, assign it to gunju-kim: `gh pr edit <number> --add-assignee gunju-kim`
             
