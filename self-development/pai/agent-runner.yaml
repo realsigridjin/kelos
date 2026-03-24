@@ -17,8 +17,6 @@ metadata:
 spec:
   when:
     githubIssues:
-      labels:
-        - gjkim/auto
       commentPolicy:
         triggerComment: "/kelos pick-up"
         excludeComments:
@@ -91,8 +89,6 @@ metadata:
 spec:
   when:
     githubPullRequests:
-      labels:
-        - gjkim/auto-generated
       state: open
       draft: false
       commentPolicy:
