@@ -44,8 +44,7 @@ spec:
           content: |
             ---
             name: pull-request
-            description: ALWAYS use this skill for ANY pull request creation or update. This skill MUST be followed
-            whenever the user wants to create, open or update a PR.
+            description: ALWAYS use this skill for ANY pull request creation or update. This skill MUST be followed whenever the user wants to create, open or update a PR.
             ---
             
             # Create or Update Pull Request
