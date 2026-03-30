@@ -31,6 +31,9 @@ spec:
     model: opus
     type: claude-code
     ttlSecondsAfterFinished: 600
+    env:
+      - name: CLAUDE_CODE_EFFORT_LEVEL
+        value: "max"
     credentials:
       type: oauth
       secretRef:
@@ -105,6 +108,9 @@ spec:
     model: opus
     type: claude-code
     ttlSecondsAfterFinished: 600
+    env:
+      - name: CLAUDE_CODE_EFFORT_LEVEL
+        value: "max"
     credentials:
       type: oauth
       secretRef:
@@ -174,6 +180,9 @@ spec:
     model: opus
     type: claude-code
     ttlSecondsAfterFinished: 3600
+    env:
+      - name: CLAUDE_CODE_EFFORT_LEVEL
+        value: "max"
     credentials:
       type: oauth
       secretRef:
@@ -356,6 +365,9 @@ spec:
     model: opus
     type: claude-code
     ttlSecondsAfterFinished: 600
+    env:
+      - name: CLAUDE_CODE_EFFORT_LEVEL
+        value: "max"
     credentials:
       type: oauth
       secretRef:
