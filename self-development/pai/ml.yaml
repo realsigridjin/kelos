@@ -355,7 +355,13 @@ spec:
 
       5. Read the relevant source files to understand context around the changed code.
 
-      6. Review the changes following the guidelines from step 2, then post inline
+      6. Resolve outdated review threads from previous reviews:
+         - Use `gh api graphql` to query all unresolved review threads on the PR
+         - Only consider threads started by the bot user (kelos-bot)
+         - For each unresolved bot thread, check if the issue has been fixed in the current code
+         - Resolve fixed threads using the `resolveReviewThread` GraphQL mutation
+
+      7. Review the changes following the guidelines from step 2, then post inline
          review comments using `gh api` for each issue found:
          ```
          gh api repos/{owner}/{repo}/pulls/{{.Number}}/comments \
@@ -366,7 +372,7 @@ spec:
            -f side="RIGHT"
          ```
 
-      7. Post a PR comment with the review summary as described in the prompt file.
+      8. Post a PR comment with the review summary as described in the prompt file.
          The comment MUST start with `/kelos needs-input`.
 
       ## Rules
