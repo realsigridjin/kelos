@@ -17,6 +17,7 @@ metadata:
 spec:
   when:
     githubWebhook:
+      repository: pai/deploy
       events:
         - "issue_comment"
       filters:
@@ -123,6 +124,7 @@ metadata:
 spec:
   when:
     githubWebhook:
+      repository: pai/deploy
       events:
         - "issue_comment"
       filters:
@@ -225,6 +227,7 @@ metadata:
 spec:
   when:
     githubWebhook:
+      repository: pai/deploy
       events:
         - "issue_comment"
       filters:
@@ -299,6 +302,7 @@ metadata:
 spec:
   when:
     githubWebhook:
+      repository: pai/deploy
       events:
         - "issue_comment"
       filters:
