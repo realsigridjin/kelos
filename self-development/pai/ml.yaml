@@ -49,7 +49,7 @@ spec:
       Task:
       - 0. Set up your environment:
         ```
-        git fetch --unshallow || true; git fetch origin develop
+        git fetch origin develop
         curl -LsSf https://astral.sh/uv/0.10.4/install.sh | sh && . $HOME/.local/bin/env && uv tool install pre-commit && pre-commit install
         ```
 
@@ -248,10 +248,10 @@ spec:
          BRANCH=$(gh pr view {{.Number}} --json headRefName --jq .headRefName)
          ```
 
-      2. Fetch full history and check out the branch:
+      2. Fetch and check out the branch:
          ```
-         git fetch --unshallow || true
-         git fetch origin "$BASE"
+         git fetch origin "$BASE" --depth=30
+         git fetch origin "$BRANCH" --depth=30
          git checkout "$BRANCH"
          ```
 
