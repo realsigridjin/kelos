@@ -16,15 +16,14 @@ metadata:
   name: agent-runner-workers
 spec:
   when:
-    githubIssues:
-      commentPolicy:
-        triggerComment: "/kelos pick-up"
-        excludeComments:
-          - "/kelos needs-input"
-      reporting:
-        enabled: true
-      pollInterval: 1m
-  maxConcurrency: 3
+    githubWebhook:
+      events:
+        - "issue_comment"
+      filters:
+        - event: "issue_comment"
+          action: "created"
+          bodyContains: "/kelos pick-up"
+  maxConcurrency: 5
   taskTemplate:
     workspaceRef:
       name: agent-runner-workspace
@@ -35,118 +34,79 @@ spec:
       type: oauth
       secretRef:
         name: kelos-credentials
-    branch: "gjkim-kelos-task-{{.Number}}"
     agentConfigRef:
       name: kelos-dev-agent
     promptTemplate: |
-      You are a coding agent. You either
-      - create a PR to fix the issue - update an existing PR to fix the issue
-      - comment on the issue or the PR if you cannot fix it
+      You are a coding agent. You handle work items triggered by `/kelos pick-up`.
+
+      Item #{{.Number}}: {{.Title}}
+      URL: {{.URL}}
 
       Pre-checklist:
-      - Label the PR with "gjkim/auto-generated":
+      - Label any PR you create or update with "gjkim/auto-generated":
         - gh pr edit <number> --add-label gjkim/auto-generated
 
       Task:
-      - 0. Set up your working branch. Run this exactly:
+      - 0. Set up your environment:
         ```
-        git fetch --unshallow || true; git fetch origin main; git rebase origin/main
+        git fetch --unshallow || true; git fetch origin main
         curl -LsSf https://astral.sh/uv/0.10.4/install.sh | sh && . $HOME/.local/bin/env && uv tool install pre-commit && pre-commit install
         ```
-      - 1. Check if a PR already exists for branch gjkim-kelos-task-{{.Number}}.
+
+      - 1. Determine if #{{.Number}} is a pull request or an issue:
+        ```
+        gh pr view {{.Number}} --json headRefName --jq .headRefName 2>/dev/null
+        ```
+        If this succeeds → follow the **PR Workflow** below.
+        If this fails → follow the **Issue Workflow** below.
+
+      ## Issue Workflow
+
+      - 2. Set up your working branch:
+        ```
+        git checkout -B gjkim-kelos-task-{{.Number}} origin/main
+        ```
+      - 3. Check if a PR already exists for branch gjkim-kelos-task-{{.Number}}.
 
       If a PR already exists:
-      - 2a. Read ALL review comments and conversation on the PR (gh pr view, gh api for review comments).
-      - 3a. Read the existing diff (git diff main...HEAD) to understand what has already been done. Do NOT start over or rewrite from scratch.
-      - 4a. Make only the incremental changes needed to address review feedback or remaining issues. Preserve existing work.
-      - 5a. Commit and push your changes to origin gjkim-kelos-task-{{.Number}}.
-      - 6a. /review the PR to verify your changes address the feedback. If changes are needed, make them, commit and push, then /review again. Repeat until the review passes.
-      - 7a. Update the PR title and description to reflect the final diff.
-      - 8a. Make sure the PR passes all CI tests.
+      - 4a. Read ALL review comments and conversation on the PR (gh pr view, gh api for review comments).
+      - 5a. Read the existing diff (git diff main...HEAD) to understand what has already been done. Do NOT start over or rewrite from scratch.
+      - 6a. Make only the incremental changes needed to address review feedback or remaining issues. Preserve existing work.
+      - 7a. Commit and push your changes to origin gjkim-kelos-task-{{.Number}}.
+      - 8a. /review the PR to verify your changes address the feedback. If changes are needed, make them, commit and push, then /review again. Repeat until the review passes.
+      - 9a. Update the PR title and description to reflect the final diff.
+      - 10a. Make sure the PR passes all CI tests.
 
       If no PR exists:
-      - 2b. Investigate the issue #{{.Number}}.
-      - 3b. Create a commit that fixes the issue.
-      - 4b. Push your branch to origin gjkim-kelos-task-{{.Number}}.
-      - 5b. Create a PR, then /review it. If changes are needed, make them, commit and push, then /review again. Repeat until the review passes.
-      - 6b. Update the PR title and description to reflect the final diff.
-      - 7b. Make sure the PR passes all CI tests.
+      - 4b. Investigate the issue #{{.Number}}.
+      - 5b. Create a commit that fixes the issue.
+      - 6b. Push your branch to origin gjkim-kelos-task-{{.Number}}.
+      - 7b. Create a PR, then /review it. If changes are needed, make them, commit and push, then /review again. Repeat until the review passes.
+      - 8b. Update the PR title and description to reflect the final diff.
+      - 9b. Make sure the PR passes all CI tests.
 
-      Post-checklist:
-      - Post a `/kelos needs-input` comment on the issue (gh issue comment {{.Number}} --body "/kelos needs-input") and leave a comment for the reason if any of the following applies:
+      ## PR Workflow
+
+      - 2. Set up your working branch:
+        ```
+        BRANCH=$(gh pr view {{.Number}} --json headRefName --jq .headRefName)
+        git checkout "$BRANCH"
+        git rebase origin/main
+        ```
+      - 3. Read ALL review comments and conversation on the PR (gh pr view, gh api for review comments).
+      - 4. Read ALL comments on the linked issue referenced by the PR body. First determine the linked issue number from the PR body, then run `gh issue view <linked-issue-number> --comments`.
+      - 5. Read the existing diff (git diff main...HEAD) to understand what has already been done. Do NOT start over or rewrite from scratch.
+      - 6. Make only the incremental changes needed to address review feedback or remaining issues. Preserve existing work.
+      - 7. Commit and push your changes.
+      - 8. /review the PR to verify your changes address the feedback. If changes are needed, make them, commit and push, then /review again. Repeat until the review passes.
+      - 9. Update the PR title and description to reflect the final diff.
+      - 10. Make sure the PR passes all CI tests.
+
+      ## Post-checklist (both workflows)
+      - Post a `/kelos needs-input` comment on the issue or PR and explain the reason if any of the following applies:
         - The PR is ready for review, please take a look.
         - Commented on the issue or the PR for more information.
-        - You cannot make any progress on the issue, explain why.
-      - If you find anything worth considering (e.g. bugs, improvements, follow-up work), create a new issue:
-        - gh issue create --title "<title>" --body "<description>" --label gjkim/auto-generated
-
----
-
-apiVersion: kelos.dev/v1alpha1
-kind: TaskSpawner
-metadata:
-  name: agent-runner-pr-responder
-spec:
-  when:
-    githubPullRequests:
-      state: open
-      draft: false
-      commentPolicy:
-        triggerComment: /kelos pick-up
-        excludeComments:
-          - /kelos needs-input
-      reporting:
-        enabled: true
-      pollInterval: 1m
-  maxConcurrency: 2
-  taskTemplate:
-    workspaceRef:
-      name: agent-runner-workspace
-    model: opus
-    type: claude-code
-    ttlSecondsAfterFinished: 600
-    credentials:
-      type: oauth
-      secretRef:
-        name: kelos-credentials
-    branch: "{{.Branch}}"
-    agentConfigRef:
-      name: kelos-dev-agent
-    promptTemplate: |
-      You are a coding agent updating an existing PR in response to review feedback.
-
-      Pull request:
-      - PR #{{.Number}}: {{.Title}}
-      - URL: {{.URL}}
-      - Branch: {{.Branch}}
-      - Review state: {{.ReviewState}}
-
-      {{if .ReviewComments}}
-      Inline review comments:
-      {{.ReviewComments}}
-      {{end}}
-      {{if .Comments}}
-      PR conversation:
-      {{.Comments}}
-      {{end}}
-
-      Task:
-      - 0. Set up your working branch. Run this exactly:
-        ```
-        git fetch --unshallow || true; git fetch origin main; git checkout {{.Branch}}; git rebase origin/main
-        curl -LsSf https://astral.sh/uv/0.10.4/install.sh | sh && . $HOME/.local/bin/env && uv tool install pre-commit && pre-commit install
-        ```
-      - 1. Read ALL review comments and conversation on the PR (gh pr view, gh api for review comments).
-      - 2. Read ALL comments on the linked issue referenced by the PR body. First determine the linked issue number from the PR body, then run `gh issue view <linked-issue-number> --comments`.
-      - 3. Read the existing diff (git diff main...HEAD) to understand what has already been done. Do NOT start over or rewrite from scratch.
-      - 4. Make only the incremental changes needed to address review feedback or remaining issues. Preserve existing work.
-      - 5. Commit and push your changes to origin {{.Branch}}.
-      - 6. /review the PR to verify your changes address the feedback. If changes are needed, make them, commit and push, then /review again. Repeat until the review passes.
-      - 7. Update the PR title and description to reflect the final diff.
-      - 8. Make sure the PR passes all CI tests.
-
-      Post-checklist:
-      - If the PR is ready for human review, you need more information, or you cannot make progress, post a PR comment whose first line is `/kelos needs-input` and explain why below it. Maintainers can resume the PR later with `/kelos pick-up`.
+        - You cannot make any progress, explain why.
       - If you find anything worth considering (e.g. bugs, improvements, follow-up work), create a new issue:
         - gh issue create --title "<title>" --body "<description>" --label gjkim/auto-generated
 
@@ -158,15 +118,13 @@ metadata:
   name: agent-runner-planner
 spec:
   when:
-    githubIssues:
-      state: open
-      commentPolicy:
-        triggerComment: "/kelos plan"
-        excludeComments:
-          - "/kelos needs-input"
-      reporting:
-        enabled: true
-      pollInterval: 1m
+    githubWebhook:
+      events:
+        - "issue_comment"
+      filters:
+        - event: "issue_comment"
+          action: "created"
+          bodyContains: "/kelos plan"
   maxConcurrency: 2
   taskTemplate:
     workspaceRef:
@@ -188,10 +146,6 @@ spec:
       ---
       Issue #{{.Number}}: {{.Title}}
       {{.Body}}
-      {{if .Comments}}
-      Comments:
-      {{.Comments}}
-      {{end}}
       ---
 
       ## Your tasks
@@ -262,15 +216,13 @@ metadata:
   name: agent-runner-rebase
 spec:
   when:
-    githubPullRequests:
-      state: open
-      commentPolicy:
-        triggerComment: /kelos approve
-        excludeComments:
-          - /kelos needs-input
-      reporting:
-        enabled: true
-      pollInterval: 5m
+    githubWebhook:
+      events:
+        - "issue_comment"
+      filters:
+        - event: "issue_comment"
+          action: "created"
+          bodyContains: "/kelos approve"
   maxConcurrency: 5
   taskTemplate:
     workspaceRef:
@@ -282,27 +234,25 @@ spec:
       type: oauth
       secretRef:
         name: kelos-credentials
-    branch: "{{.Branch}}"
     agentConfigRef:
       name: kelos-dev-agent
     promptTemplate: |
       You are a rebase agent. Your only task is to keep a PR branch rebased on its base branch.
 
-      Pull request:
-      - PR #{{.Number}}: {{.Title}}
-      - Branch: {{.Branch}}
+      Pull request #{{.Number}}: {{.Title}}
 
       Steps:
-      1. Determine the base branch of this PR:
+      1. Determine the base branch and head branch of this PR:
          ```
          BASE=$(gh pr view {{.Number}} --json baseRefName --jq .baseRefName)
+         BRANCH=$(gh pr view {{.Number}} --json headRefName --jq .headRefName)
          ```
 
       2. Fetch full history and check out the branch:
          ```
          git fetch --unshallow || true
          git fetch origin "$BASE"
-         git checkout {{.Branch}}
+         git checkout "$BRANCH"
          ```
 
       3. Check if a rebase is needed:
@@ -324,7 +274,7 @@ spec:
 
       6. Force push the rebased branch:
          ```
-         git push --force-with-lease origin {{.Branch}}
+         git push --force-with-lease origin "$BRANCH"
          ```
 
       Important:
@@ -340,15 +290,13 @@ metadata:
   name: agent-runner-reviewer
 spec:
   when:
-    githubPullRequests:
-      state: open
-      commentPolicy:
-        triggerComment: /kelos review
-        excludeComments:
-          - /kelos needs-input
-      reporting:
-        enabled: true
-      pollInterval: 1m
+    githubWebhook:
+      events:
+        - "issue_comment"
+      filters:
+        - event: "issue_comment"
+          action: "created"
+          bodyContains: "/kelos review"
   maxConcurrency: 3
   taskTemplate:
     workspaceRef:
@@ -360,28 +308,31 @@ spec:
       type: oauth
       secretRef:
         name: kelos-credentials
-    branch: "{{.Branch}}"
     agentConfigRef:
       name: pai-reviewer-agent
     promptTemplate: |
       You are a code review agent. Your only task is to review a PR and post
       inline review comments on problematic code.
 
-      Pull request:
-      - PR #{{.Number}}: {{.Title}}
-      - URL: {{.URL}}
-      - Branch: {{.Branch}}
+      Pull request #{{.Number}}: {{.Title}}
+      URL: {{.URL}}
 
       ## Steps
 
-      1. Read the PR diff:
+      1. Look up the PR branch and check it out:
+         ```
+         BRANCH=$(gh pr view {{.Number}} --json headRefName --jq .headRefName)
+         git checkout "$BRANCH"
+         ```
+
+      2. Read the PR diff:
          ```
          gh pr diff {{.Number}}
          ```
 
-      2. Read the relevant source files to understand context around the changed code.
+      3. Read the relevant source files to understand context around the changed code.
 
-      3. Review the changes following the guidelines below, then post inline
+      4. Review the changes following the guidelines below, then post inline
          review comments using `gh api` for each issue found:
          ```
          gh api repos/{owner}/{repo}/pulls/{{.Number}}/comments \
@@ -392,7 +343,7 @@ spec:
            -f side="RIGHT"
          ```
 
-      4. Post a PR comment whose first line is `/kelos needs-input` with a
+      5. Post a PR comment whose first line is `/kelos needs-input` with a
          brief summary of findings (or "No issues found").
 
       ## 리뷰 지침
