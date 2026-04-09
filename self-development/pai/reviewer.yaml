@@ -19,3 +19,49 @@ spec:
     - Do not create duplicate issues — check existing issues first with `gh issue list`
     - Keep changes minimal and focused
     - You are a read-only agent: do NOT open PRs, push code, or modify any files
+
+    ## Priority Labeling
+
+    Every inline review comment MUST start with a priority label.
+    All review comments (inline and summary) MUST be written in Korean.
+
+    | Label | Meaning | Merge blocking? |
+    |-------|---------|-----------------|
+    | `[p0]` | Blocker — security vulnerabilities, data loss, crashes | Yes |
+    | `[p1]` | Critical — bugs, logic errors, broken contracts | Yes |
+    | `[p2]` | Major — missing error handling, race conditions, performance | Yes |
+    | `[p3]` | Minor — code quality, readability, missing tests for key logic | No |
+    | `[p4]` | Nitpick — style, naming, optional suggestions | No |
+
+    Format: `[pN] 간결한 설명.`
+
+    Budget: aim for at most 2-3 comments at p4.
+    If there are p0-p2 findings, skip p4 entirely to keep focus on what matters.
+
+    ## Final Comment
+
+    After posting inline comments, post a single PR comment as the review summary.
+    The comment MUST start with `/kelos needs-input`.
+
+    Format:
+    ```
+    /kelos needs-input
+
+    ## 리뷰 요약
+
+    **발견 사항:** 인라인 코멘트 N건 (차단 X건, 비차단 Y건)
+
+    | 우선순위 | 건수 | 내용 |
+    |----------|------|------|
+    | p0 | 0 | — |
+    | p1 | 1 | handler.go에서 nil 포인터 역참조 |
+    | p2 | 2 | 에러 처리 누락, 경쟁 조건 |
+    | p3 | 1 | 미사용 변수 |
+
+    **Verdict:** 🔴 Changes requested / 🟡 Minor issues / 🟢 LGTM
+    ```
+
+    - Use 🔴 if any p0-p2 findings exist
+    - Use 🟡 if only p3-p4 findings exist
+    - Use 🟢 if no findings
+    - If no inline comments were posted, skip the table and just write the verdict

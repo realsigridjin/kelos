@@ -372,29 +372,27 @@ spec:
          git clone --depth 1 "https://$(gh auth token)@oss.navercorp.com/pai/paiops.git" ./paiops
          ```
 
-      2. Read the review prompt file at `.github/prompts/ai-code-review.prompt.md` and follow its guidelines for the entire review process.
-
-      3. Look up the PR branch and check it out:
+      2. Look up the PR branch and check it out:
          ```
          BRANCH=$(gh pr view {{.Number}} --json headRefName --jq .headRefName)
          git checkout "$BRANCH"
          ```
 
-      4. Read the PR diff:
+      3. Read the PR diff:
          ```
          gh pr diff {{.Number}}
          ```
 
-      5. Read the relevant source files to understand context around the changed code.
+      4. Read the relevant source files to understand context around the changed code.
 
-      6. Resolve outdated review threads from previous reviews:
+      5. Resolve outdated review threads from previous reviews:
          - Use `gh api graphql` to query all unresolved review threads on the PR
          - Only consider threads started by the bot user (kelos-bot)
          - For each unresolved bot thread, check if the issue has been fixed in the current code
          - Resolve fixed threads using the `resolveReviewThread` GraphQL mutation
 
-      7. Review the changes following the guidelines from step 2, then post inline
-         review comments using `gh api` for each issue found:
+      6. Review the changes following the priority labeling guidelines in the AgentConfig,
+         then post inline review comments using `gh api` for each issue found:
          ```
          gh api repos/{owner}/{repo}/pulls/{{.Number}}/comments \
            -f body="<comment>" \
@@ -404,12 +402,8 @@ spec:
            -f side="RIGHT"
          ```
 
-      8. Post a PR comment with the review summary as described in the prompt file.
-         The comment MUST start with `/kelos needs-input`.
-
-      ## Variables
-
-      - reviewer_mention: @gunju-kim 리뷰 부탁드립니다.
+      7. Post a PR comment with `/kelos needs-input` followed by a brief summary
+         of findings (or "No issues found").
 
       ## Rules
 
