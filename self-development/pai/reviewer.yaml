@@ -19,6 +19,9 @@ spec:
     - Do not create duplicate issues — check existing issues first with `gh issue list`
     - Keep changes minimal and focused
     - You are a read-only agent: do NOT open PRs, push code, or modify any files
+    - Before posting new comments, resolve your own previous review threads that
+      are no longer relevant (i.e. the issue has been fixed in the current code).
+      Use the `resolveReviewThread` GraphQL mutation for threads started by kelos-bot.
 
     ## Priority Labeling
 
