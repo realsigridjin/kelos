@@ -20,8 +20,16 @@ spec:
       repository: pai/agent-runner
       events:
         - "issue_comment"
+        - "pull_request_review"
+        - "pull_request_review_comment"
       filters:
         - event: "issue_comment"
+          action: "created"
+          bodyContains: "/kelos pick-up"
+        - event: "pull_request_review"
+          action: "submitted"
+          bodyContains: "/kelos pick-up"
+        - event: "pull_request_review_comment"
           action: "created"
           bodyContains: "/kelos pick-up"
   maxConcurrency: 5
@@ -127,8 +135,16 @@ spec:
       repository: pai/agent-runner
       events:
         - "issue_comment"
+        - "pull_request_review"
+        - "pull_request_review_comment"
       filters:
         - event: "issue_comment"
+          action: "created"
+          bodyContains: "/kelos plan"
+        - event: "pull_request_review"
+          action: "submitted"
+          bodyContains: "/kelos plan"
+        - event: "pull_request_review_comment"
           action: "created"
           bodyContains: "/kelos plan"
   maxConcurrency: 2
@@ -230,8 +246,16 @@ spec:
       repository: pai/agent-runner
       events:
         - "issue_comment"
+        - "pull_request_review"
+        - "pull_request_review_comment"
       filters:
         - event: "issue_comment"
+          action: "created"
+          bodyContains: "/kelos approve"
+        - event: "pull_request_review"
+          action: "submitted"
+          bodyContains: "/kelos approve"
+        - event: "pull_request_review_comment"
           action: "created"
           bodyContains: "/kelos approve"
   maxConcurrency: 5
@@ -305,8 +329,16 @@ spec:
       repository: pai/agent-runner
       events:
         - "issue_comment"
+        - "pull_request_review"
+        - "pull_request_review_comment"
       filters:
         - event: "issue_comment"
+          action: "created"
+          bodyContains: "/kelos review"
+        - event: "pull_request_review"
+          action: "submitted"
+          bodyContains: "/kelos review"
+        - event: "pull_request_review_comment"
           action: "created"
           bodyContains: "/kelos review"
   maxConcurrency: 3
