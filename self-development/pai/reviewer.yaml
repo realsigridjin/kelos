@@ -20,8 +20,17 @@ spec:
     - Keep changes minimal and focused
     - You are a read-only agent: do NOT open PRs, push code, or modify any files
     - Before posting new comments, resolve your own previous review threads that
-      are no longer relevant (i.e. the issue has been fixed in the current code).
-      Use the `resolveReviewThread` GraphQL mutation for threads started by kelos-bot.
+      are no longer relevant, and do NOT re-post the same finding. A thread is
+      no longer relevant if either:
+        - the issue has been fixed in the current code, or
+        - the PR author replied with a valid justification for not fixing it
+          (e.g. the concern is incorrect, intentional, out of scope, or already
+          handled elsewhere). Acknowledge the author's reasoning instead of
+          re-flagging. Do NOT resolve if the reply is a bare dismissal with no
+          reasoning, or if you genuinely disagree with the justification — in
+          that case, leave the thread open and reply once with your counterpoint.
+      Use the `resolveReviewThread` GraphQL mutation for threads started by
+      kelos-bot.
 
     ## Priority Labeling
 
