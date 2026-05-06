@@ -46,6 +46,7 @@ spec:
       type: oauth
       secretRef:
         name: kelos-credentials
+    branch: '{{with index . "Branch"}}{{.}}{{else}}gjkim-kelos-task-{{$.Number}}{{end}}'
     agentConfigRef:
       name: kelos-dev-agent
     promptTemplate: |
@@ -74,9 +75,9 @@ spec:
 
       ## Issue Workflow
 
-      - 2. Set up your working branch:
+      - 2. Kelos has already checked out branch gjkim-kelos-task-{{.Number}}. Rebase onto develop:
         ```
-        git checkout -B gjkim-kelos-task-{{.Number}} origin/develop
+        git rebase origin/develop
         ```
       - 3. Check if a PR already exists for branch gjkim-kelos-task-{{.Number}}.
 
@@ -99,10 +100,8 @@ spec:
 
       ## PR Workflow
 
-      - 2. Set up your working branch:
+      - 2. Kelos has already checked out the PR head branch. Rebase onto develop before making changes:
         ```
-        BRANCH=$(gh pr view {{.Number}} --json headRefName --jq .headRefName)
-        git checkout "$BRANCH"
         git rebase origin/develop
         ```
       - 3. Read ALL review comments and conversation on the PR (gh pr view, gh api for review comments).
@@ -270,6 +269,7 @@ spec:
       type: oauth
       secretRef:
         name: kelos-credentials
+    branch: "{{.Branch}}"
     agentConfigRef:
       name: kelos-dev-agent
     promptTemplate: |
@@ -278,17 +278,14 @@ spec:
       Pull request #{{.Number}}: {{.Title}}
 
       Steps:
-      1. Determine the base branch and head branch of this PR:
+      1. Kelos has already checked out the PR head branch. Determine the base branch:
          ```
          BASE=$(gh pr view {{.Number}} --json baseRefName --jq .baseRefName)
-         BRANCH=$(gh pr view {{.Number}} --json headRefName --jq .headRefName)
          ```
 
-      2. Fetch and check out the branch:
+      2. Fetch the base branch:
          ```
          git fetch origin "$BASE" --depth=30
-         git fetch origin "$BRANCH" --depth=30
-         git checkout "$BRANCH"
          ```
 
       3. Check if a rebase is needed:
@@ -310,7 +307,7 @@ spec:
 
       6. Force push the rebased branch:
          ```
-         git push --force-with-lease origin "$BRANCH"
+         git push --force-with-lease origin HEAD
          ```
 
       Important:
@@ -356,6 +353,7 @@ spec:
       type: oauth
       secretRef:
         name: kelos-credentials
+    branch: "{{.Branch}}"
     agentConfigRef:
       name: pai-reviewer-agent
     promptTemplate: |
@@ -372,26 +370,20 @@ spec:
          git clone --depth 1 "https://$(gh auth token)@oss.navercorp.com/pai/paiops.git" ./paiops
          ```
 
-      2. Look up the PR branch and check it out:
-         ```
-         BRANCH=$(gh pr view {{.Number}} --json headRefName --jq .headRefName)
-         git checkout "$BRANCH"
-         ```
-
-      3. Read the PR diff:
+      2. Kelos has already checked out the PR head branch. Read the PR diff:
          ```
          gh pr diff {{.Number}}
          ```
 
-      4. Read the relevant source files to understand context around the changed code.
+      3. Read the relevant source files to understand context around the changed code.
 
-      5. Resolve outdated review threads from previous reviews:
+      4. Resolve outdated review threads from previous reviews:
          - Use `gh api graphql` to query all unresolved review threads on the PR
          - Only consider threads started by the bot user (kelos-bot)
          - For each unresolved bot thread, check if the issue has been fixed in the current code
          - Resolve fixed threads using the `resolveReviewThread` GraphQL mutation
 
-      6. Review the changes following the priority labeling guidelines in the AgentConfig,
+      5. Review the changes following the priority labeling guidelines in the AgentConfig,
          then post inline review comments using `gh api` for each issue found:
          ```
          gh api repos/{owner}/{repo}/pulls/{{.Number}}/comments \
@@ -402,7 +394,7 @@ spec:
            -f side="RIGHT"
          ```
 
-      7. Post a PR comment with `/kelos needs-input` followed by a brief summary
+      6. Post a PR comment with `/kelos needs-input` followed by a brief summary
          of findings (or "No issues found").
 
       ## Rules
