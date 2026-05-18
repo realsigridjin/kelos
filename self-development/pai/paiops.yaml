@@ -71,7 +71,7 @@ spec:
       - 6a. Commit and push your changes to origin gjkim-kelos-task-{{.Number}}.
       - 7a. /review the PR to verify your changes address the feedback. If changes are needed, make them, commit and push, then /review again. Repeat until the review passes.
       - 8a. Update the PR title and description to reflect the final diff.
-      - 9a. Make sure the PR passes all CI tests.
+      - 9a. Poll CI status with `gh pr checks {{.Number}}` (do NOT redirect stderr — auth or network errors must surface). Interpret the exit code: 0 → all checks passed, continue; 8 → checks still pending, sleep 30s and retry (cap at 30 iterations / ~15 minutes); any other code → hard failure: stop polling, post a `/kelos needs-input` PR comment with the error output, and exit. Do not retry. On timeout, do the same: post `/kelos needs-input` with the latest check summary and exit.
 
       If no PR exists:
       - 3b. Investigate the issue #{{.Number}}.
@@ -79,7 +79,7 @@ spec:
       - 5b. Push your branch to origin gjkim-kelos-task-{{.Number}}.
       - 6b. Create a PR, then /review it. If changes are needed, make them, commit and push, then /review again. Repeat until the review passes.
       - 7b. Update the PR title and description to reflect the final diff.
-      - 8b. Make sure the PR passes all CI tests.
+      - 8b. Poll CI status with `gh pr checks {{.Number}}` (do NOT redirect stderr — auth or network errors must surface). Interpret the exit code: 0 → all checks passed, continue; 8 → checks still pending, sleep 30s and retry (cap at 30 iterations / ~15 minutes); any other code → hard failure: stop polling, post a `/kelos needs-input` PR comment with the error output, and exit. Do not retry. On timeout, do the same: post `/kelos needs-input` with the latest check summary and exit.
 
       Post-checklist:
       - Post a `/kelos needs-input` comment on the issue or PR and explain the reason if any of the following applies:
@@ -158,7 +158,7 @@ spec:
       - 6. Commit and push your changes to origin on the PR head branch (use `git push origin HEAD`).
       - 7. /review the PR to verify your changes address the feedback. If changes are needed, make them, commit and push, then /review again. Repeat until the review passes.
       - 8. Update the PR title and description to reflect the final diff.
-      - 9. Make sure the PR passes all CI tests.
+      - 9. Poll CI status with `gh pr checks {{.Number}}` (do NOT redirect stderr — auth or network errors must surface). Interpret the exit code: 0 → all checks passed, continue; 8 → checks still pending, sleep 30s and retry (cap at 30 iterations / ~15 minutes); any other code → hard failure: stop polling, post a `/kelos needs-input` PR comment with the error output, and exit. Do not retry. On timeout, do the same: post `/kelos needs-input` with the latest check summary and exit.
 
       Post-checklist:
       - If the PR is ready for human review, you need more information, or you cannot make progress, post a `/kelos needs-input` PR comment explaining the current state. When all review feedback was already addressed in previous commits and no new comments require action, keep the explanation brief (e.g. "All review feedback was addressed in previous commits. Ready for re-review.") instead of repeating a full status breakdown. Never post duplicate or near-identical status messages.
