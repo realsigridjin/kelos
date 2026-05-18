@@ -7,6 +7,15 @@ spec:
   repo: https://oss.navercorp.com/pai/ml
   secretRef:
     name: kelos-bot
+  setupCommand:
+    - sh
+    - -c
+    - |
+      set -eu
+      curl -LsSf https://astral.sh/uv/0.10.4/install.sh | sh
+      mkdir -p "$HOME/go/bin"
+      ln -sf "$HOME/.local/bin/uv" "$HOME/go/bin/uv"
+      ln -sf "$HOME/.local/bin/uvx" "$HOME/go/bin/uvx"
 
 ---
 
