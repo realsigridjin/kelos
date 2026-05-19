@@ -25,6 +25,13 @@ Ready-to-use patterns and YAML manifests for orchestrating AI agents with Kelos.
 | [12-taskspawner-file-patterns](12-taskspawner-file-patterns/) | Filter GitHub PR / push webhooks by changed-file glob patterns |
 | [13-taskspawner-generic-webhook](13-taskspawner-generic-webhook/) | Respond to arbitrary HTTP POST events (Sentry, Notion, Slack, etc.) using JSONPath field mapping and filters |
 
+## Additional Guides
+
+| Guide | Description |
+|-------|-------------|
+| [webhook-concurrency.md](webhook-concurrency.md) | How `maxConcurrency` works for webhook TaskSpawners — drop semantics, monitoring, and troubleshooting |
+| [gateway-api-webhook.md](gateway-api-webhook.md) | Configure Kelos webhook servers using Gateway API instead of Ingress (Istio, Envoy, Kong, Nginx) |
+
 ## How to Use
 
 1. Pick an example directory.
