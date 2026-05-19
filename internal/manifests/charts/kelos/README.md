@@ -202,3 +202,11 @@ When enabled, the webhook servers expose the following endpoints:
 ### Example Values File
 
 See `examples/helm-values-webhook.yaml` for a complete example configuration.
+
+### Gateway API (Alternative to Ingress)
+
+Kelos webhook servers can be exposed via the Kubernetes Gateway API instead of an Ingress. See `examples/gateway-api-webhook.md` for prerequisites, configuration, and a provider comparison (Istio, Envoy Gateway, Kong, Nginx Gateway Fabric). The companion values file is `examples/webhook-gateway-values.yaml`.
+
+### Concurrency Behavior
+
+For webhook-driven TaskSpawners, see `examples/webhook-concurrency.md` for how `maxConcurrency` enforcement works (events accepted with HTTP 200 and skipped when at the limit), monitoring tips, and troubleshooting guidance.
