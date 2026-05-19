@@ -7,7 +7,7 @@
 | `spec.type` | Agent type (`claude-code`, `codex`, `gemini`, `opencode`, or `cursor`) | Yes |
 | `spec.prompt` | Task prompt for the agent | Yes |
 | `spec.credentials.type` | `api-key`, `oauth`, or `none`. Use `none` to skip built-in credential injection (e.g., for Bedrock, Vertex AI, or Azure OpenAI credentials provided via `podOverrides.env`) | Yes |
-| `spec.credentials.secretRef.name` | Secret name with credentials (not required when `type` is `none`) | Conditional |
+| `spec.credentials.secretRef.name` | Secret name with credentials (see [secret format](#task-credential-secret-format) below; not required when `type` is `none`) | Conditional |
 | `spec.model` | Model override (e.g., `claude-sonnet-4-20250514`) | No |
 | `spec.image` | Custom agent image override (see [Agent Image Interface](agent-image-interface.md)) | No |
 | `spec.workspaceRef.name` | Name of a Workspace resource to use | No |
@@ -45,6 +45,36 @@ dependsOn: [scaffold]
 ```
 
 If template rendering fails (e.g., missing key), the raw prompt string is used as-is.
+
+### Task Credential Secret Format
+
+The secret referenced by `spec.credentials.secretRef.name` must contain a single key whose name depends on `spec.type` and `spec.credentials.type`:
+
+| Agent type | Credential type | Secret key |
+|------------|-----------------|------------|
+| `claude-code` | `api-key` | `ANTHROPIC_API_KEY` |
+| `claude-code` | `oauth` | `CLAUDE_CODE_OAUTH_TOKEN` |
+| `codex` | `api-key` | `CODEX_API_KEY` |
+| `codex` | `oauth` | `CODEX_AUTH_JSON` (full `~/.codex/auth.json` content) |
+| `gemini` | `api-key` or `oauth` | `GEMINI_API_KEY` |
+| `opencode` | `api-key` or `oauth` | `OPENCODE_API_KEY` |
+| `cursor` | `api-key` or `oauth` | `CURSOR_API_KEY` |
+
+Example for `claude-code` with an API key:
+
+```bash
+kubectl create secret generic claude-credentials \
+  --from-literal=ANTHROPIC_API_KEY=<your-api-key>
+```
+
+Example for `gemini`:
+
+```bash
+kubectl create secret generic gemini-credentials \
+  --from-literal=GEMINI_API_KEY=<your-api-key>
+```
+
+When `spec.credentials.type` is `none`, no secret is required; supply credentials via `spec.podOverrides.env` (e.g., for Bedrock, Vertex AI, or Azure OpenAI). For details on how these variables are consumed by agent containers, see [Agent Image Interface](agent-image-interface.md).
 
 ## Workspace
 
