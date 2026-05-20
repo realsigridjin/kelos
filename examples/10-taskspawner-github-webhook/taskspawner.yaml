@@ -46,7 +46,7 @@ spec:
         # Respond to issue comments containing "/kelos"
         - event: "issue_comment"
           action: "created"
-          bodyContains: "/kelos"
+          bodyPattern: "/kelos"
 
         # Respond to PR review requests from specific author
         - event: "pull_request_review"
@@ -132,8 +132,7 @@ metadata:
   name: my-repo-workspace
   namespace: default
 spec:
-  repo:
-    url: "https://github.com/myorg/myrepo.git"
-    # Optional: reference secret for private repos
-    # secretRef:
-    #   name: github-token
+  repo: "https://github.com/myorg/myrepo.git"
+  # Optional: reference secret for private repos
+  # secretRef:
+  #   name: github-token
