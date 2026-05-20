@@ -150,7 +150,7 @@ spec:
           labels: ["bug"]
         - event: "issue_comment"
           action: "created"
-          bodyContains: "/kelos"
+          bodyPattern: "/kelos"
   taskTemplate:
     type: claude-code
     workspaceRef:
@@ -172,7 +172,7 @@ spec:
 
 **Setup:** Configure your GitHub repository to send webhooks to your Kelos instance and create a secret with the webhook signing secret. See [example 10](../examples/10-taskspawner-github-webhook/) for full setup instructions.
 
-**Filtering options:** `events` (required), `repository`, `excludeAuthors`, and per-filter fields: `action`, `labels`, `excludeLabels`, `state`, `branch`, `draft`, `author`, `bodyContains`.
+**Filtering options:** `events` (required), `repository`, `excludeAuthors`, and per-filter fields: `action`, `labels`, `excludeLabels`, `state`, `branch`, `draft`, `author`, `bodyPattern`, `excludeBodyPatterns`, `commentOn` (scopes `issue_comment` events to `"Issue"` or `"PullRequest"`). The legacy `bodyContains` substring filter is **deprecated** — use `bodyPattern` (Go re2 regular expression) instead.
 
 **Status reporting:** Like `githubPullRequests`, the webhook source supports `reporting.enabled` (status comments back to the originating issue or PR) and `reporting.checks.name` (GitHub Check Runs for branch protection). Check Runs require `events` to include at least one pull-request event type (`pull_request`, `pull_request_review`, `pull_request_review_comment`, or `pull_request_target`); the configuration is rejected at admission otherwise.
 
@@ -427,6 +427,7 @@ All `promptTemplate` and `branch` fields support Go `text/template` syntax. Avai
 | `{{.CommentBody}}` | Empty | Empty | Comment/review body (`issue_comment`, `pull_request_review`, `pull_request_review_comment`) | Empty | Empty | Empty | Empty |
 | `{{.CommentURL}}` | Empty | Empty | Comment/review HTML URL (`issue_comment`, `pull_request_review`, `pull_request_review_comment`) | Empty | Empty | Empty | Empty |
 | `{{.Time}}` | Empty | Empty | Empty | Empty | Empty | Empty | Trigger time (RFC3339) |
+| `{{.Schedule}}` | Empty | Empty | Empty | Empty | Empty | Empty | Schedule string (e.g., `"0 * * * *"`) |
 
 > **Generic Webhook only:** any additional keys you declare in `fieldMapping` are also exposed as top-level variables. For example, `fieldMapping: {severity: "$.level"}` makes `{{.severity}}` available in templates.
 
