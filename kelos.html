@@ -1,0 +1,1346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kelos — Orchestrate AI Coding Agents on Kubernetes</title>
+    <meta name="description" content="Kelos is a Kubernetes-native framework designed for orchestrating autonomous AI coding agents at scale. Version-control, manage, and scale AI agents like infrastructure.">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome icons via cdn -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        :root {
+            --bg-midnight: #060713;
+            --bg-card: rgba(20, 22, 45, 0.45);
+            --bg-card-hover: rgba(26, 29, 58, 0.6);
+            --border-color: rgba(255, 255, 255, 0.08);
+            --border-glow: rgba(0, 242, 254, 0.25);
+            
+            --neon-cyan: #00f2fe;
+            --neon-blue: #4facfe;
+            --neon-purple: #9d4edd;
+            --neon-pink: #ff007f;
+            --neon-green: #39ff14;
+            --neon-yellow: #fffb00;
+            
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            
+            --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+            --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+            
+            --gradient-primary: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%);
+            --gradient-accent: linear-gradient(135deg, #9d4edd 0%, #ff007f 100%);
+            --gradient-success: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            scroll-behavior: smooth;
+        }
+
+        body {
+            background-color: var(--bg-midnight);
+            color: var(--text-primary);
+            font-family: var(--font-sans);
+            overflow-x: hidden;
+            line-height: 1.5;
+            background-image: 
+                radial-gradient(circle at 10% 20%, rgba(157, 78, 221, 0.08) 0%, transparent 40%),
+                radial-gradient(circle at 90% 80%, rgba(0, 242, 254, 0.08) 0%, transparent 45%);
+            background-attachment: fixed;
+        }
+
+        /* Scrollbar styles */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(6, 7, 19, 0.5);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--neon-cyan);
+            box-shadow: 0 0 10px var(--neon-cyan);
+        }
+
+        /* Container & Layout */
+        .app-container {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        /* Sidebar Navigation (Static Anchors) */
+        .sidebar {
+            width: 280px;
+            background-color: rgba(6, 7, 19, 0.85);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            padding: 24px;
+            position: fixed;
+            height: 100vh;
+            z-index: 100;
+            backdrop-filter: blur(20px);
+        }
+
+        .sidebar-brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 40px;
+            text-decoration: none;
+        }
+
+        .brand-logo {
+            width: 40px;
+            height: 40px;
+            background: var(--gradient-primary);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 0 20px rgba(0, 242, 254, 0.4);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .brand-logo i {
+            color: #060713;
+            font-size: 20px;
+        }
+
+        .brand-text {
+            font-size: 24px;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+            background: var(--gradient-primary);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .sidebar-menu {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .menu-item a {
+            width: 100%;
+            color: var(--text-secondary);
+            padding: 14px 16px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            font-size: 15px;
+            font-weight: 500;
+            text-decoration: none;
+            transition: var(--transition-smooth);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .menu-item a::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            height: 100%;
+            width: 3px;
+            background: var(--gradient-primary);
+            opacity: 0;
+            transition: var(--transition-smooth);
+        }
+
+        .menu-item a:hover {
+            color: var(--text-primary);
+            background-color: var(--bg-card);
+        }
+
+        .menu-item a:hover::before {
+            opacity: 1;
+        }
+
+        .sidebar-footer {
+            margin-top: auto;
+            border-top: 1px solid var(--border-color);
+            padding-top: 20px;
+        }
+
+        .cluster-status {
+            background-color: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 12px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 13px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background-color: var(--neon-green);
+            border-radius: 50%;
+            box-shadow: 0 0 10px var(--neon-green);
+        }
+
+        .status-info {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .status-title {
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+
+        .status-desc {
+            color: var(--text-muted);
+            font-size: 11px;
+        }
+
+        /* Main Content Area */
+        .main-content {
+            margin-left: 280px;
+            flex: 1;
+            padding: 40px;
+            min-width: 0;
+        }
+
+        /* Hero Section */
+        .hero {
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 40px;
+            margin-bottom: 60px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .hero-left h1 {
+            font-size: 40px;
+            font-weight: 800;
+            letter-spacing: -1px;
+            margin-bottom: 12px;
+            background: var(--gradient-primary);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .hero-left p {
+            color: var(--text-secondary);
+            font-size: 18px;
+            max-width: 700px;
+        }
+
+        .hero-right {
+            display: flex;
+            gap: 16px;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-family: var(--font-sans);
+            font-size: 14px;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            text-decoration: none;
+            transition: var(--transition-smooth);
+        }
+
+        .btn-primary {
+            background: var(--gradient-primary);
+            color: #060713;
+            box-shadow: 0 4px 15px rgba(0, 242, 254, 0.2);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 242, 254, 0.4);
+        }
+
+        .btn-secondary {
+            background-color: rgba(255, 255, 255, 0.05);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-secondary:hover {
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+
+        /* Structural Sections */
+        .section-container {
+            margin-bottom: 80px;
+        }
+
+        .section-header {
+            margin-bottom: 30px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .section-header i {
+            font-size: 24px;
+            color: var(--neon-cyan);
+        }
+
+        .section-header h2 {
+            font-size: 24px;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+        }
+
+        .card {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 24px;
+            backdrop-filter: blur(16px);
+        }
+
+        /* ------------------------------------------------------------- */
+        /* SECTION 1: ARCHITECTURAL VISUALIZER */
+        /* ------------------------------------------------------------- */
+        .visualizer-layout {
+            display: flex;
+            flex-direction: column;
+            gap: 40px;
+        }
+
+        .diagram-container {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            position: relative;
+            padding: 40px;
+            background-color: rgba(6, 7, 19, 0.5);
+            border-radius: 16px;
+            border: 1px solid var(--border-color);
+        }
+
+        .diagram-flow {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 40px;
+            width: 100%;
+        }
+
+        .row-triggers {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            width: 100%;
+        }
+
+        .trigger-tag {
+            background-color: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-color);
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .node-connector-line {
+            width: 2px;
+            background: linear-gradient(to bottom, var(--text-muted), var(--neon-cyan));
+            height: 30px;
+            position: relative;
+        }
+
+        .node-connector-line::after {
+            content: '\f107';
+            font-family: 'Font Awesome 6 Free';
+            font-weight: 900;
+            position: absolute;
+            bottom: -5px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: var(--neon-cyan);
+            font-size: 14px;
+        }
+
+        .row-spawner {
+            width: 100%;
+            display: flex;
+            justify-content: center;
+        }
+
+        .row-task-core {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 20px;
+            width: 100%;
+        }
+
+        .node-connector-horizontal {
+            flex: 1;
+            height: 2px;
+            background: linear-gradient(to right, var(--neon-cyan), var(--neon-purple));
+            position: relative;
+            min-width: 30px;
+        }
+
+        .node-connector-horizontal.right-to-left {
+            background: linear-gradient(to left, var(--neon-cyan), var(--neon-blue));
+        }
+
+        /* Static Blocks */
+        .arch-node {
+            padding: 20px 24px;
+            border-radius: 12px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            text-align: center;
+            min-width: 220px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        .arch-node i {
+            font-size: 24px;
+            margin-bottom: 12px;
+        }
+
+        .arch-node h3 {
+            font-size: 16px;
+            font-weight: 700;
+            margin-bottom: 6px;
+        }
+
+        .arch-node span {
+            font-size: 11px;
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+            display: block;
+            margin-bottom: 8px;
+        }
+
+        .arch-node p {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        /* Node Theme Colors */
+        .node-spawner { border-color: var(--neon-pink); }
+        .node-spawner i { color: var(--neon-pink); }
+
+        .node-task { border-color: var(--neon-cyan); }
+        .node-task i { color: var(--neon-cyan); }
+
+        .node-workspace { border-color: var(--neon-blue); }
+        .node-workspace i { color: var(--neon-blue); }
+
+        .node-config { border-color: var(--neon-purple); }
+        .node-config i { color: var(--neon-purple); }
+
+        /* Grid of Concept Details */
+        .concepts-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 24px;
+        }
+
+        .concept-card {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .concept-card-title {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 18px;
+            font-weight: 700;
+        }
+
+        .concept-card-title i {
+            font-size: 20px;
+        }
+
+        .concept-card ul {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            font-size: 13.5px;
+            color: var(--text-secondary);
+        }
+
+        .concept-card li {
+            position: relative;
+            padding-left: 20px;
+        }
+
+        .concept-card li::before {
+            content: '•';
+            position: absolute;
+            left: 0;
+            color: var(--neon-cyan);
+            font-size: 18px;
+            line-height: 1;
+        }
+
+        /* ------------------------------------------------------------- */
+        /* SECTION 2: YAML MANIFEST REFERENCE */
+        /* ------------------------------------------------------------- */
+        .yaml-layout {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 30px;
+        }
+
+        .code-panel {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .code-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background-color: rgba(6, 7, 19, 0.8);
+            border: 1px solid var(--border-color);
+            border-bottom: none;
+            padding: 12px 20px;
+            border-radius: 12px 12px 0 0;
+            font-size: 13px;
+        }
+
+        .code-title {
+            font-family: var(--font-mono);
+            color: var(--text-secondary);
+            font-weight: bold;
+        }
+
+        .code-lang {
+            font-family: var(--font-mono);
+            color: var(--text-muted);
+            font-size: 11px;
+        }
+
+        .code-body {
+            background-color: rgba(6, 7, 19, 0.7);
+            border: 1px solid var(--border-color);
+            border-radius: 0 0 12px 12px;
+            padding: 20px;
+            font-family: var(--font-mono);
+            font-size: 12.5px;
+            line-height: 1.6;
+            color: #cbd5e1;
+            overflow-x: auto;
+            white-space: pre;
+            min-height: 380px;
+        }
+
+        /* YAML Syntax Highlighting class names */
+        .code-comment { color: var(--text-muted); font-style: italic; }
+        .code-key { color: var(--neon-blue); }
+        .code-val { color: var(--neon-yellow); }
+        .code-str { color: var(--neon-green); }
+        .code-num { color: #f97316; }
+
+        /* ------------------------------------------------------------- */
+        /* SECTION 3: TASK EXECUTION JOURNEY (TERMINAL LOGS) */
+        /* ------------------------------------------------------------- */
+        .terminal-window {
+            background-color: #030409;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.6);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            margin-bottom: 24px;
+        }
+
+        .terminal-header-bar {
+            background-color: #0c0e1a;
+            padding: 12px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .terminal-dots {
+            display: flex;
+            gap: 8px;
+        }
+
+        .terminal-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+
+        .dot-red { background-color: #ff5f56; }
+        .dot-yellow { background-color: #ffbd2e; }
+        .dot-green { background-color: #27c93f; }
+
+        .terminal-title-bar {
+            color: var(--text-secondary);
+            font-size: 13px;
+            font-family: var(--font-mono);
+        }
+
+        .terminal-body-content {
+            padding: 24px;
+            font-family: var(--font-mono);
+            font-size: 13px;
+            color: #cbd5e1;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .term-line {
+            display: flex;
+            gap: 12px;
+            line-height: 1.6;
+        }
+
+        .term-ts {
+            color: var(--text-muted);
+            flex-shrink: 0;
+            user-select: none;
+        }
+
+        .term-text {
+            word-break: break-all;
+            white-space: pre-wrap;
+        }
+
+        .text-info { color: var(--neon-blue); }
+        .text-agent { color: var(--neon-pink); }
+        .text-success { color: var(--neon-green); }
+        .text-dim { color: var(--text-muted); }
+
+        .mock-diff-box {
+            background-color: rgba(6, 7, 19, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 6px;
+            margin: 10px 0 10px 50px;
+            padding: 12px;
+            font-size: 12px;
+            line-height: 1.4;
+            max-width: 650px;
+        }
+
+        .diff-added {
+            color: var(--neon-green);
+            background-color: rgba(57, 255, 20, 0.05);
+        }
+
+        .diff-removed {
+            color: #ef4444;
+            background-color: rgba(239, 68, 68, 0.05);
+        }
+
+        /* ------------------------------------------------------------- */
+        /* SECTION 4: CLI COMMAND REFERENCE */
+        /* ------------------------------------------------------------- */
+        .cli-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 30px;
+        }
+
+        .cli-card {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .cli-card-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 14px;
+        }
+
+        .cli-card-header i {
+            font-size: 18px;
+            color: var(--neon-cyan);
+        }
+
+        .cli-card-header h3 {
+            font-size: 16px;
+            font-weight: 700;
+            font-family: var(--font-mono);
+            color: var(--text-primary);
+        }
+
+        .cli-card p {
+            font-size: 13.5px;
+            color: var(--text-secondary);
+        }
+
+        .cli-card-code {
+            background-color: rgba(6, 7, 19, 0.7);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 14px;
+            font-family: var(--font-mono);
+            font-size: 11.5px;
+            line-height: 1.5;
+            color: #cbd5e1;
+            overflow-x: auto;
+            white-space: pre;
+        }
+
+        /* ------------------------------------------------------------- */
+        /* RESPONSIVE LAYOUTS */
+        /* ------------------------------------------------------------- */
+        @media (max-width: 1200px) {
+            .yaml-layout, .cli-grid, .concepts-grid {
+                grid-template-columns: 1fr;
+            }
+            .sidebar {
+                width: 80px;
+                padding: 16px 8px;
+                align-items: center;
+            }
+            .brand-text, .sidebar-brand span, .status-info, .menu-item span {
+                display: none;
+            }
+            .sidebar-brand {
+                margin-bottom: 30px;
+                justify-content: center;
+            }
+            .menu-item a {
+                justify-content: center;
+                padding: 12px;
+            }
+            .main-content {
+                margin-left: 80px;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                padding: 20px;
+            }
+            .hero {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="app-container">
+        <!-- Sidebar Navigation (Static Anchor Links) -->
+        <aside class="sidebar">
+            <a href="#" class="sidebar-brand">
+                <div class="brand-logo">
+                    <i class="fa-solid fa-cubes"></i>
+                </div>
+                <span class="brand-text">Kelos</span>
+            </a>
+
+            <nav>
+                <ul class="sidebar-menu">
+                    <li class="menu-item">
+                        <a href="#section-visualizer">
+                            <i class="fa-solid fa-diagram-project"></i>
+                            <span>Visualizer</span>
+                        </a>
+                    </li>
+                    <li class="menu-item">
+                        <a href="#section-yaml">
+                            <i class="fa-solid fa-code"></i>
+                            <span>YAML Templates</span>
+                        </a>
+                    </li>
+                    <li class="menu-item">
+                        <a href="#section-sandbox">
+                            <i class="fa-solid fa-terminal"></i>
+                            <span>Task Journey</span>
+                        </a>
+                    </li>
+                    <li class="menu-item">
+                        <a href="#section-cli">
+                            <i class="fa-solid fa-keyboard"></i>
+                            <span>CLI Command Ref</span>
+                        </a>
+                    </li>
+                </ul>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="cluster-status">
+                    <div class="status-dot"></div>
+                    <div class="status-info">
+                        <span class="status-title">kelos-controller</span>
+                        <span class="status-desc">Active in kelos-system</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            
+            <!-- Hero Header Section -->
+            <header class="hero">
+                <div class="hero-left">
+                    <h1>Orchestrate AI Coding Agents on Kubernetes</h1>
+                    <p>Kelos is a Kubernetes-native framework to manage autonomous AI coding workers as declaratively defined, version-controlled cluster infrastructure.</p>
+                </div>
+                <div class="hero-right">
+                    <a href="https://github.com/kelos-dev/kelos" target="_blank" class="btn btn-secondary">
+                        <i class="fa-brands fa-github"></i>
+                        <span>GitHub</span>
+                    </a>
+                </div>
+            </header>
+
+            <!-- ========================================================= -->
+            <!-- SECTION 1: ARCHITECTURAL VISUALIZER -->
+            <!-- ========================================================= -->
+            <section class="section-container" id="section-visualizer">
+                <div class="section-header">
+                    <i class="fa-solid fa-diagram-project"></i>
+                    <h2>Architectural Primitives</h2>
+                </div>
+
+                <div class="visualizer-layout">
+                    <!-- Flow Diagram Card -->
+                    <div class="diagram-container">
+                        <div class="diagram-flow">
+                            <!-- Trigger Row -->
+                            <div class="row-triggers">
+                                <div class="trigger-tag"><i class="fa-brands fa-github"></i> GitHub Issue</div>
+                                <div class="trigger-tag"><i class="fa-brands fa-github"></i> Pull Request</div>
+                                <div class="trigger-tag"><i class="fa-solid fa-bolt"></i> Webhook Event</div>
+                                <div class="trigger-tag"><i class="fa-solid fa-clock"></i> Cron Timer</div>
+                            </div>
+
+                            <div class="node-connector-line"></div>
+
+                            <!-- Spawner Row -->
+                            <div class="row-spawner">
+                                <div class="arch-node node-spawner" id="node-spawner">
+                                    <i class="fa-solid fa-gears"></i>
+                                    <h3>TaskSpawner</h3>
+                                    <span>taskspawners.kelos.dev</span>
+                                    <p>Reacts to events & creates Tasks</p>
+                                </div>
+                            </div>
+
+                            <div class="node-connector-line"></div>
+
+                            <!-- Core Row (Task + References) -->
+                            <div class="row-task-core">
+                                
+                                <div class="arch-node node-workspace" id="node-workspace">
+                                    <i class="fa-solid fa-folder-open"></i>
+                                    <h3>Workspace</h3>
+                                    <span>workspaces.kelos.dev</span>
+                                    <p>Target Git repository & authentication</p>
+                                </div>
+
+                                <div class="node-connector-horizontal right-to-left"></div>
+
+                                <div class="arch-node node-task" id="node-task">
+                                    <i class="fa-solid fa-rocket"></i>
+                                    <h3>Task</h3>
+                                    <span>tasks.kelos.dev</span>
+                                    <p>A single ephemeral agent run pod</p>
+                                </div>
+
+                                <div class="node-connector-horizontal"></div>
+
+                                <div class="arch-node node-config" id="node-config">
+                                    <i class="fa-solid fa-sliders"></i>
+                                    <h3>AgentConfig</h3>
+                                    <span>agentconfigs.kelos.dev</span>
+                                    <p>Agent rules, instructions, & MCP</p>
+                                </div>
+
+                            </div>
+
+                            <div class="node-connector-line"></div>
+
+                            <!-- Ephemeral output trigger -->
+                            <div class="row-triggers">
+                                <div class="trigger-tag" style="border-color: rgba(57, 255, 20, 0.2); color: var(--neon-green);">
+                                    <i class="fa-solid fa-circle-check"></i> Output Git Branch & GitHub Pull Request Created
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Grid of Detailed Core Concepts -->
+                    <div class="concepts-grid">
+                        
+                        <div class="concept-card" style="border-left: 4px solid var(--neon-pink)">
+                            <div class="concept-card-title">
+                                <i class="fa-solid fa-gears" style="color: var(--neon-pink)"></i>
+                                <span>TaskSpawner</span>
+                            </div>
+                            <p style="font-size: 14px; color: var(--text-secondary);">
+                                TaskSpawners connect cluster workflows to external engineering lifecycles. They act as automated triggers that poll systems for changes and instantiate individual Tasks when matching filters occur.
+                            </p>
+                            <ul>
+                                <li><strong>Trigger Sources</strong>: Event channels like GitHub Webhooks, Jira issue states, and Cron schedules.</li>
+                                <li><strong>Rate Limiting</strong>: Limits spending and resource usage via strict <code>maxConcurrency</code> definitions.</li>
+                                <li><strong>Lifecycle Binding</strong>: Map standard issue triggers to structured Task template pipelines.</li>
+                            </ul>
+                        </div>
+
+                        <div class="concept-card" style="border-left: 4px solid var(--neon-cyan)">
+                            <div class="concept-card-title">
+                                <i class="fa-solid fa-rocket" style="color: var(--neon-cyan)"></i>
+                                <span>Task</span>
+                            </div>
+                            <p style="font-size: 14px; color: var(--text-secondary);">
+                                A Task specifies a single autonomous agent execution pod. It outlines the specific LLM model to request, container configurations, instruction prompt statements, and references.
+                            </p>
+                            <ul>
+                                <li><strong>Host Isolation</strong>: Spawns in an ephemeral, completely secure Kubernetes Pod environment.</li>
+                                <li><strong>Deterministic Outputs</strong>: Captures logs, commit SHAs, git branch outputs, and PR listings in <code>status</code>.</li>
+                                <li><strong>Action Chains</strong>: Sequence agent logic in pipelines using the <code>dependsOn</code> keyword.</li>
+                            </ul>
+                        </div>
+
+                        <div class="concept-card" style="border-left: 4px solid var(--neon-blue)">
+                            <div class="concept-card-title">
+                                <i class="fa-solid fa-folder-open" style="color: var(--neon-blue)"></i>
+                                <span>Workspace</span>
+                            </div>
+                            <p style="font-size: 14px; color: var(--text-secondary);">
+                                Workspaces outline the target code repository where actions occur. They securely handle private credentials, target branches, custom setup actions, and repository caching configs.
+                            </p>
+                            <ul>
+                                <li><strong>Secure Credentials</strong>: Safely connects via fine-grained GitHub PATs or Enterprise App certs.</li>
+                                <li><strong>Pre-flight Hooks</strong>: Run custom bootstrap operations (e.g. <code>go mod download</code>) prior to startup.</li>
+                                <li><strong>Branch Controls</strong>: Automated local git status checkouts and remote tracking bindings.</li>
+                            </ul>
+                        </div>
+
+                        <div class="concept-card" style="border-left: 4px solid var(--neon-purple)">
+                            <div class="concept-card-title">
+                                <i class="fa-solid fa-sliders" style="color: var(--neon-purple)"></i>
+                                <span>AgentConfig</span>
+                            </div>
+                            <p style="font-size: 14px; color: var(--text-secondary);">
+                                AgentConfigs package specialized system instructions, static rules, model limitations, and Model Context Protocol (MCP) server endpoints to extend agent powers.
+                            </p>
+                            <ul>
+                                <li><strong>Standardized Rules</strong>: Injects static guidelines (like <code>CLAUDE.md</code>) to enforce team code styling.</li>
+                                <li><strong>Custom Skills</strong>: Bundles custom scripts and capabilities to perform advanced unit runs.</li>
+                                <li><strong>MCP Toolkits</strong>: Connects agents directly to cluster resources, databases, or REST APIs.</li>
+                            </ul>
+                        </div>
+
+                    </div>
+                </div>
+            </section>
+
+            <!-- ========================================================= -->
+            <!-- SECTION 2: YAML MANIFEST REFERENCE -->
+            <!-- ========================================================= -->
+            <section class="section-container" id="section-yaml">
+                <div class="section-header">
+                    <i class="fa-solid fa-code"></i>
+                    <h2>Declarative Manifest Showcase</h2>
+                </div>
+
+                <div class="yaml-layout">
+                    <!-- Task manifest -->
+                    <div class="code-panel">
+                        <div class="code-header">
+                            <span class="code-title">task.yaml</span>
+                            <span class="code-lang">YAML Spec</span>
+                        </div>
+                        <div class="code-body"><span class="code-key">apiVersion</span>: <span class="code-str">kelos.dev/v1alpha1</span>
+<span class="code-key">kind</span>: <span class="code-str">Task</span>
+<span class="code-key">metadata</span>:
+  <span class="code-key">name</span>: <span class="code-val">security-patch-task</span>
+  <span class="code-key">namespace</span>: <span class="code-val">default</span>
+<span class="code-key">spec</span>:
+  <span class="code-key">prompt</span>: <span class="code-str">"Fix open JSON parsing vulnerabilities in api/utils.py"</span>
+  <span class="code-key">model</span>: <span class="code-val">claude-3-5-sonnet-latest</span>
+  <span class="code-key">workspaceRef</span>: <span class="code-val">main-source-workspace</span>
+  <span class="code-key">agentConfigRef</span>: <span class="code-val">python-standards-config</span>
+  <span class="code-key">podOverrides</span>:
+    <span class="code-key">activeDeadlineSeconds</span>: <span class="code-num">1800</span></div>
+                    </div>
+
+                    <!-- Workspace manifest -->
+                    <div class="code-panel">
+                        <div class="code-header">
+                            <span class="code-title">workspace.yaml</span>
+                            <span class="code-lang">YAML Spec</span>
+                        </div>
+                        <div class="code-body"><span class="code-key">apiVersion</span>: <span class="code-str">kelos.dev/v1alpha1</span>
+<span class="code-key">kind</span>: <span class="code-str">Workspace</span>
+<span class="code-key">metadata</span>:
+  <span class="code-key">name</span>: <span class="code-val">main-source-workspace</span>
+  <span class="code-key">namespace</span>: <span class="code-val">default</span>
+<span class="code-key">spec</span>:
+  <span class="code-key">repo</span>: <span class="code-str">"https://github.com/devorg/python-api-server.git"</span>
+  <span class="code-key">ref</span>: <span class="code-val">main</span>
+  <span class="code-key">secretRef</span>: <span class="code-val">github-access-token</span>
+  <span class="code-key">setupCommand</span>: <span class="code-str">"npm install"</span></div>
+                    </div>
+
+                    <!-- AgentConfig manifest -->
+                    <div class="code-panel" style="margin-top: 30px;">
+                        <div class="code-header">
+                            <span class="code-title">agentconfig.yaml</span>
+                            <span class="code-lang">YAML Spec</span>
+                        </div>
+                        <div class="code-body"><span class="code-key">apiVersion</span>: <span class="code-str">kelos.dev/v1alpha1</span>
+<span class="code-key">kind</span>: <span class="code-str">AgentConfig</span>
+<span class="code-key">metadata</span>:
+  <span class="code-key">name</span>: <span class="code-val">python-standards-config</span>
+  <span class="code-key">namespace</span>: <span class="code-val">default</span>
+<span class="code-key">spec</span>:
+  <span class="code-key">agentsMD</span>: |
+    - Never edit files directly in root directory.
+    - Run pytest -v and verify it builds before finishing.
+  <span class="code-key">mcpServers</span>:
+    <span class="code-key">postgres</span>:
+      <span class="code-key">enabled</span>: <span class="code-val">true</span></div>
+                    </div>
+
+                    <!-- TaskSpawner manifest -->
+                    <div class="code-panel" style="margin-top: 30px;">
+                        <div class="code-header">
+                            <span class="code-title">taskspawner.yaml</span>
+                            <span class="code-lang">YAML Spec</span>
+                        </div>
+                        <div class="code-body"><span class="code-key">apiVersion</span>: <span class="code-str">kelos.dev/v1alpha1</span>
+<span class="code-key">kind</span>: <span class="code-str">TaskSpawner</span>
+<span class="code-key">metadata</span>:
+  <span class="code-key">name</span>: <span class="code-val">issue-autofixer</span>
+  <span class="code-key">namespace</span>: <span class="code-val">default</span>
+<span class="code-key">spec</span>:
+  <span class="code-key">pollInterval</span>: <span class="code-val">1m</span>
+  <span class="code-key">maxConcurrency</span>: <span class="code-num">3</span>
+  <span class="code-key">when</span>:
+    <span class="code-key">github</span>:
+      <span class="code-key">events</span>: [<span class="code-str">"issue"</span>]
+      <span class="code-key">filters</span>:
+        labels: [bug, patch-requested]
+  <span class="code-key">taskTemplate</span>:
+    <span class="code-key">spec</span>:
+      <span class="code-key">agentConfigRef</span>: <span class="code-val">python-standards-config</span>
+      <span class="code-key">model</span>: <span class="code-val">claude-3-5-sonnet-latest</span>
+      <span class="code-key">prompt</span>: <span class="code-str">"Handle the incoming event."</span></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ========================================================= -->
+            <!-- SECTION 3: TASK EXECUTION JOURNEY -->
+            <!-- ========================================================= -->
+            <section class="section-container" id="section-sandbox">
+                <div class="section-header">
+                    <i class="fa-solid fa-terminal"></i>
+                    <h2>Standard Execution Logs Walkthrough</h2>
+                </div>
+
+                <p style="color: var(--text-secondary); margin-bottom: 24px; font-size: 15px;">
+                    This static log stream captures a full execution cycle of an on-demand task running in the cluster. It showcases workspace cloning, agent setup (Claude Code), autonomous file modification, unit verification, and final PR creation.
+                </p>
+
+                <!-- Static Terminal Output -->
+                <div class="terminal-window">
+                    <div class="terminal-header-bar">
+                        <div class="terminal-dots">
+                            <div class="terminal-dot dot-red"></div>
+                            <div class="terminal-dot dot-yellow"></div>
+                            <div class="terminal-dot dot-green"></div>
+                        </div>
+                        <div class="terminal-title-bar">kelos logs task-auth-leak-9w7s -f</div>
+                        <div style="font-family: var(--font-mono); font-size: 11px; color: var(--text-muted)">pod/task-auth-leak-9w7s</div>
+                    </div>
+                    
+                    <div class="terminal-body-content">
+                        <div class="term-line">
+                            <span class="term-ts">[00:00.5]</span>
+                            <span class="term-text"><span class="text-info">INFO</span> Creating Task resource "task-auth-leak-9w7s" in default namespace...</span>
+                        </div>
+                        <div class="term-line">
+                            <span class="term-ts">[00:01.0]</span>
+                            <span class="term-text"><span class="text-info">INFO</span> Resolving references: Workspace "auth-microservice-workspace", AgentConfig "strict-standards".</span>
+                        </div>
+                        <div class="term-line">
+                            <span class="term-ts">[00:01.5]</span>
+                            <span class="term-text"><span class="text-info">INFO</span> Controller scheduler: Allocated node "gke-cluster-pool-3" to run Task Pod.</span>
+                        </div>
+                        <div class="term-line">
+                            <span class="term-ts">[00:02.0]</span>
+                            <span class="term-text"><span class="text-info">INFO</span> Kubernetes Pod: Status Pending -> ContainerCreating...</span>
+                        </div>
+                        <div class="term-line">
+                            <span class="term-ts">[00:02.5]</span>
+                            <span class="term-text"><span class="text-info">INFO</span> Kubernetes Pod: Image "ghcr.io/kelos-dev/agents/claude-code:latest" pulled successfully.</span>
+                        </div>
+                        <div class="term-line">
+                            <span class="term-ts">[00:03.0]</span>
+                            <span class="term-text"><span class="text-info">INFO</span> Kubernetes Pod: Status Running. Initializing security volume mounts...</span>
+                        </div>
+                        <div class="term-line">
+                            <span class="term-ts">[00:03.5]</span>
+                            <span class="term-text"><span class="text-info">INFO</span> Workspace: Cloning git repository "https://github.com/company/auth-microservice.git" (ref: "main")...</span>
+                        </div>
+                        <div class="term-line">
+                            <span class="term-ts">[00:04.0]</span>
+                            <span class="term-text"><span class="text-info">INFO</span> Workspace: Checked out commit "d8f37a9" (HEAD). Injected fine-grained GITHUB_TOKEN credentials.</span>
+                        </div>
+                        <div class="term-line">
+                            <span class="term-ts">[00:05.5]</span>
+                            <span class="term-text"><span class="text-info">INFO</span> Workspace: Executing setupCommand: "npm install && npm run build:setup"</span>
+                        </div>
+                        <div class="term-line">
+                            <span class="term-ts">[00:08.5]</span>
+                            <span class="term-text text-dim">  [NPM] Added 246 packages, audited 247 packages in 3s.</span>
+                        </div>
+                        <div class="term-line">
+                            <span class="term-ts">[00:09.0]</span>
+                            <span class="term-text text-dim">  [NPM] Build completed successfully. Injected 0 vulnerability alerts.</span>
+                        </div>
+                        <div class="term-line">
+                            <span class="term-ts">[00:10.0]</span>
+                            <span class="term-text"><span class="text-info">INFO</span> AgentConfig: Mount successful. Injected system guidelines "CLAUDE.md".</span>
+                        </div>
+                        <div class="term-line">
+                            <span class="term-ts">[00:11.0]</span>
+                            <span class="term-text"><span class="text-info">INFO</span> AgentConfig: Bound Model Context Protocol (MCP) server for local postgres connections.</span>
+                        </div>
+                        <div class="term-line">
+                            <span class="term-ts">[00:11.5]</span>
+                            <span class="term-text"><span class="text-agent">AGENT</span> Claude Code: Agent process booted. Primary Prompt Instruction received:</span>
+                        </div>
+                        <div class="term-line">
+                            <span class="term-ts">[00:12.0]</span>
+                            <span class="term-text"><span class="text-agent">AGENT</span>   > "Locate potential memory leaks in auth controller and implement fixed connection pooling."</span>
+                        </div>
+                        <div class="term-line">
+                            <span class="term-ts">[00:13.5]</span>
+                            <span class="term-text"><span class="text-agent">AGENT</span> Claude Code: Starting codebase exploration. Scanning "src/controllers/*" for pool connections...</span>
+                        </div>
+                        <div class="term-line">
+                            <span class="term-ts">[00:14.5]</span>
+                            <span class="term-text text-dim">  [SCAN] Reading src/controllers/auth.controller.js</span>
+                        </div>
+                        <div class="term-line">
+                            <span class="term-ts">[00:15.0]</span>
+                            <span class="term-text text-dim">  [SCAN] Reading src/config/database.js</span>
+                        </div>
+                        <div class="term-line">
+                            <span class="term-ts">[00:16.5]</span>
+                            <span class="term-text"><span class="text-agent">AGENT</span> Claude Code: Identified issue in "src/config/database.js". A new connection client is created on every auth request, leaving dead database connections open. Implementing robust pg.Pool reuse.</span>
+                        </div>
+                        <div class="term-line">
+                            <span class="term-ts">[00:17.5]</span>
+                            <span class="term-text"><span class="text-agent">AGENT</span> Claude Code: Modifying "src/config/database.js"...</span>
+                        </div>
+                        
+                        <!-- Mini Git Diff block inside log -->
+                        <div class="mock-diff-box">
+                            <div style="color: var(--text-secondary); margin-bottom: 4px; font-size: 11px; font-family: var(--font-mono)">--- src/config/database.js (original)</div>
+                            <div style="color: var(--text-secondary); margin-bottom: 8px; font-size: 11px; font-family: var(--font-mono)">+++ src/config/database.js (modified)</div>
+                            <div class="diff-removed">- const client = new pg.Client(config);</div>
+                            <div class="diff-removed">- await client.connect();</div>
+                            <div class="diff-removed">- return client;</div>
+                            <div class="diff-added">+ if (!global.dbPool) {</div>
+                            <div class="diff-added">+   global.dbPool = new pg.Pool({ ...config, max: 20 });</div>
+                            <div class="diff-added">+ }</div>
+                            <div class="diff-added">+ return global.dbPool;</div>
+                        </div>
+
+                        <div class="term-line">
+                            <span class="term-ts">[00:19.0]</span>
+                            <span class="term-text"><span class="text-agent">AGENT</span> Claude Code: Running local unit tests (npm test) to verify database reconnection logic...</span>
+                        </div>
+                        <div class="term-line">
+                            <span class="term-ts">[00:20.5]</span>
+                            <span class="term-text"><span class="text-success">SUCCESS</span>   [TEST] PASS  src/controllers/__tests__/auth.test.js (5.4s)</span>
+                        </div>
+                        <div class="term-line">
+                            <span class="term-ts">[00:21.0]</span>
+                            <span class="term-text"><span class="text-success">SUCCESS</span>   [TEST] PASS  src/config/__tests__/database.test.js (1.2s)</span>
+                        </div>
+                        <div class="term-line">
+                            <span class="term-ts">[00:22.0]</span>
+                            <span class="term-text"><span class="text-success">SUCCESS</span>   [TEST] Test suites: 2 passed, 2 total. Snapshots: 0. Time: 7.1s.</span>
+                        </div>
+                        <div class="term-line">
+                            <span class="term-ts">[00:22.5]</span>
+                            <span class="term-text"><span class="text-agent">AGENT</span> Claude Code: Verification tests succeeded. Preparing Git submission.</span>
+                        </div>
+                        <div class="term-line">
+                            <span class="term-ts">[00:23.0]</span>
+                            <span class="term-text"><span class="text-agent">AGENT</span> Claude Code: Creating local git branch "kelos/fix-db-leak"...</span>
+                        </div>
+                        <div class="term-line">
+                            <span class="term-ts">[00:23.5]</span>
+                            <span class="term-text"><span class="text-agent">AGENT</span> Claude Code: Committing changes: "perf(db): reuse connection pool to resolve request memory leak"</span>
+                        </div>
+                        <div class="term-line">
+                            <span class="term-ts">[00:24.0]</span>
+                            <span class="term-text"><span class="text-agent">AGENT</span> Claude Code: Pushing branch "kelos/fix-db-leak" to remote github server...</span>
+                        </div>
+                        <div class="term-line">
+                            <span class="term-ts">[00:24.5]</span>
+                            <span class="term-text"><span class="text-success">SUCCESS</span>   [GIT] Branch pushed. HEAD is now at 4a9bc8d.</span>
+                        </div>
+                        <div class="term-line">
+                            <span class="term-ts">[00:25.0]</span>
+                            <span class="term-text"><span class="text-agent">AGENT</span> Claude Code: Constructing GitHub Pull Request template via API...</span>
+                        </div>
+                        <div class="term-line">
+                            <span class="term-ts">[00:25.5]</span>
+                            <span class="term-text"><span class="text-success">SUCCESS</span>   [GITHUB] Created PR #104: "perf(db): reuse connection pool to resolve request memory leak"</span>
+                        </div>
+                        <div class="term-line">
+                            <span class="term-ts">[00:26.0]</span>
+                            <span class="term-text"><span class="text-info">INFO</span> Task completed successfully! Capturing results to CRD status...</span>
+                        </div>
+                        <div class="term-line">
+                            <span class="term-ts">[00:26.2]</span>
+                            <span class="term-text"><span class="text-success">SUCCESS</span> Status Outputs:
+  - branch: "kelos/fix-db-leak"
+  - pr: "https://github.com/company/auth-microservice/pull/104"
+  - commit: "4a9bc8da72ef9e34c9c1b3f9827c9e0d1f11a8a2"
+  - tokensUsed: 4620 (3840 prompt, 780 completion)
+  - duration: "26s"</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ========================================================= -->
+            <!-- SECTION 4: CLI COMMAND REFERENCE -->
+            <!-- ========================================================= -->
+            <section class="section-container" id="section-cli">
+                <div class="section-header">
+                    <i class="fa-solid fa-keyboard"></i>
+                    <h2>CLI Reference Console</h2>
+                </div>
+
+                <div class="cli-grid">
+                    <!-- install -->
+                    <div class="cli-card">
+                        <div class="cli-card-header">
+                            <i class="fa-solid fa-download"></i>
+                            <h3>kelos install</h3>
+                        </div>
+                        <p>Deploy the Kelos controller deployment, CRDs, and necessary RBAC policies into the active Kubernetes cluster context.</p>
+                        <div class="cli-card-code">$ kelos install
+ℹ️  Active cluster: "gke-dev-cluster"
+ℹ️  Deploying CRDs... [Done]
+ℹ️  Creating namespace "kelos-system"... [Done]
+ℹ️  Installing RBAC permissions... [Done]
+ℹ️  Deploying controller manager... [Done]
+✅  Kelos installed successfully!</div>
+                    </div>
+
+                    <!-- init -->
+                    <div class="cli-card">
+                        <div class="cli-card-header">
+                            <i class="fa-solid fa-sliders"></i>
+                            <h3>kelos init</h3>
+                        </div>
+                        <p>Generate a default settings file locally under <code>~/.kelos/config.yaml</code> to store developer access keys and repository authentication.</p>
+                        <div class="cli-card-code">$ kelos init
+✅  Configuration folder created: ~/.kelos/
+✅  Generated default configuration file: ~/.kelos/config.yaml
+
+ℹ️  Next: edit config.yaml with API tokens & repo info.</div>
+                    </div>
+
+                    <!-- run -->
+                    <div class="cli-card">
+                        <div class="cli-card-header">
+                            <i class="fa-solid fa-rocket"></i>
+                            <h3>kelos run</h3>
+                        </div>
+                        <p>Instantiate a temporary task pod on the cluster to execute an on-demand instruction directly from your current workspace.</p>
+                        <div class="cli-card-code">$ kelos run -p "Fix the flaky unit test" -w
+🚀  Creating Task resource "task-r8x2q"...
+    [15:20:00] Pod Status: Pending ➔ Running
+    [15:20:02] Workspace: Cloning repo... [Done]
+    [15:20:06] Agent: Running Claude Code agent...
+    [15:20:14] Agent: Editing file utils_test.go [Done]
+✅  Task task-r8x2q Succeeded! PR created: #45</div>
+                    </div>
+
+                    <!-- logs -->
+                    <div class="cli-card">
+                        <div class="cli-card-header">
+                            <i class="fa-solid fa-receipt"></i>
+                            <h3>kelos logs</h3>
+                        </div>
+                        <p>Stream the standard stdout and stderr logs of the active agent running inside the cluster pod for real-time auditing.</p>
+                        <div class="cli-card-code">$ kelos logs task-r8x2q -f
+[15:20:06] [Kelos] Starting agent Claude Code in container...
+[15:20:08] [Claude Code] System rules loaded. Scan matches found.
+[15:20:11] [Claude Code] Modifying internal/utils_test.go:
+           - time.Sleep(5 * time.Second)
+           + time.Sleep(10 * time.Millisecond)
+✅  Stream finished. Pod task-r8x2q-pod terminated (Completed).</div>
+                    </div>
+
+                    <!-- suspend -->
+                    <div class="cli-card" style="grid-column: 1 / -1">
+                        <div class="cli-card-header">
+                            <i class="fa-solid fa-pause"></i>
+                            <h3>kelos suspend taskspawner issue-autofixer</h3>
+                        </div>
+                        <p>Instruct the active controller to temporarily pause a TaskSpawner. Any matching events (e.g. issues created) will be bypassed until it is resumed.</p>
+                        <div class="cli-card-code">$ kelos suspend taskspawner issue-autofixer
+✅  TaskSpawner "issue-autofixer" suspended.
+ℹ️  Events will be ignored. To resume, run: "kelos resume taskspawner issue-autofixer".</div>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+</body>
+</html>
