@@ -19,7 +19,7 @@ spec:
   taskTemplate:
     workspaceRef:
       name: ml-workspace
-    model: gpt-5-codex
+    model: gpt-5.5
     type: codex
     ttlSecondsAfterFinished: 600
     credentials:
@@ -109,7 +109,7 @@ spec:
   taskTemplate:
     workspaceRef:
       name: ml-workspace
-    model: gpt-5-codex
+    model: gpt-5.5
     type: codex
     ttlSecondsAfterFinished: 600
     credentials:
@@ -184,7 +184,7 @@ spec:
   taskTemplate:
     workspaceRef:
       name: ml-workspace
-    model: gpt-5-codex
+    model: gpt-5.5
     type: codex
     ttlSecondsAfterFinished: 600
     credentials:
