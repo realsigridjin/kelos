@@ -512,8 +512,9 @@ See the [`self-development/` README](self-development/README.md) for the full pi
 | `kelos logs <task-name> [-f]` | View or stream logs from a task |
 | `kelos suspend taskspawner <name>` | Pause a TaskSpawner |
 | `kelos resume taskspawner <name>` | Resume a paused TaskSpawner |
+| `kelos completion <shell>` | Generate a shell completion script (`bash`, `zsh`, `fish`, `powershell`); also completes resource names dynamically from the cluster |
 
-See [full CLI reference](docs/reference.md#cli-reference) for all flags and options.
+See [full CLI reference](docs/reference.md#cli-reference) and [Shell Completion](docs/reference.md#shell-completion) for all flags, options, and setup instructions.
 
 </details>
 

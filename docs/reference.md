@@ -414,6 +414,7 @@ The `kelos` CLI lets you manage the full lifecycle without writing YAML.
 | `kelos uninstall` | Uninstall Kelos from the cluster |
 | `kelos init` | Initialize `~/.kelos/config.yaml` |
 | `kelos version` | Print version information |
+| `kelos completion <shell>` | Generate a shell completion script for `bash`, `zsh`, `fish`, or `powershell` |
 
 ### Resource Management
 
@@ -485,6 +486,46 @@ When the same key is set multiple ways, precedence is: chart defaults, then `--v
 - `--kubeconfig`: Path to kubeconfig file
 - `--dry-run`: Print resources without creating them (supported by `run`, `create`, `install`)
 - `--yes, -y`: Skip confirmation prompts
+
+### Shell Completion
+
+`kelos completion <shell>` prints a completion script for `bash`, `zsh`, `fish`, or `powershell`. Source it from your shell to enable `<TAB>` completion of subcommands, flags, and resource names.
+
+Load the script for the current session:
+
+```bash
+# bash
+source <(kelos completion bash)
+
+# zsh
+source <(kelos completion zsh)
+
+# fish
+kelos completion fish | source
+
+# powershell
+kelos completion powershell | Out-String | Invoke-Expression
+```
+
+To persist completion across sessions, add the matching `source` line to your shell's startup file (e.g., `~/.bashrc` or `~/.zshrc`), or write the script to your shell's completions directory. Run `kelos completion <shell> --help` for shell-specific installation paths.
+
+In addition to subcommands and flags, the following arguments complete dynamically by querying the configured cluster — a reachable kubeconfig and the relevant list permission in the active namespace are required:
+
+| Command | Completes |
+|---------|-----------|
+| `kelos logs <TAB>` | task names |
+| `kelos get task <TAB>` | task names |
+| `kelos get taskspawner <TAB>` | taskspawner names |
+| `kelos get workspace <TAB>` | workspace names |
+| `kelos get agentconfig <TAB>` | agentconfig names |
+| `kelos delete task <TAB>` | task names |
+| `kelos delete taskspawner <TAB>` | taskspawner names |
+| `kelos delete workspace <TAB>` | workspace names |
+| `kelos delete agentconfig <TAB>` | agentconfig names |
+| `kelos suspend taskspawner <TAB>` | taskspawner names |
+| `kelos resume taskspawner <TAB>` | taskspawner names |
+
+Enum-valued flags — `kelos run --type`, `kelos run --credential-type`, `kelos get --output`, and `kelos get task --phase` — complete from their fixed value set without contacting the cluster.
 
 ## Telemetry
 
