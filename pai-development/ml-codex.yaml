@@ -216,7 +216,7 @@ spec:
          - For each unresolved bot thread, check if the issue has been fixed in the current code
          - Resolve fixed threads using the `resolveReviewThread` GraphQL mutation
 
-      4. Review the changes following the priority labeling guidelines in the AgentConfig,
+      4. /codex:review the changes following the priority labeling guidelines in the AgentConfig,
          then post inline review comments using `gh api` for each issue found:
          ```
          gh api repos/{owner}/{repo}/pulls/{{.Number}}/comments \
