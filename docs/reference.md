@@ -8,7 +8,7 @@
 | `spec.prompt` | Task prompt for the agent | Yes |
 | `spec.credentials.type` | `api-key`, `oauth`, or `none`. Use `none` to skip built-in credential injection (e.g., for Bedrock, Vertex AI, or Azure OpenAI credentials provided via `podOverrides.env`) | Yes |
 | `spec.credentials.secretRef.name` | Secret name with credentials (see [secret format](#task-credential-secret-format) below; not required when `type` is `none`) | Conditional |
-| `spec.model` | Model override (e.g., `claude-sonnet-4-20250514`) | No |
+| `spec.model` | Model override. The value is passed through to the agent container as `KELOS_MODEL` without validation, so either an agent-native shorthand accepted by the CLI (e.g., `sonnet`, `opus` for Claude Code) or a versioned ID (e.g., `claude-sonnet-4-6`) is valid | No |
 | `spec.image` | Custom agent image override (see [Agent Image Interface](agent-image-interface.md)) | No |
 | `spec.workspaceRef.name` | Name of a Workspace resource to use | No |
 | `spec.agentConfigRef.name` | Name of an AgentConfig resource to use | No |
@@ -246,7 +246,7 @@ GitHub Apps are preferred over PATs for production use because they offer fine-g
 | `spec.when.cron.schedule` | Cron schedule expression (e.g., `"0 * * * *"`) | Yes (when using cron) |
 | `spec.taskTemplate.type` | Agent type (`claude-code`, `codex`, `gemini`, `opencode`, or `cursor`) | Yes |
 | `spec.taskTemplate.credentials` | Credentials for the agent (same as Task) | Yes |
-| `spec.taskTemplate.model` | Model override | No |
+| `spec.taskTemplate.model` | Model override for spawned Tasks. Same pass-through behavior as `Task.spec.model`: either an agent-native shorthand (e.g., `sonnet`, `opus` for Claude Code) or a versioned ID (e.g., `claude-sonnet-4-6`) is valid | No |
 | `spec.taskTemplate.image` | Custom agent image override (see [Agent Image Interface](agent-image-interface.md)) | No |
 | `spec.taskTemplate.agentConfigRef.name` | Name of an AgentConfig resource for spawned Tasks | No |
 | `spec.taskTemplate.promptTemplate` | Go text/template for prompt (see [template variables](#prompttemplate-variables) below) | No |
@@ -334,7 +334,7 @@ Kelos reads defaults from `~/.kelos/config.yaml` (override with `--config`). CLI
 # ~/.kelos/config.yaml
 oauthToken: <your-oauth-token>
 # or: apiKey: <your-api-key>
-model: claude-sonnet-4-5-20250929
+model: sonnet  # or a versioned ID like 'claude-sonnet-4-6' — see spec.model under Task
 namespace: my-namespace
 ```
 
