@@ -178,7 +178,7 @@ Config file at `~/.kelos/config.yaml`:
 
 ```yaml
 oauthToken: <token>       # or apiKey: <key>
-model: claude-sonnet-4-5-20250929
+model: sonnet                   # or a versioned ID like 'claude-sonnet-4-6' — value is passed to the agent as KELOS_MODEL
 namespace: default
 workspace:
   repo: https://github.com/org/repo.git
