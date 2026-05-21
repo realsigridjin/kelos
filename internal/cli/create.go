@@ -112,7 +112,5 @@ func newCreateWorkspaceCommand(cfg *ClientConfig) *cobra.Command {
 
 	cmd.MarkFlagRequired("repo")
 
-	cmd.ValidArgsFunction = completeWorkspaceNames(cfg)
-
 	return cmd
 }

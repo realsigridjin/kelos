@@ -17,7 +17,6 @@ func TestValidArgsFunctionWired(t *testing.T) {
 		{"get task", []string{"get", "task"}},
 		{"get taskspawner", []string{"get", "taskspawner"}},
 		{"get workspace", []string{"get", "workspace"}},
-		{"create workspace", []string{"create", "workspace"}},
 		{"delete task", []string{"delete", "task"}},
 		{"delete workspace", []string{"delete", "workspace"}},
 		{"delete taskspawner", []string{"delete", "taskspawner"}},
@@ -29,6 +28,27 @@ func TestValidArgsFunctionWired(t *testing.T) {
 			cmd := findSubcommand(t, root, tt.path)
 			if cmd.ValidArgsFunction == nil {
 				t.Errorf("expected ValidArgsFunction to be set on %q", tt.name)
+			}
+		})
+	}
+}
+
+func TestValidArgsFunctionNotWired(t *testing.T) {
+	root := NewRootCommand()
+
+	tests := []struct {
+		name string
+		path []string
+	}{
+		{"create workspace", []string{"create", "workspace"}},
+		{"create agentconfig", []string{"create", "agentconfig"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := findSubcommand(t, root, tt.path)
+			if cmd.ValidArgsFunction != nil {
+				t.Errorf("expected ValidArgsFunction to be unset on %q (create commands should not suggest existing resource names)", tt.name)
 			}
 		})
 	}
