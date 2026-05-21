@@ -55,7 +55,6 @@ if [ -n "${KELOS_PLUGIN_DIR:-}" ] && [ -d "${KELOS_PLUGIN_DIR}" ]; then
       done
     fi
   done
-  ARGS+=("--enable" "skills")
 fi
 
 # Write MCP server configuration to project-scoped config.
