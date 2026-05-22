@@ -5,10 +5,14 @@
 # Interface contract:
 #   - First argument ($1): the task prompt
 #   - KELOS_MODEL env var: model name (optional)
-#   - ANTIGRAVITY_API_KEY env var: API key for authentication (optional)
 #   - KELOS_AGENTS_MD env var: user-level instructions (optional)
 #   - UID 61100: shared between git-clone init container and agent
 #   - Working directory: /workspace/repo when a workspace is configured
+#
+# Credentials: the controller does not inject built-in credential env vars
+# for this agent type (Task.spec.credentials.type must be "none"). Operators
+# who need authenticated runs supply credentials via Task.spec.podOverrides.env
+# using whatever variable the agy binary expects.
 
 set -uo pipefail
 
