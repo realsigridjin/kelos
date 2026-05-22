@@ -268,34 +268,34 @@ GitHub Apps are preferred over PATs for production use because they offer fine-g
 
 The `promptTemplate` field uses Go `text/template` syntax. Available variables depend on the source type:
 
-| Variable | Description | GitHub Issues | GitHub Pull Requests | GitHub Webhook | Linear Webhook | Generic Webhook | Cron |
-|----------|-------------|---------------|----------------------|----------------|----------------|-----------------|------|
-| `{{.ID}}` | Unique identifier | Issue/PR number as string (e.g., `"42"`) | Pull request number as string | Issue/PR number or commit ID | Linear resource ID | Mapped `id` field (required) | Date-time string (e.g., `"20260207-0900"`) |
-| `{{.Number}}` | Issue or PR number | Issue/PR number (e.g., `42`) | Pull request number | Issue/PR number (when available) | Empty | Empty | `0` |
-| `{{.Title}}` | Title of the work item | Issue/PR title | Pull request title | Issue/PR title or "Push to &lt;branch&gt;" | Resource title | Mapped `title` field (if present) | Trigger time (RFC3339) |
-| `{{.Body}}` | Body text | Issue/PR body | Pull request body | Issue/PR body | Empty | Mapped `body` field (if present) | Empty |
-| `{{.URL}}` | URL to the source item | GitHub HTML URL | GitHub PR URL | Issue/PR HTML URL | Empty | Mapped `url` field (if present) | Empty |
-| `{{.Labels}}` | Comma-separated labels | Issue/PR labels | Pull request labels | Empty | Issue labels | Empty | Empty |
-| `{{.Comments}}` | Concatenated comments | Issue/PR comments | PR conversation comments | Empty | Empty | Empty | Empty |
-| `{{.Kind}}` | Type of work item | `"Issue"` or `"PR"` | `"PR"` | `"webhook"` | `"LinearWebhook"` | `"GenericWebhook"` | `"Issue"` |
-| `{{.Event}}` | GitHub event type | Empty | Empty | Event type (e.g., `"issues"`, `"pull_request"`, `"push"`) | Empty | Empty | Empty |
-| `{{.Action}}` | Webhook action | Empty | Empty | Action (e.g., `"opened"`, `"created"`, `"submitted"`) | Action (e.g., `"create"`, `"update"`, `"remove"`) | Empty | Empty |
-| `{{.Sender}}` | Event sender username | Empty | Empty | Username of person who triggered the event | Empty | Empty | Empty |
-| `{{.Branch}}` | Git branch to update | Empty | PR head branch (e.g., `"kelos-task-42"`) | PR source branch or push branch | Empty | Empty | Empty |
-| `{{.Ref}}` | Git ref | Empty | Empty | Git ref for push events (e.g., `"refs/heads/main"`) | Empty | Empty | Empty |
-| `{{.Repository}}` | Full repository name | Empty | Empty | Repository in `owner/repo` format | Empty | Empty | Empty |
-| `{{.RepositoryOwner}}` | Repository owner | Empty | Empty | Repository owner login | Empty | Empty | Empty |
-| `{{.RepositoryName}}` | Repository name | Empty | Empty | Repository name only | Empty | Empty | Empty |
-| `{{.Payload}}` | Raw event payload | Empty | Empty | Full parsed GitHub webhook payload | Full parsed Linear webhook payload | Full parsed JSON body | Empty |
-| `{{.ReviewState}}` | Aggregated review state | Empty | `approved`, `changes_requested`, or empty | Empty | Empty | Empty | Empty |
-| `{{.ReviewComments}}` | Formatted inline review comments | Empty | Inline PR review comments | Empty | Empty | Empty | Empty |
-| `{{.Type}}` | Resource type | Empty | Empty | Empty | Resource type (e.g., `"Issue"`, `"Comment"`) | Empty | Empty |
-| `{{.State}}` | Workflow state | Empty | Empty | Empty | Current state name (e.g., `"Todo"`, `"In Progress"`) | Empty | Empty |
-| `{{.IssueID}}` | Parent issue ID | Empty | Empty | Empty | Parent issue ID (Comment events only) | Empty | Empty |
-| `{{.CommentBody}}` | Comment or review body | Empty | Empty | Comment/review body (`issue_comment`, `pull_request_review`, `pull_request_review_comment` events) | Empty | Empty | Empty |
-| `{{.CommentURL}}` | Comment or review URL | Empty | Empty | Comment/review HTML URL (`issue_comment`, `pull_request_review`, `pull_request_review_comment` events) | Empty | Empty | Empty |
-| `{{.Time}}` | Trigger time (RFC3339) | Empty | Empty | Empty | Empty | Empty | Cron tick time (e.g., `"2026-02-07T09:00:00Z"`) |
-| `{{.Schedule}}` | Cron schedule expression | Empty | Empty | Empty | Empty | Empty | Schedule string (e.g., `"0 * * * *"`) |
+| Variable | Description | GitHub Issues | GitHub Pull Requests | GitHub Webhook | Jira | Linear Webhook | Generic Webhook | Cron |
+|----------|-------------|---------------|----------------------|----------------|------|----------------|-----------------|------|
+| `{{.ID}}` | Unique identifier | Issue/PR number as string (e.g., `"42"`) | Pull request number as string | Issue/PR number or commit ID | Jira issue key (e.g., `"ENG-42"`) | Linear resource ID | Mapped `id` field (required) | Date-time string (e.g., `"20260207-0900"`) |
+| `{{.Number}}` | Issue or PR number | Issue/PR number (e.g., `42`) | Pull request number | Issue/PR number (when available) | Numeric suffix of the Jira key (e.g., `42` for `ENG-42`); `0` if the key has no `-N` suffix | Empty | Empty | `0` |
+| `{{.Title}}` | Title of the work item | Issue/PR title | Pull request title | Issue/PR title or "Push to &lt;branch&gt;" | Issue summary | Resource title | Mapped `title` field (if present) | Trigger time (RFC3339) |
+| `{{.Body}}` | Body text | Issue/PR body | Pull request body | Issue/PR body | Empty (description is not fetched; tracked in [#990](https://github.com/kelos-dev/kelos/issues/990)) | Empty | Mapped `body` field (if present) | Empty |
+| `{{.URL}}` | URL to the source item | GitHub HTML URL | GitHub PR URL | Issue/PR HTML URL | Jira browse URL (e.g., `https://your-org.atlassian.net/browse/ENG-42`) | Empty | Mapped `url` field (if present) | Empty |
+| `{{.Labels}}` | Comma-separated labels | Issue/PR labels | Pull request labels | Empty | Issue labels | Issue labels | Empty | Empty |
+| `{{.Comments}}` | Concatenated comments | Issue/PR comments | PR conversation comments | Empty | Issue comments | Empty | Empty | Empty |
+| `{{.Kind}}` | Type of work item | `"Issue"` or `"PR"` | `"PR"` | `"webhook"` | Jira issue type name (e.g., `"Bug"`, `"Story"`), or `"Issue"` if empty | `"LinearWebhook"` | `"GenericWebhook"` | `"Issue"` |
+| `{{.Event}}` | GitHub event type | Empty | Empty | Event type (e.g., `"issues"`, `"pull_request"`, `"push"`) | Empty | Empty | Empty | Empty |
+| `{{.Action}}` | Webhook action | Empty | Empty | Action (e.g., `"opened"`, `"created"`, `"submitted"`) | Empty | Action (e.g., `"create"`, `"update"`, `"remove"`) | Empty | Empty |
+| `{{.Sender}}` | Event sender username | Empty | Empty | Username of person who triggered the event | Empty | Empty | Empty | Empty |
+| `{{.Branch}}` | Git branch to update | Empty | PR head branch (e.g., `"kelos-task-42"`) | PR source branch or push branch | Empty | Empty | Empty | Empty |
+| `{{.Ref}}` | Git ref | Empty | Empty | Git ref for push events (e.g., `"refs/heads/main"`) | Empty | Empty | Empty | Empty |
+| `{{.Repository}}` | Full repository name | Empty | Empty | Repository in `owner/repo` format | Empty | Empty | Empty | Empty |
+| `{{.RepositoryOwner}}` | Repository owner | Empty | Empty | Repository owner login | Empty | Empty | Empty | Empty |
+| `{{.RepositoryName}}` | Repository name | Empty | Empty | Repository name only | Empty | Empty | Empty | Empty |
+| `{{.Payload}}` | Raw event payload | Empty | Empty | Full parsed GitHub webhook payload | Empty | Full parsed Linear webhook payload | Full parsed JSON body | Empty |
+| `{{.ReviewState}}` | Aggregated review state | Empty | `approved`, `changes_requested`, or empty | Empty | Empty | Empty | Empty | Empty |
+| `{{.ReviewComments}}` | Formatted inline review comments | Empty | Inline PR review comments | Empty | Empty | Empty | Empty | Empty |
+| `{{.Type}}` | Resource type | Empty | Empty | Empty | Empty | Resource type (e.g., `"Issue"`, `"Comment"`) | Empty | Empty |
+| `{{.State}}` | Workflow state | Empty | Empty | Empty | Empty | Current state name (e.g., `"Todo"`, `"In Progress"`) | Empty | Empty |
+| `{{.IssueID}}` | Parent issue ID | Empty | Empty | Empty | Empty | Parent issue ID (Comment events only) | Empty | Empty |
+| `{{.CommentBody}}` | Comment or review body | Empty | Empty | Comment/review body (`issue_comment`, `pull_request_review`, `pull_request_review_comment` events) | Empty | Empty | Empty | Empty |
+| `{{.CommentURL}}` | Comment or review URL | Empty | Empty | Comment/review HTML URL (`issue_comment`, `pull_request_review`, `pull_request_review_comment` events) | Empty | Empty | Empty | Empty |
+| `{{.Time}}` | Trigger time (RFC3339) | Empty | Empty | Empty | Empty | Empty | Empty | Cron tick time (e.g., `"2026-02-07T09:00:00Z"`) |
+| `{{.Schedule}}` | Cron schedule expression | Empty | Empty | Empty | Empty | Empty | Empty | Schedule string (e.g., `"0 * * * *"`) |
 
 > **Generic Webhook only:** any additional keys declared in `spec.when.webhook.fieldMapping` are also exposed as top-level template variables (e.g., `fieldMapping: {severity: "$.level"}` makes `{{.severity}}` available).
 

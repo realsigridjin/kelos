@@ -403,9 +403,9 @@ All `promptTemplate` and `branch` fields support Go `text/template` syntax. Avai
 | Variable | GitHub Issues | GitHub PRs | GitHub Webhook | Jira | Linear Webhook | Generic Webhook | Cron |
 |----------|--------------|------------|----------------|------|----------------|-----------------|------|
 | `{{.ID}}` | Issue number (string) | PR number (string) | Issue/PR number or commit ID | Issue key (e.g., `ENG-42`) | Linear resource ID | Mapped `id` field (required) | Date-time string |
-| `{{.Number}}` | Issue number (int) | PR number (int) | Issue/PR number | `0` | Empty | Empty | `0` |
+| `{{.Number}}` | Issue number (int) | PR number (int) | Issue/PR number | Numeric suffix of the Jira key (e.g., `42` for `ENG-42`); `0` if the key has no `-N` suffix | Empty | Empty | `0` |
 | `{{.Title}}` | Issue title | PR title | Issue/PR title | Issue summary | Resource title | Mapped `title` field (if present) | Trigger time (RFC3339) |
-| `{{.Body}}` | Issue body | PR body | Issue/PR body | Issue description | Empty | Mapped `body` field (if present) | Empty |
+| `{{.Body}}` | Issue body | PR body | Issue/PR body | Empty (description is not fetched; tracked in [#990](https://github.com/kelos-dev/kelos/issues/990)) | Empty | Mapped `body` field (if present) | Empty |
 | `{{.URL}}` | Issue URL | PR URL | Issue/PR URL | Issue URL | Empty | Mapped `url` field (if present) | Empty |
 | `{{.Labels}}` | Comma-separated | Comma-separated | Empty | Comma-separated | Comma-separated | Empty | Empty |
 | `{{.Comments}}` | Issue comments | PR comments | Empty | Issue comments | Empty | Empty | Empty |
