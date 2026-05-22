@@ -100,6 +100,22 @@ func TestExtractClaudeActivity_Empty(t *testing.T) {
 	}
 }
 
+// TestExtractClaudeActivity_LargeLine verifies a single NDJSON line larger
+// than 1 MB does not trip the scanner. A large Read tool result or Bash
+// output can produce one NDJSON line in the multi-MB range.
+func TestExtractClaudeActivity_LargeLine(t *testing.T) {
+	largeArg := strings.Repeat("a", 2*1024*1024)
+	bigLine := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"echo ` + largeArg + `"}}]}}`
+	final := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/p/after.go"}}]}}`
+	input := bigLine + "\n" + final
+
+	got := ExtractActivity(strings.NewReader(input), "claude-code")
+	want := "Reading `p/after.go`..."
+	if got != want {
+		t.Errorf("expected post-large-line event to be parsed; got %q, want %q", got, want)
+	}
+}
+
 func TestExtractClaudeActivity_CursorAgentType(t *testing.T) {
 	input := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/project/main.go"}}]}}`
 	got := ExtractActivity(strings.NewReader(input), "cursor")

@@ -39,7 +39,7 @@ type ContentBlock struct {
 // Non-JSON lines are passed through to stdout as-is.
 func ParseAndFormatLogs(r io.Reader, stdout, stderr io.Writer) error {
 	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
 
 	turnCount := 0
 

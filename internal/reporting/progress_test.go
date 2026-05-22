@@ -78,6 +78,22 @@ func TestExtractLatestAssistantText_NoTruncationAtLimit(t *testing.T) {
 	}
 }
 
+// TestExtractLatestAssistantText_LargeLine verifies a single NDJSON line
+// larger than 1 MB does not cause the scanner to stop consuming the stream.
+// Without a sufficient scanner buffer, the parser would return an empty
+// string and the subsequent assistant turn would be lost.
+func TestExtractLatestAssistantText_LargeLine(t *testing.T) {
+	largeText := strings.Repeat("a", 2*1024*1024)
+	bigLine := `{"type":"assistant","message":{"content":[{"type":"text","text":"` + largeText + `"}]}}`
+	final := `{"type":"assistant","message":{"content":[{"type":"text","text":"after the big line"}]}}`
+	logs := bigLine + "\n" + final
+
+	got := ExtractLatestAssistantText(strings.NewReader(logs), "claude-code")
+	if got != "after the big line" {
+		t.Errorf("expected text from the line after the >1MB line; got %q", got)
+	}
+}
+
 func TestExtractLatestAssistantText_UnknownAgent(t *testing.T) {
 	logs := `{"type":"assistant","message":{"content":[{"type":"text","text":"hello"}]}}`
 

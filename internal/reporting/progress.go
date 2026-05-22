@@ -67,7 +67,7 @@ func ExtractLatestAssistantText(r io.Reader, agentType string) string {
 func extractClaudeText(r io.Reader) string {
 	log := ctrl.Log.WithName("progress-reader")
 	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
 
 	var lastText string
 
@@ -109,7 +109,7 @@ func extractClaudeText(r io.Reader) string {
 func extractCodexText(r io.Reader) string {
 	log := ctrl.Log.WithName("progress-reader")
 	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
 
 	var lastText string
 
@@ -142,7 +142,7 @@ func extractCodexText(r io.Reader) string {
 func extractGeminiText(r io.Reader) string {
 	log := ctrl.Log.WithName("progress-reader")
 	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
 
 	var lastText string
 
@@ -175,7 +175,7 @@ func extractGeminiText(r io.Reader) string {
 func extractOpenCodeText(r io.Reader) string {
 	log := ctrl.Log.WithName("progress-reader")
 	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
 
 	var lastText string
 

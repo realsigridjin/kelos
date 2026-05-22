@@ -35,7 +35,7 @@ type GeminiStats struct {
 // goes to stderr. Non-JSON lines are passed through to stdout as-is.
 func ParseAndFormatGeminiLogs(r io.Reader, stdout, stderr io.Writer) error {
 	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
 
 	turnCount := 0
 

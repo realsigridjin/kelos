@@ -100,7 +100,7 @@ func ExtractActivity(r io.Reader, agentType string) string {
 // string from the most recent tool_use or assistant text.
 func extractClaudeActivity(r io.Reader) string {
 	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
 
 	var lastActivity string
 
@@ -196,7 +196,7 @@ func claudeToolActivity(toolName string, raw json.RawMessage) string {
 // extractCodexActivity parses Codex NDJSON and returns an activity string.
 func extractCodexActivity(r io.Reader) string {
 	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
 
 	var lastActivity string
 
@@ -234,7 +234,7 @@ func extractCodexActivity(r io.Reader) string {
 // extractGeminiActivity parses Gemini NDJSON and returns an activity string.
 func extractGeminiActivity(r io.Reader) string {
 	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
 
 	var lastActivity string
 
@@ -329,7 +329,7 @@ func geminiToolActivity(toolName string, raw json.RawMessage) string {
 // extractOpenCodeActivity parses OpenCode NDJSON and returns an activity string.
 func extractOpenCodeActivity(r io.Reader) string {
 	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
 
 	var lastActivity string
 

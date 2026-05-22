@@ -129,6 +129,33 @@ func TestParseAndFormatLogs(t *testing.T) {
 	}
 }
 
+// TestParseAndFormatLogs_LargeLine verifies the scanner handles NDJSON lines
+// larger than 1 MB without returning bufio.ErrTooLong. A single stream-json
+// line (e.g., a Read tool result on a large file) can easily exceed 1 MB.
+func TestParseAndFormatLogs_LargeLine(t *testing.T) {
+	largeText := strings.Repeat("a", 2*1024*1024)
+	event := map[string]interface{}{
+		"type": "assistant",
+		"message": map[string]interface{}{
+			"content": []map[string]interface{}{
+				{"type": "text", "text": largeText},
+			},
+		},
+	}
+	line, err := json.Marshal(event)
+	if err != nil {
+		t.Fatalf("Failed to marshal event: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if err := ParseAndFormatLogs(bytes.NewReader(line), &stdout, &stderr); err != nil {
+		t.Fatalf("ParseAndFormatLogs returned error on >1MB line: %v", err)
+	}
+	if !strings.Contains(stdout.String(), largeText) {
+		t.Errorf("stdout did not contain the large text payload")
+	}
+}
+
 func TestToolInputSummary(t *testing.T) {
 	tests := []struct {
 		name     string
