@@ -789,6 +789,189 @@ var _ = Describe("Task Controller", func() {
 			Expect(parsed.MCPServers["local-db"].Env["DB_PASSWORD"]).To(Equal("hunter2"))
 			Expect(parsed.MCPServers["local-db"].Env["DB_HOST"]).To(Equal("db.internal"))
 		})
+
+		It("Should fail the Task when MCP env uses an unsupported valueFrom variant", func() {
+			By("Creating a namespace")
+			ns := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-task-mcp-env-fieldref",
+				},
+			}
+			Expect(k8sClient.Create(ctx, ns)).Should(Succeed())
+
+			By("Creating a Secret with API key")
+			apiSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "anthropic-api-key",
+					Namespace: ns.Name,
+				},
+				StringData: map[string]string{
+					"ANTHROPIC_API_KEY": "test-api-key",
+				},
+			}
+			Expect(k8sClient.Create(ctx, apiSecret)).Should(Succeed())
+
+			By("Creating an AgentConfig whose MCP env uses an unsupported fieldRef")
+			agentConfig := &kelosv1alpha1.AgentConfig{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "mcp-fieldref-config",
+					Namespace: ns.Name,
+				},
+				Spec: kelosv1alpha1.AgentConfigSpec{
+					MCPServers: []kelosv1alpha1.MCPServerSpec{
+						{
+							Name:    "local-db",
+							Type:    "stdio",
+							Command: "npx",
+							Env: []corev1.EnvVar{
+								{Name: "NODE", ValueFrom: &corev1.EnvVarSource{
+									FieldRef: &corev1.ObjectFieldSelector{FieldPath: "spec.nodeName"},
+								}},
+							},
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, agentConfig)).Should(Succeed())
+
+			By("Creating a Task referencing the AgentConfig")
+			task := &kelosv1alpha1.Task{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "task-mcp-fieldref",
+					Namespace: ns.Name,
+				},
+				Spec: kelosv1alpha1.TaskSpec{
+					Type:   "claude-code",
+					Prompt: "Fail on unsupported MCP env valueFrom",
+					Credentials: kelosv1alpha1.Credentials{
+						Type:      kelosv1alpha1.CredentialTypeAPIKey,
+						SecretRef: &kelosv1alpha1.SecretReference{Name: "anthropic-api-key"},
+					},
+					AgentConfigRef: &kelosv1alpha1.AgentConfigReference{Name: "mcp-fieldref-config"},
+				},
+			}
+			Expect(k8sClient.Create(ctx, task)).Should(Succeed())
+
+			By("Verifying the Task transitions to Failed with a clear message")
+			taskLookupKey := types.NamespacedName{Name: task.Name, Namespace: ns.Name}
+			createdTask := &kelosv1alpha1.Task{}
+			Eventually(func() kelosv1alpha1.TaskPhase {
+				if err := k8sClient.Get(ctx, taskLookupKey, createdTask); err != nil {
+					return ""
+				}
+				return createdTask.Status.Phase
+			}, timeout, interval).Should(Equal(kelosv1alpha1.TaskPhaseFailed))
+			Expect(createdTask.Status.Message).To(ContainSubstring("secretKeyRef and configMapKeyRef"))
+		})
+
+		It("Should omit an optional env valueFrom whose key is missing", func() {
+			By("Creating a namespace")
+			ns := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-task-mcp-env-optional-missing",
+				},
+			}
+			Expect(k8sClient.Create(ctx, ns)).Should(Succeed())
+
+			By("Creating a Secret with API key")
+			apiSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "anthropic-api-key",
+					Namespace: ns.Name,
+				},
+				StringData: map[string]string{
+					"ANTHROPIC_API_KEY": "test-api-key",
+				},
+			}
+			Expect(k8sClient.Create(ctx, apiSecret)).Should(Succeed())
+
+			By("Creating a Secret that does not hold the referenced key")
+			passwordSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "mcp-db-password",
+					Namespace: ns.Name,
+				},
+				StringData: map[string]string{
+					"other": "x",
+				},
+			}
+			Expect(k8sClient.Create(ctx, passwordSecret)).Should(Succeed())
+
+			By("Creating an AgentConfig with an optional env.valueFrom and a literal env")
+			optional := true
+			agentConfig := &kelosv1alpha1.AgentConfig{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "mcp-optional-missing-config",
+					Namespace: ns.Name,
+				},
+				Spec: kelosv1alpha1.AgentConfigSpec{
+					MCPServers: []kelosv1alpha1.MCPServerSpec{
+						{
+							Name:    "local-db",
+							Type:    "stdio",
+							Command: "npx",
+							Env: []corev1.EnvVar{
+								{Name: "DSN", Value: "postgres://localhost/db"},
+								{Name: "DB_PASSWORD", ValueFrom: &corev1.EnvVarSource{
+									SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{Name: "mcp-db-password"},
+										Key:                  "missing",
+										Optional:             &optional,
+									},
+								}},
+							},
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, agentConfig)).Should(Succeed())
+
+			By("Creating a Task referencing the AgentConfig")
+			task := &kelosv1alpha1.Task{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "task-mcp-optional-missing",
+					Namespace: ns.Name,
+				},
+				Spec: kelosv1alpha1.TaskSpec{
+					Type:   "claude-code",
+					Prompt: "Resolve MCP env optional valueFrom",
+					Credentials: kelosv1alpha1.Credentials{
+						Type:      kelosv1alpha1.CredentialTypeAPIKey,
+						SecretRef: &kelosv1alpha1.SecretReference{Name: "anthropic-api-key"},
+					},
+					AgentConfigRef: &kelosv1alpha1.AgentConfigReference{Name: "mcp-optional-missing-config"},
+				},
+			}
+			Expect(k8sClient.Create(ctx, task)).Should(Succeed())
+
+			By("Verifying a Job is created")
+			createdJob := &batchv1.Job{}
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: task.Name, Namespace: ns.Name}, createdJob)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+
+			By("Verifying KELOS_MCP_SERVERS omits the optional missing variable")
+			container := createdJob.Spec.Template.Spec.Containers[0]
+			var mcpJSON string
+			for _, env := range container.Env {
+				if env.Name == "KELOS_MCP_SERVERS" {
+					mcpJSON = env.Value
+					break
+				}
+			}
+			Expect(mcpJSON).NotTo(BeEmpty())
+
+			var parsed struct {
+				MCPServers map[string]struct {
+					Env map[string]string `json:"env"`
+				} `json:"mcpServers"`
+			}
+			Expect(json.Unmarshal([]byte(mcpJSON), &parsed)).Should(Succeed())
+			Expect(parsed.MCPServers["local-db"].Env["DSN"]).To(Equal("postgres://localhost/db"))
+			_, present := parsed.MCPServers["local-db"].Env["DB_PASSWORD"]
+			Expect(present).To(BeFalse())
+		})
 	})
 
 	Context("When creating a Task with workspace and ref", func() {

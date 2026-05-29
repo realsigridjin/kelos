@@ -121,16 +121,22 @@ type MCPServerSpec struct {
 	//
 	// Each entry must set Name and either Value (a literal string) or
 	// ValueFrom (a reference to a key in a Secret or ConfigMap). Only the
-	// SecretKeyRef and ConfigMapKeyRef variants of ValueFrom are supported;
-	// FieldRef and ResourceFieldRef are pod-scoped and have no meaning for
-	// MCP server processes.
+	// SecretKeyRef and ConfigMapKeyRef variants of ValueFrom are honored;
+	// all other variants (FieldRef, ResourceFieldRef, FileKeyRef, and any
+	// future EnvVarSource additions) are pod-scoped or otherwise meaningless
+	// for an MCP server process and are rejected.
+	//
+	// When ValueFrom is marked optional and the referenced Secret/ConfigMap
+	// or key is missing, the variable is omitted (matching kubelet
+	// semantics for pod env), not set to an empty string.
 	// +optional
 	Env []corev1.EnvVar `json:"env,omitempty"`
 
 	// EnvFrom references a Secret whose data keys are environment variable
 	// names and values are environment variable values. Only used when
 	// type is "stdio". Values from EnvFrom take precedence over inline Env
-	// for overlapping keys.
+	// for overlapping keys (note this is the opposite of pod-spec ordering,
+	// where env overrides envFrom).
 	// +optional
 	EnvFrom *SecretValuesSource `json:"envFrom,omitempty"`
 }

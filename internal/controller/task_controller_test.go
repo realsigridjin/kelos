@@ -585,8 +585,41 @@ func TestResolveMCPServerSecrets_EnvValueFromOptionalMissingKey(t *testing.T) {
 		t.Fatalf("resolveMCPServerSecrets() error = %v", err)
 	}
 	got := envVarMap(resolved[0].Env)
-	if got["DB_PASSWORD"] != "" {
-		t.Errorf("DB_PASSWORD = %q, want empty for optional missing key", got["DB_PASSWORD"])
+	if _, ok := got["DB_PASSWORD"]; ok {
+		t.Errorf("DB_PASSWORD present = %q, want it omitted for optional missing key", got["DB_PASSWORD"])
+	}
+}
+
+func TestResolveMCPServerSecrets_EnvValueFromOptionalMissingConfigMapKey(t *testing.T) {
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "mcp-config", Namespace: "default"},
+		Data:       map[string]string{"other": "x"},
+	}
+	optional := true
+	r := newReconcilerWithFakeClient(cm)
+	servers := []kelosv1alpha1.MCPServerSpec{
+		{
+			Name: "local",
+			Type: "stdio",
+			Env: []corev1.EnvVar{
+				{Name: "DB_HOST", ValueFrom: &corev1.EnvVarSource{
+					ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{Name: "mcp-config"},
+						Key:                  "missing",
+						Optional:             &optional,
+					},
+				}},
+			},
+		},
+	}
+
+	resolved, err := r.resolveMCPServerSecrets(context.Background(), "default", servers)
+	if err != nil {
+		t.Fatalf("resolveMCPServerSecrets() error = %v", err)
+	}
+	got := envVarMap(resolved[0].Env)
+	if _, ok := got["DB_HOST"]; ok {
+		t.Errorf("DB_HOST present = %q, want it omitted for optional missing key", got["DB_HOST"])
 	}
 }
 
@@ -608,8 +641,94 @@ func TestResolveMCPServerSecrets_EnvValueFromUnsupportedFieldRef(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for fieldRef, got nil")
 	}
-	if !strings.Contains(err.Error(), "not supported") {
-		t.Errorf("error = %q, want it to mention 'not supported'", err)
+	if !strings.Contains(err.Error(), "secretKeyRef and configMapKeyRef") {
+		t.Errorf("error = %q, want it to mention supported sources", err)
+	}
+}
+
+// A SecretKeyRef combined with a pod-scoped source must be rejected rather
+// than silently honoring the SecretKeyRef branch.
+func TestResolveMCPServerSecrets_EnvValueFromSecretKeyWithFieldRef(t *testing.T) {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "mcp-secret", Namespace: "default"},
+		Data:       map[string][]byte{"password": []byte("hunter2")},
+	}
+	r := newReconcilerWithFakeClient(secret)
+	servers := []kelosv1alpha1.MCPServerSpec{
+		{
+			Name: "local",
+			Type: "stdio",
+			Env: []corev1.EnvVar{
+				{Name: "DB_PASSWORD", ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{Name: "mcp-secret"},
+						Key:                  "password",
+					},
+					FieldRef: &corev1.ObjectFieldSelector{FieldPath: "spec.nodeName"},
+				}},
+			},
+		},
+	}
+
+	_, err := r.resolveMCPServerSecrets(context.Background(), "default", servers)
+	if err == nil {
+		t.Fatal("expected error for secretKeyRef combined with fieldRef, got nil")
+	}
+	if !strings.Contains(err.Error(), "secretKeyRef and configMapKeyRef") {
+		t.Errorf("error = %q, want it to mention supported sources", err)
+	}
+}
+
+func TestResolveMCPServerSecrets_EnvValueFromUnsupportedFileKeyRef(t *testing.T) {
+	r := newReconcilerWithFakeClient()
+	servers := []kelosv1alpha1.MCPServerSpec{
+		{
+			Name: "local",
+			Type: "stdio",
+			Env: []corev1.EnvVar{
+				{Name: "TOKEN", ValueFrom: &corev1.EnvVarSource{
+					FileKeyRef: &corev1.FileKeySelector{Key: "token", Path: "env"},
+				}},
+			},
+		},
+	}
+
+	_, err := r.resolveMCPServerSecrets(context.Background(), "default", servers)
+	if err == nil {
+		t.Fatal("expected error for fileKeyRef, got nil")
+	}
+	if !strings.Contains(err.Error(), "secretKeyRef and configMapKeyRef") {
+		t.Errorf("error = %q, want it to mention supported sources", err)
+	}
+}
+
+func TestResolveMCPServerSecrets_EnvValueAndValueFromMutuallyExclusive(t *testing.T) {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "mcp-secret", Namespace: "default"},
+		Data:       map[string][]byte{"password": []byte("hunter2")},
+	}
+	r := newReconcilerWithFakeClient(secret)
+	servers := []kelosv1alpha1.MCPServerSpec{
+		{
+			Name: "local",
+			Type: "stdio",
+			Env: []corev1.EnvVar{
+				{Name: "DB_PASSWORD", Value: "literal", ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{Name: "mcp-secret"},
+						Key:                  "password",
+					},
+				}},
+			},
+		},
+	}
+
+	_, err := r.resolveMCPServerSecrets(context.Background(), "default", servers)
+	if err == nil {
+		t.Fatal("expected error when both value and valueFrom are set, got nil")
+	}
+	if !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Errorf("error = %q, want it to mention 'mutually exclusive'", err)
 	}
 }
 

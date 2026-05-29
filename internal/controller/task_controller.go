@@ -477,13 +477,18 @@ func (r *TaskReconciler) resolveMCPServerEnv(ctx context.Context, namespace stri
 		if entry.Name == "" {
 			return nil, fmt.Errorf("MCP server %q has an env entry with an empty name", server.Name)
 		}
-		if _, seen := values[entry.Name]; !seen {
-			order = append(order, entry.Name)
-		}
 
-		value, err := r.resolveEnvVarValue(ctx, namespace, server.Name, entry)
+		value, ok, err := r.resolveEnvVarValue(ctx, namespace, server.Name, entry)
 		if err != nil {
 			return nil, err
+		}
+		// An optional ValueFrom whose Secret/ConfigMap or key is missing is
+		// omitted, matching kubelet semantics for pod env.
+		if !ok {
+			continue
+		}
+		if _, seen := values[entry.Name]; !seen {
+			order = append(order, entry.Name)
 		}
 		values[entry.Name] = value
 	}
@@ -496,11 +501,18 @@ func (r *TaskReconciler) resolveMCPServerEnv(ctx context.Context, namespace stri
 		}, &secret); err != nil {
 			return nil, fmt.Errorf("fetching envFrom secret %q for MCP server %q: %w", server.EnvFrom.SecretRef.Name, server.Name, err)
 		}
-		for key, value := range secret.Data {
+		// Iterate in sorted key order so the resolved Env slice is
+		// deterministic regardless of Secret data map iteration order.
+		keys := make([]string, 0, len(secret.Data))
+		for key := range secret.Data {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
 			if _, seen := values[key]; !seen {
 				order = append(order, key)
 			}
-			values[key] = string(value)
+			values[key] = string(secret.Data[key])
 		}
 	}
 
@@ -516,18 +528,28 @@ func (r *TaskReconciler) resolveMCPServerEnv(ctx context.Context, namespace stri
 
 // resolveEnvVarValue returns the resolved string value for a single EnvVar
 // entry on an MCP server. Literal Value entries pass through; ValueFrom is
-// resolved against Secret or ConfigMap. FieldRef and ResourceFieldRef are
-// rejected because they refer to pod-scoped information that has no meaning
-// for an MCP server process.
-func (r *TaskReconciler) resolveEnvVarValue(ctx context.Context, namespace, serverName string, entry corev1.EnvVar) (string, error) {
+// resolved against Secret or ConfigMap. Only SecretKeyRef and ConfigMapKeyRef
+// are honored; FieldRef, ResourceFieldRef and FileKeyRef refer to pod-scoped
+// (or file-gated) information that has no meaning for an MCP server process.
+// Because MCP env is resolved here rather than by the kubelet, those variants
+// have nothing to resolve against and are rejected.
+//
+// The returned ok is false when an optional ValueFrom resolves to nothing
+// (Secret/ConfigMap or key missing); the caller omits the variable entirely,
+// matching kubelet semantics for pod env.
+func (r *TaskReconciler) resolveEnvVarValue(ctx context.Context, namespace, serverName string, entry corev1.EnvVar) (string, bool, error) {
 	if entry.ValueFrom == nil {
-		return entry.Value, nil
+		return entry.Value, true, nil
 	}
 	if entry.Value != "" {
-		return "", fmt.Errorf("MCP server %q env %q: value and valueFrom are mutually exclusive", serverName, entry.Name)
+		return "", false, fmt.Errorf("MCP server %q env %q: value and valueFrom are mutually exclusive", serverName, entry.Name)
 	}
 
 	src := entry.ValueFrom
+	if src.FieldRef != nil || src.ResourceFieldRef != nil || src.FileKeyRef != nil {
+		return "", false, fmt.Errorf("MCP server %q env %q: valueFrom only supports secretKeyRef and configMapKeyRef", serverName, entry.Name)
+	}
+
 	switch {
 	case src.SecretKeyRef != nil:
 		ref := src.SecretKeyRef
@@ -537,18 +559,18 @@ func (r *TaskReconciler) resolveEnvVarValue(ctx context.Context, namespace, serv
 			Name:      ref.Name,
 		}, &secret); err != nil {
 			if apierrors.IsNotFound(err) && ref.Optional != nil && *ref.Optional {
-				return "", nil
+				return "", false, nil
 			}
-			return "", fmt.Errorf("fetching secret %q for MCP server %q env %q: %w", ref.Name, serverName, entry.Name, err)
+			return "", false, fmt.Errorf("fetching secret %q for MCP server %q env %q: %w", ref.Name, serverName, entry.Name, err)
 		}
 		raw, ok := secret.Data[ref.Key]
 		if !ok {
 			if ref.Optional != nil && *ref.Optional {
-				return "", nil
+				return "", false, nil
 			}
-			return "", fmt.Errorf("secret %q has no key %q for MCP server %q env %q", ref.Name, ref.Key, serverName, entry.Name)
+			return "", false, fmt.Errorf("secret %q has no key %q for MCP server %q env %q", ref.Name, ref.Key, serverName, entry.Name)
 		}
-		return string(raw), nil
+		return string(raw), true, nil
 	case src.ConfigMapKeyRef != nil:
 		ref := src.ConfigMapKeyRef
 		var cm corev1.ConfigMap
@@ -557,24 +579,22 @@ func (r *TaskReconciler) resolveEnvVarValue(ctx context.Context, namespace, serv
 			Name:      ref.Name,
 		}, &cm); err != nil {
 			if apierrors.IsNotFound(err) && ref.Optional != nil && *ref.Optional {
-				return "", nil
+				return "", false, nil
 			}
-			return "", fmt.Errorf("fetching configmap %q for MCP server %q env %q: %w", ref.Name, serverName, entry.Name, err)
+			return "", false, fmt.Errorf("fetching configmap %q for MCP server %q env %q: %w", ref.Name, serverName, entry.Name, err)
 		}
 		if value, ok := cm.Data[ref.Key]; ok {
-			return value, nil
+			return value, true, nil
 		}
 		if raw, ok := cm.BinaryData[ref.Key]; ok {
-			return string(raw), nil
+			return string(raw), true, nil
 		}
 		if ref.Optional != nil && *ref.Optional {
-			return "", nil
+			return "", false, nil
 		}
-		return "", fmt.Errorf("configmap %q has no key %q for MCP server %q env %q", ref.Name, ref.Key, serverName, entry.Name)
-	case src.FieldRef != nil, src.ResourceFieldRef != nil:
-		return "", fmt.Errorf("MCP server %q env %q: fieldRef and resourceFieldRef are not supported", serverName, entry.Name)
+		return "", false, fmt.Errorf("configmap %q has no key %q for MCP server %q env %q", ref.Name, ref.Key, serverName, entry.Name)
 	default:
-		return "", fmt.Errorf("MCP server %q env %q: valueFrom must set secretKeyRef or configMapKeyRef", serverName, entry.Name)
+		return "", false, fmt.Errorf("MCP server %q env %q: valueFrom must set secretKeyRef or configMapKeyRef", serverName, entry.Name)
 	}
 }
 
