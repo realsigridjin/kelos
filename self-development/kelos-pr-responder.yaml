@@ -23,6 +23,7 @@ spec:
           bodyPattern: /kelos pick-up
           state: open
           draft: false
+          author: gjkim42
       reporting:
         enabled: true
         checks: {}
