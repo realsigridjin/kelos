@@ -7,6 +7,11 @@
 {{- end }}
 {{- end }}
 {{- end }}
+{{- if .Values.webhookServer.gatewayServer.enabled }}
+{{- if not (has .Values.webhookServer.gatewayServer.service.type $allowedServiceTypes) }}
+{{- fail (printf "webhookServer.gatewayServer.service.type %q is not supported; must be one of %v" .Values.webhookServer.gatewayServer.service.type $allowedServiceTypes) }}
+{{- end }}
+{{- end }}
 {{- if .Values.webhookServer.sources.github.enabled }}
 ---
 apiVersion: apps/v1

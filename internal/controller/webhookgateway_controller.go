@@ -49,17 +49,26 @@ func (r *WebhookGatewayReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+	// Capture the generation the status was computed from. The retry below
+	// re-fetches the object to get a fresh resourceVersion, so it must not stamp
+	// a newer generation onto status derived from an older spec.
+	observedGen := gw.Generation
 
 	if gw.Status.URL != url || gw.Status.Phase != phase || gw.Status.Message != message ||
-		gw.Status.ObservedGeneration != gw.Generation {
+		gw.Status.ObservedGeneration != observedGen {
 		if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 			if getErr := r.Get(ctx, req.NamespacedName, &gw); getErr != nil {
 				return getErr
 			}
+			if gw.Generation != observedGen {
+				// The spec changed since this status was computed; a fresh
+				// reconcile is already queued for the new generation.
+				return nil
+			}
 			gw.Status.URL = url
 			gw.Status.Phase = phase
 			gw.Status.Message = message
-			gw.Status.ObservedGeneration = gw.Generation
+			gw.Status.ObservedGeneration = observedGen
 			return r.Status().Update(ctx, &gw)
 		}); err != nil {
 			logger.Error(err, "Unable to update WebhookGateway status")

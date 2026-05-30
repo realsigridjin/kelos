@@ -3,6 +3,7 @@ package webhook
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -14,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
 	"github.com/kelos-dev/kelos/internal/taskbuilder"
@@ -252,6 +254,53 @@ func TestGatewayServeHTTP_GenericNoVerificationCreatesTask(t *testing.T) {
 	}
 	if len(taskList.Items) != 1 {
 		t.Fatalf("Expected 1 task created, got %d", len(taskList.Items))
+	}
+}
+
+func TestGatewayServeHTTP_SpawnerListErrorReturns500(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := kelosv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(
+			githubGateway("gh", "default", "gh-secret"),
+			hmacSecret("gh-secret", "default", testSecret),
+		).
+		WithInterceptorFuncs(interceptor.Funcs{
+			List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+				if _, ok := list.(*kelosv1alpha1.TaskSpawnerList); ok {
+					return fmt.Errorf("simulated API failure")
+				}
+				return c.List(ctx, list, opts...)
+			},
+		}).
+		Build()
+
+	tb, err := taskbuilder.NewTaskBuilder(fakeClient)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := &GatewayHandler{client: fakeClient, log: logr.Discard(), taskBuilder: tb, deliveryCache: NewDeliveryCache(context.Background())}
+
+	body := []byte(issuesPayload)
+	req := httptest.NewRequest(http.MethodPost, "/webhook/default/gh", bytes.NewReader(body))
+	req.Header.Set(GitHubEventHeader, "issues")
+	req.Header.Set(GitHubDeliveryHeader, "delivery-list-err")
+	req.Header.Set(GitHubSignatureHeader, signPayload(body, []byte(testSecret)))
+	rr := httptest.NewRecorder()
+
+	g.ServeHTTP(rr, req)
+
+	// A transient List failure must surface as a retryable 5xx, not a 200 that
+	// silently drops the delivery.
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("Expected 500 on spawner List failure, got %d", rr.Code)
 	}
 }
 

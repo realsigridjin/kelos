@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -85,8 +86,15 @@ func (g *GatewayHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	var gateway v1alpha1.WebhookGateway
 	if err := g.client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, &gateway); err != nil {
-		log.Info("WebhookGateway not found", "error", err)
-		http.Error(w, "Not found", http.StatusNotFound)
+		if apierrors.IsNotFound(err) {
+			log.Info("WebhookGateway not found")
+			http.Error(w, "Not found", http.StatusNotFound)
+			return
+		}
+		// A transient API or RBAC failure must not be reported as a missing
+		// gateway; return 500 so the provider retries.
+		log.Error(err, "Failed to get WebhookGateway")
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -124,6 +132,7 @@ func (g *GatewayHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Extract per-source headers, verify the signature, and derive a delivery ID.
 	var eventType, deliveryID string
 	var scopedSpawners []*v1alpha1.TaskSpawner
+	spawnersListed := false
 
 	switch source {
 	case GitHubSource:
@@ -152,8 +161,16 @@ func (g *GatewayHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// the delivery but log loudly so the lack of authentication is visible
 		// in server logs (the gateway's status also surfaces Unauthenticated).
 		eventType = name
-		scopedSpawners = g.listGatewayScopedSpawners(ctx, namespace, name, source)
-		deliveryID = extractGenericDeliveryID(name, body, scopedSpawners)
+		scopedSpawners, err = g.listGatewayScopedSpawners(ctx, namespace, name, source)
+		if err != nil {
+			log.Error(err, "Failed to list TaskSpawners", "namespace", namespace)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		spawnersListed = true
+		// The spawners are already scoped by gatewayRef, so derive the dedup id
+		// from their fieldMapping regardless of the spawner's source name.
+		deliveryID = extractGatewayGenericDeliveryID(name, body, scopedSpawners)
 		log.Info("WARNING: accepting generic webhook without signature verification", "deliveryID", deliveryID)
 	}
 
@@ -163,8 +180,13 @@ func (g *GatewayHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if scopedSpawners == nil {
-		scopedSpawners = g.listGatewayScopedSpawners(ctx, namespace, name, source)
+	if !spawnersListed {
+		scopedSpawners, err = g.listGatewayScopedSpawners(ctx, namespace, name, source)
+		if err != nil {
+			log.Error(err, "Failed to list TaskSpawners", "namespace", namespace)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
 	}
 	if len(scopedSpawners) == 0 {
 		log.Info("No TaskSpawners reference this gateway", "eventType", eventType, "deliveryID", deliveryID)
@@ -209,12 +231,14 @@ func (g *GatewayHandler) handlerForGateway(gw *v1alpha1.WebhookGateway, source W
 }
 
 // listGatewayScopedSpawners returns TaskSpawners in the gateway's namespace
-// whose matching webhook block references this gateway by name.
-func (g *GatewayHandler) listGatewayScopedSpawners(ctx context.Context, namespace, name string, source WebhookSource) []*v1alpha1.TaskSpawner {
+// whose matching webhook block references this gateway by name. A List error is
+// returned to the caller (rather than swallowed as an empty set) so a transient
+// API failure surfaces as a retryable 5xx instead of silently dropping the
+// delivery.
+func (g *GatewayHandler) listGatewayScopedSpawners(ctx context.Context, namespace, name string, source WebhookSource) ([]*v1alpha1.TaskSpawner, error) {
 	var spawnerList v1alpha1.TaskSpawnerList
 	if err := g.client.List(ctx, &spawnerList, client.InNamespace(namespace)); err != nil {
-		g.log.Error(err, "Failed to list TaskSpawners", "namespace", namespace)
-		return nil
+		return nil, fmt.Errorf("listing TaskSpawners in namespace %s: %w", namespace, err)
 	}
 
 	var spawners []*v1alpha1.TaskSpawner
@@ -239,7 +263,7 @@ func (g *GatewayHandler) listGatewayScopedSpawners(ctx context.Context, namespac
 			spawners = append(spawners, &spawnerList.Items[i])
 		}
 	}
-	return spawners
+	return spawners, nil
 }
 
 // resolveGatewaySecret reads the HMAC secret for a github/linear gateway.

@@ -60,6 +60,16 @@ func (r *reportingReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, nil
 	}
 
+	// In gateway mode the reconciler watches all reporting-enabled Tasks
+	// cluster-wide, but only Tasks created via a WebhookGateway carry the gateway
+	// annotation. A Task without that annotation and without a globally
+	// configured resolver belongs to another reporter (e.g. a legacy per-source
+	// server); skip it rather than failing every reconcile.
+	if task.Annotations[reporting.AnnotationWebhookGateway] == "" && r.config.TokenResolver == nil {
+		log.V(1).Info("Skipping reporting: no gateway annotation and no global token resolver", "task", task.Name)
+		return ctrl.Result{}, nil
+	}
+
 	resolver, baseURL, err := r.resolveReportingCreds(ctx, &task)
 	if err != nil {
 		log.Error(err, "Resolving GitHub credentials for reporting", "task", task.Name)

@@ -84,6 +84,15 @@ spec:
         - name: kelos-webhook-linear
           port: 8443
     {{- end }}
+    {{- /*
+      The gateway server (/webhook/<ns>/<name>) and the legacy generic server
+      (/webhook/<source>) both live under the /webhook/ prefix, so a single
+      PathPrefix cannot route to both. When the gateway server is enabled it
+      takes /webhook/, making the legacy generic server unreachable via this
+      route — migrate generic spawners onto a WebhookGateway (gatewayRef). The
+      github/linear servers use the more specific /webhook/github and
+      /webhook/linear prefixes and still coexist.
+    */}}
     {{- if $gatewayServerEnabled }}
     - matches:
         - path:

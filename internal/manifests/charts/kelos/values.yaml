@@ -83,7 +83,10 @@ webhookServer:
   # carries its own HMAC secret and (for github) API base URL and credentials,
   # so one deployment can serve github.com plus multiple GitHub Enterprise
   # instances. It replaces the per-source servers above for gateway-bound
-  # TaskSpawners; the two can run side by side during migration.
+  # TaskSpawners. The github/linear per-source servers can run alongside it
+  # (they use more specific Gateway-API paths), but enabling gatewayServer takes
+  # the /webhook/ prefix, so the legacy generic server becomes unreachable via
+  # Gateway API — migrate generic spawners onto a WebhookGateway.
   gatewayServer:
     enabled: false
     replicas: 1

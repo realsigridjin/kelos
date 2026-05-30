@@ -15,7 +15,20 @@ func NewSecretTokenResolver(secretData map[string][]byte, apiBaseURL string) (fu
 	if token := strings.TrimSpace(string(secretData["GITHUB_TOKEN"])); token != "" {
 		return func(context.Context) (string, error) { return token, nil }, nil
 	}
-	if IsGitHubApp(secretData) {
+
+	// Count how many GitHub App keys are present and non-empty. A partial set is
+	// a misconfiguration, not "no credentials": surface it instead of silently
+	// falling back to unauthenticated requests.
+	appKeys := 0
+	for _, k := range []string{"appID", "installationID", "privateKey"} {
+		if len(strings.TrimSpace(string(secretData[k]))) > 0 {
+			appKeys++
+		}
+	}
+	switch appKeys {
+	case 0:
+		return nil, nil
+	case 3:
 		creds, err := ParseCredentials(secretData)
 		if err != nil {
 			return nil, fmt.Errorf("parsing GitHub App credentials: %w", err)
@@ -25,6 +38,7 @@ func NewSecretTokenResolver(secretData map[string][]byte, apiBaseURL string) (fu
 			tc.BaseURL = apiBaseURL
 		}
 		return NewTokenProvider(tc, creds).Token, nil
+	default:
+		return nil, fmt.Errorf("incomplete GitHub App credentials: provide all of appID, installationID, and privateKey")
 	}
-	return nil, nil
 }
