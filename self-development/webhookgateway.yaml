@@ -17,8 +17,9 @@ spec:
     secretRef:
       name: github-webhook-secret
     # Outbound GitHub API credentials for PR-file enrichment and status
-    # reporting (these spawners enable reporting/checks). A PAT under the
-    # GITHUB_TOKEN key, or GitHub App keys (appID, installationID, privateKey).
-    # The credential needs repo and checks:write.
+    # reporting (these spawners enable reporting/checks). Reuses the same
+    # github-webhook-secret, which also holds the API credentials: a PAT under
+    # the GITHUB_TOKEN key, or GitHub App keys (appID, installationID,
+    # privateKey). The credential needs repo and checks:write.
     credentialsRef:
-      name: github-token
+      name: github-webhook-secret

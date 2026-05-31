@@ -358,16 +358,18 @@ func TestGatewayServeHTTP_SelfDevelopmentTriageCreatesTask(t *testing.T) {
 	spawner.Namespace = ns
 	spawner.UID = "kelos-triage-uid"
 
+	// The self-development gateway points both secretRef and credentialsRef at
+	// github-webhook-secret, so a single Secret holds both the HMAC key and the
+	// outbound API token.
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: gw.Spec.GitHub.SecretRef.Name, Namespace: ns},
-		Data:       map[string][]byte{gatewayWebhookSecretKey: []byte(testSecret)},
-	}
-	creds := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: gw.Spec.GitHub.CredentialsRef.Name, Namespace: ns},
-		Data:       map[string][]byte{"GITHUB_TOKEN": []byte("test-token")},
+		Data: map[string][]byte{
+			gatewayWebhookSecretKey: []byte(testSecret),
+			"GITHUB_TOKEN":          []byte("test-token"),
+		},
 	}
 
-	g := newTestGatewayHandler(t, &gw, &spawner, secret, creds)
+	g := newTestGatewayHandler(t, &gw, &spawner, secret)
 
 	// An issue opened on kelos-dev/kelos, open, without the triage-accepted
 	// label — matches the spawner's first filter.

@@ -358,19 +358,22 @@ references via `githubWebhook.gatewayRef`. The gateway authenticates inbound
 deliveries against its own secret and resolves outbound GitHub API credentials
 per gateway.
 
-Create the inbound HMAC secret — the gateway reads it under the `webhook-secret`
-key — and apply the gateway (in the same namespace as the TaskSpawners):
+Create the `github-webhook-secret` Secret (in the same namespace as the
+TaskSpawners) and apply the gateway. The gateway reads two things from it: the
+inbound HMAC secret under a `webhook-secret` key, and outbound GitHub API
+credentials for PR-file enrichment and status reporting — a `GITHUB_TOKEN` PAT
+or GitHub App keys; the credential needs `repo` and `checks:write`.
 
 ```bash
 kubectl create secret generic github-webhook-secret \
-  --from-literal=webhook-secret=<your-github-webhook-secret>
+  --from-literal=webhook-secret=<your-github-webhook-secret> \
+  --from-literal=GITHUB_TOKEN=<token-with-repo-and-checks:write>
+# Or use GitHub App credentials instead of GITHUB_TOKEN:
+#   --from-literal=appID=... --from-literal=installationID=... \
+#   --from-file=privateKey=app.private-key.pem
 
 kubectl apply -f webhookgateway.yaml
 ```
-
-The gateway's `github.credentialsRef` reuses the `github-token` Secret from
-step 2 for PR-file enrichment and status reporting; that token needs `repo` and
-`checks:write` (or point it at a GitHub App secret).
 
 Then:
 - Enable the gateway webhook server in your Kelos deployment —
