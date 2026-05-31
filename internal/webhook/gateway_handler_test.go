@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/go-logr/logr"
@@ -16,6 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	sigyaml "sigs.k8s.io/yaml"
 
 	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
 	"github.com/kelos-dev/kelos/internal/taskbuilder"
@@ -323,6 +326,85 @@ func TestExtractGatewayGenericDeliveryID_NamespaceScoped(t *testing.T) {
 	b := extractGatewayGenericDeliveryID("ns-b/gw", body, spawners)
 	if a == b {
 		t.Errorf("expected distinct delivery IDs across namespaces, both = %q", a)
+	}
+}
+
+// loadSelfDevManifest decodes a self-development manifest into a typed object.
+func loadSelfDevManifest(t *testing.T, file string, out interface{}) {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("..", "..", "self-development", file))
+	if err != nil {
+		t.Fatalf("reading %s: %v", file, err)
+	}
+	if err := sigyaml.Unmarshal(data, out); err != nil {
+		t.Fatalf("decoding %s: %v", file, err)
+	}
+}
+
+// TestGatewayServeHTTP_SelfDevelopmentTriageCreatesTask drives the real
+// self-development WebhookGateway + kelos-triage spawner end-to-end: a verified
+// `issues` delivery for kelos-dev/kelos routes through the gateway and creates a
+// Task for the triage spawner — confirming the existing use case works after the
+// gateway migration.
+func TestGatewayServeHTTP_SelfDevelopmentTriageCreatesTask(t *testing.T) {
+	const ns = "kelos-system"
+
+	var gw kelosv1alpha1.WebhookGateway
+	loadSelfDevManifest(t, "webhookgateway.yaml", &gw)
+	gw.Namespace = ns
+
+	var spawner kelosv1alpha1.TaskSpawner
+	loadSelfDevManifest(t, "kelos-triage.yaml", &spawner)
+	spawner.Namespace = ns
+	spawner.UID = "kelos-triage-uid"
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: gw.Spec.GitHub.SecretRef.Name, Namespace: ns},
+		Data:       map[string][]byte{gatewayWebhookSecretKey: []byte(testSecret)},
+	}
+	creds := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: gw.Spec.GitHub.CredentialsRef.Name, Namespace: ns},
+		Data:       map[string][]byte{"GITHUB_TOKEN": []byte("test-token")},
+	}
+
+	g := newTestGatewayHandler(t, &gw, &spawner, secret, creds)
+
+	// An issue opened on kelos-dev/kelos, open, without the triage-accepted
+	// label — matches the spawner's first filter.
+	body := []byte(`{
+		"action": "opened",
+		"sender": {"login": "some-reporter"},
+		"repository": {"full_name": "kelos-dev/kelos", "name": "kelos", "owner": {"login": "kelos-dev"}},
+		"issue": {
+			"number": 99,
+			"title": "Something is broken",
+			"body": "details",
+			"html_url": "https://github.com/kelos-dev/kelos/issues/99",
+			"state": "open",
+			"labels": []
+		}
+	}`)
+
+	req := httptest.NewRequest(http.MethodPost, "/webhook/"+ns+"/kelos", bytes.NewReader(body))
+	req.Header.Set(GitHubEventHeader, "issues")
+	req.Header.Set(GitHubDeliveryHeader, "triage-delivery-1")
+	req.Header.Set(GitHubSignatureHeader, signPayload(body, []byte(testSecret)))
+	rr := httptest.NewRecorder()
+
+	g.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	var tasks kelosv1alpha1.TaskList
+	if err := g.client.List(context.Background(), &tasks, client.InNamespace(ns)); err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks.Items) != 1 {
+		t.Fatalf("expected 1 task from the triage spawner, got %d", len(tasks.Items))
+	}
+	if got := tasks.Items[0].Labels["kelos.dev/taskspawner"]; got != "kelos-triage" {
+		t.Errorf("expected task owned by kelos-triage, got %q", got)
 	}
 }
 
