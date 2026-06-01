@@ -24,6 +24,44 @@
 | `spec.podOverrides.volumeMounts` | Additional volume mounts on the agent container; names must reference either a user-supplied volume from `volumes` or a Kelos-managed volume (`workspace`, `kelos-plugin`) | No |
 | `spec.podOverrides.podSecurityContext` | Pod-level security context applied to the agent pod. Fields set here override Kelos defaults; `fsGroup` retains the Kelos default when unset so the agent user keeps workspace access | No |
 | `spec.podOverrides.containerSecurityContext` | Security context applied to the agent container. Use to declare `allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]`, `readOnlyRootFilesystem: true`, etc., for PSS-restricted namespaces | No |
+| `spec.podOverrides.extraContainers` | Additional containers to run alongside the agent container in the same pod (max 8). They share the pod's network namespace (reachable via `localhost`) and can mount user-supplied volumes from `volumes`. Use for sidecars such as a database for integration tests or a proxy. Names must not collide with Kelos-reserved container names (`claude-code`, `codex`, `gemini`, `opencode`, `cursor`, `git-clone`, `remote-setup`, `branch-setup`, `workspace-files`, `plugin-setup`, `skills-install`), duplicate another entry, or appear in `extraInitContainers` (see [Extra Containers](#task-extra-containers) below) | No |
+| `spec.podOverrides.extraInitContainers` | Additional init containers (max 8), appended after all Kelos built-in init containers so the workspace is ready before they run. Set `restartPolicy: Always` for sidecar semantics (long-running services, K8s 1.29+) or leave it unset for one-shot pre-agent setup. They can mount user-supplied volumes from `volumes` as well as Kelos-managed volumes (`workspace`, `kelos-plugin`); workspace write access requires running as a UID in the pod's `fsGroup`. Same name constraints as `extraContainers` (see [Extra Containers](#task-extra-containers) below) | No |
+
+<a id="task-extra-containers"></a>
+
+### Extra Containers
+
+`spec.podOverrides.extraContainers` and `spec.podOverrides.extraInitContainers` let a Task run user-defined containers alongside the agent. Both lists accept a standard Kubernetes [Container](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#container-v1-core) and are subject to these constraints (validated by the API server and the controller):
+
+- Maximum 8 entries per list.
+- Container names must not collide with Kelos-reserved names: `claude-code`, `codex`, `gemini`, `opencode`, `cursor`, `git-clone`, `remote-setup`, `branch-setup`, `workspace-files`, `plugin-setup`, `skills-install`.
+- A name must not be duplicated within a list, and must not appear in both `extraContainers` and `extraInitContainers` (Kubernetes requires container names to be unique within a pod).
+- `extraInitContainers` run after every Kelos built-in init container, so the cloned workspace and installed plugins are already in place. Write access to the `workspace` volume requires running as a UID in the pod's `fsGroup` (the agent UID `61100` by default).
+
+Example — run a PostgreSQL sidecar for integration tests alongside the agent (reachable at `localhost:5432`):
+
+```yaml
+apiVersion: kelos.dev/v1alpha1
+kind: Task
+metadata:
+  name: integration-test
+spec:
+  type: claude-code
+  prompt: Run the integration test suite against the local PostgreSQL instance.
+  credentials:
+    type: api-key
+    secretRef:
+      name: claude-credentials
+  podOverrides:
+    extraContainers:
+      - name: postgres
+        image: postgres:16
+        env:
+          - name: POSTGRES_PASSWORD
+            value: testpass
+        ports:
+          - containerPort: 5432
+```
 
 ### Dependency Result Passing
 
@@ -253,7 +291,7 @@ GitHub Apps are preferred over PATs for production use because they offer fine-g
 | `spec.taskTemplate.dependsOn` | Task names that spawned Tasks depend on | No |
 | `spec.taskTemplate.branch` | Git branch template for spawned Tasks (supports Go template variables, e.g., `kelos-task-{{.Number}}`) | No |
 | `spec.taskTemplate.ttlSecondsAfterFinished` | Auto-delete spawned tasks after N seconds | No |
-| `spec.taskTemplate.podOverrides` | Pod customization for spawned Tasks (resources, timeout, env, nodeSelector, serviceAccountName, volumes, volumeMounts, podSecurityContext, containerSecurityContext) | No |
+| `spec.taskTemplate.podOverrides` | Pod customization for spawned Tasks (resources, timeout, env, nodeSelector, serviceAccountName, volumes, volumeMounts, podSecurityContext, containerSecurityContext, extraContainers, extraInitContainers). Same fields and constraints as `Task.spec.podOverrides` | No |
 | `spec.taskTemplate.metadata.labels` | Labels merged into spawned Tasks; values support the same Go template variables as `branch`/`promptTemplate`; the `kelos.dev/taskspawner` label is always set to the TaskSpawner name and overrides any user value for that key | No |
 | `spec.taskTemplate.metadata.annotations` | Annotations merged into spawned Tasks; values support the same Go template variables as `branch`/`promptTemplate`; source annotations (e.g. `kelos.dev/source-kind`) are applied after rendering and override conflicting user values | No |
 | `spec.taskTemplate.contextSources` | External data sources fetched in parallel before task creation; each source's value is exposed as `{{.Context.NAME}}` in `branch`, `promptTemplate`, and `metadata` templates (see [Context Sources](#context-sources) below). Maximum 8 entries; names must be unique | No |
