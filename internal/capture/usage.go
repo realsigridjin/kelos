@@ -2,6 +2,7 @@ package capture
 
 import (
 	"bufio"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -24,11 +25,11 @@ func newUsageAccumulator(agentType string) usageAccumulator {
 	case "claude-code":
 		return &lastResultAccumulator{extract: extractClaudeCode}
 	case "codex":
-		return &sumAccumulator{event: "turn.completed", extract: extractCodexUsage}
+		return &sumAccumulator{event: "turn.completed", extract: extractCodexUsage, extractResponse: extractCodexResponse}
 	case "gemini":
-		return &lastResultAccumulator{extract: extractGemini}
+		return &lastResultAccumulator{extract: extractGemini, extractResponse: extractGeminiResponse}
 	case "opencode":
-		return &sumAccumulator{event: "step_finish", extract: extractOpencodeUsage}
+		return &sumAccumulator{event: "step_finish", extract: extractOpencodeUsage, extractResponse: extractOpencodeResponse}
 	case "cursor":
 		return &lastResultAccumulator{extract: extractCursor}
 	default:
@@ -97,8 +98,10 @@ func StreamUsage(agentType string, r io.Reader, w io.Writer) (usage map[string]s
 // "result" and runs extract on it at EOF. Used by claude-code, gemini, and
 // cursor whose totals live in the final result line.
 type lastResultAccumulator struct {
-	last    map[string]any
-	extract func(map[string]any) map[string]string
+	last            map[string]any
+	extract         func(map[string]any) map[string]string
+	extractResponse func(map[string]any) string
+	response        string
 }
 
 func (a *lastResultAccumulator) addLine(line []byte) {
@@ -109,40 +112,73 @@ func (a *lastResultAccumulator) addLine(line []byte) {
 	if m["type"] == "result" {
 		a.last = m
 	}
+	if a.extractResponse != nil {
+		if r := a.extractResponse(m); r != "" {
+			a.response = r
+		}
+	}
 }
 
 func (a *lastResultAccumulator) result() map[string]string {
-	if a.last == nil {
+	if a.last == nil && a.response == "" {
 		return nil
 	}
-	return a.extract(a.last)
+	var r map[string]string
+	if a.last != nil {
+		r = a.extract(a.last)
+	}
+	if a.response != "" {
+		if r == nil {
+			r = make(map[string]string)
+		}
+		if _, ok := r["response"]; !ok {
+			r["response"] = base64.StdEncoding.EncodeToString([]byte(a.response))
+		}
+	}
+	return r
 }
 
 // sumAccumulator adds per-event input/output token counts as the stream is
 // read. Used by codex and opencode whose totals are spread across many
 // per-turn or per-step events.
 type sumAccumulator struct {
-	event   string
-	extract func(map[string]any) (int64, int64)
-	in, out int64
+	event           string
+	extract         func(map[string]any) (int64, int64)
+	extractResponse func(map[string]any) string
+	in, out         int64
+	response        string
 }
 
 func (a *sumAccumulator) addLine(line []byte) {
 	m := parseLine(line)
-	if m == nil || m["type"] != a.event {
+	if m == nil {
 		return
 	}
-	i, o := a.extract(m)
-	a.in += i
-	a.out += o
+	if m["type"] == a.event {
+		i, o := a.extract(m)
+		a.in += i
+		a.out += o
+	}
+	if a.extractResponse != nil {
+		if r := a.extractResponse(m); r != "" {
+			a.response = r
+		}
+	}
 }
 
 func (a *sumAccumulator) result() map[string]string {
-	return tokenResult(a.in, a.out)
+	r := tokenResult(a.in, a.out)
+	if a.response != "" {
+		if r == nil {
+			r = make(map[string]string)
+		}
+		r["response"] = base64.StdEncoding.EncodeToString([]byte(a.response))
+	}
+	return r
 }
 
-// extractClaudeCode reads cost and token counts from a claude-code
-// {"type":"result","total_cost_usd":N,"usage":{"input_tokens":N,"output_tokens":N}} line.
+// extractClaudeCode reads cost, token counts, and the agent response from a claude-code
+// {"type":"result","total_cost_usd":N,"usage":{"input_tokens":N,"output_tokens":N},"result":"..."} line.
 func extractClaudeCode(m map[string]any) map[string]string {
 	result := make(map[string]string)
 	if v, ok := m["total_cost_usd"]; ok {
@@ -156,14 +192,17 @@ func extractClaudeCode(m map[string]any) map[string]string {
 			result["output-tokens"] = formatNumber(v)
 		}
 	}
+	if resp, ok := m["result"].(string); ok && resp != "" {
+		result["response"] = base64.StdEncoding.EncodeToString([]byte(resp))
+	}
 	if len(result) == 0 {
 		return nil
 	}
 	return result
 }
 
-// extractCursor reads token counts from a cursor
-// {"type":"result","usage":{"inputTokens":N,"outputTokens":N}} line.
+// extractCursor reads token counts and the agent response from a cursor
+// {"type":"result","usage":{"inputTokens":N,"outputTokens":N},"result":"..."} line.
 // Cursor uses camelCase field names instead of claude-code's snake_case.
 func extractCursor(m map[string]any) map[string]string {
 	result := make(map[string]string)
@@ -174,6 +213,9 @@ func extractCursor(m map[string]any) map[string]string {
 		if v, ok := usage["outputTokens"]; ok {
 			result["output-tokens"] = formatNumber(v)
 		}
+	}
+	if resp, ok := m["result"].(string); ok && resp != "" {
+		result["response"] = base64.StdEncoding.EncodeToString([]byte(resp))
 	}
 	if len(result) == 0 {
 		return nil
@@ -223,6 +265,51 @@ func extractOpencodeUsage(m map[string]any) (int64, int64) {
 		return 0, 0
 	}
 	return toInt64(tokens["input"]), toInt64(tokens["output"])
+}
+
+// extractGeminiResponse returns the assistant message content from a gemini
+// {"type":"message","role":"assistant","delta":false,"content":"..."} event.
+// Returns "" for non-matching events so the caller keeps the last non-empty value.
+func extractGeminiResponse(m map[string]any) string {
+	if m["type"] != "message" {
+		return ""
+	}
+	if m["role"] != "assistant" {
+		return ""
+	}
+	// delta messages are streaming chunks; only full messages count.
+	if delta, ok := m["delta"].(bool); ok && delta {
+		return ""
+	}
+	content, _ := m["content"].(string)
+	return content
+}
+
+// extractCodexResponse returns the agent message text from a codex
+// {"type":"item.completed","item":{"type":"agent_message","text":"..."}} event.
+func extractCodexResponse(m map[string]any) string {
+	if m["type"] != "item.completed" {
+		return ""
+	}
+	item, ok := m["item"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	if item["type"] != "agent_message" {
+		return ""
+	}
+	text, _ := item["text"].(string)
+	return text
+}
+
+// extractOpencodeResponse returns the text content from an opencode
+// {"type":"text","text":"..."} event.
+func extractOpencodeResponse(m map[string]any) string {
+	if m["type"] != "text" {
+		return ""
+	}
+	text, _ := m["text"].(string)
+	return text
 }
 
 // tokenResult builds a result map from token sums, returning nil if both are zero.
