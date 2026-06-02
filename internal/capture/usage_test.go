@@ -39,6 +39,19 @@ func TestStreamUsage(t *testing.T) {
 			},
 		},
 		{
+			name:      "claude-code captures response",
+			agentType: "claude-code",
+			content: `{"type":"assistant","message":"thinking..."}
+{"type":"result","total_cost_usd":0.05,"result":"Here are the PRs I opened.","usage":{"input_tokens":200,"output_tokens":100}}
+`,
+			want: map[string]string{
+				"cost-usd":      "0.05",
+				"input-tokens":  "200",
+				"output-tokens": "100",
+				"response":      "SGVyZSBhcmUgdGhlIFBScyBJIG9wZW5lZC4=", // base64("Here are the PRs I opened.")
+			},
+		},
+		{
 			name:      "codex sums turns",
 			agentType: "codex",
 			content: `{"type":"turn.started"}
@@ -49,6 +62,22 @@ func TestStreamUsage(t *testing.T) {
 			want: map[string]string{
 				"input-tokens":  "300",
 				"output-tokens": "200",
+			},
+		},
+		{
+			name:      "codex captures response from last agent_message",
+			agentType: "codex",
+			content: `{"type":"turn.started"}
+{"type":"item.completed","item":{"type":"agent_message","text":"Working on it..."}}
+{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":50}}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"type":"agent_message","text":"All done!"}}
+{"type":"turn.completed","usage":{"input_tokens":200,"output_tokens":150}}
+`,
+			want: map[string]string{
+				"input-tokens":  "300",
+				"output-tokens": "200",
+				"response":      "QWxsIGRvbmUh", // base64("All done!")
 			},
 		},
 		{
@@ -69,6 +98,20 @@ func TestStreamUsage(t *testing.T) {
 			},
 		},
 		{
+			name:      "gemini captures response from last assistant message",
+			agentType: "gemini",
+			content: `{"type":"message","role":"assistant","delta":true,"content":"partial"}
+{"type":"message","role":"assistant","content":"Here are the files."}
+{"type":"message","role":"assistant","content":"All tasks complete."}
+{"type":"result","stats":{"inputTokens":500,"outputTokens":100}}
+`,
+			want: map[string]string{
+				"input-tokens":  "500",
+				"output-tokens": "100",
+				"response":      "QWxsIHRhc2tzIGNvbXBsZXRlLg==", // base64("All tasks complete.")
+			},
+		},
+		{
 			name:      "opencode sums steps",
 			agentType: "opencode",
 			content: `{"type":"step_start"}
@@ -82,6 +125,22 @@ func TestStreamUsage(t *testing.T) {
 			},
 		},
 		{
+			name:      "opencode captures response from last text event",
+			agentType: "opencode",
+			content: `{"type":"step_start"}
+{"type":"text","text":"Investigating the issue..."}
+{"type":"step_finish","part":{"tokens":{"input":500,"output":200}}}
+{"type":"step_start"}
+{"type":"text","text":"Fixed the bug."}
+{"type":"step_finish","part":{"tokens":{"input":300,"output":100}}}
+`,
+			want: map[string]string{
+				"input-tokens":  "800",
+				"output-tokens": "300",
+				"response":      "Rml4ZWQgdGhlIGJ1Zy4=", // base64("Fixed the bug.")
+			},
+		},
+		{
 			name:      "cursor result with camelCase usage",
 			agentType: "cursor",
 			content: `{"type":"thinking","subtype":"delta","text":"working..."}
@@ -90,6 +149,7 @@ func TestStreamUsage(t *testing.T) {
 			want: map[string]string{
 				"input-tokens":  "36067",
 				"output-tokens": "227",
+				"response":      "ZG9uZQ==", // base64("done")
 			},
 		},
 		{
