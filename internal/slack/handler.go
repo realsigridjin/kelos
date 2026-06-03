@@ -37,6 +37,7 @@ type SlackHandler struct {
 	api         *goslack.Client
 	sm          *socketmode.Client
 	botUserID   string
+	botID       string
 	joinMessage string
 	cancel      context.CancelFunc
 }
@@ -56,7 +57,7 @@ func NewSlackHandler(ctx context.Context, cl client.Client, botToken, appToken, 
 		return nil, fmt.Errorf("Creating task builder: %w", err)
 	}
 
-	log.Info("Authenticated with Slack", "botUserID", authResp.UserID)
+	log.Info("Authenticated with Slack", "botUserID", authResp.UserID, "botID", authResp.BotID)
 
 	var joinMessage string
 	if joinMessageFile != "" {
@@ -77,6 +78,7 @@ func NewSlackHandler(ctx context.Context, cl client.Client, botToken, appToken, 
 		api:         api,
 		sm:          newSocketModeClient(api),
 		botUserID:   authResp.UserID,
+		botID:       authResp.BotID,
 		joinMessage: joinMessage,
 	}, nil
 }
@@ -166,7 +168,7 @@ func (h *SlackHandler) handleMemberJoinedChannel(ctx context.Context, evt *slack
 func (h *SlackHandler) handleMessageEvent(ctx context.Context, innerEvent *slackevents.MessageEvent) {
 	hasContent := innerEvent.Text != "" ||
 		(innerEvent.Message != nil && len(innerEvent.Message.Attachments) > 0)
-	if !shouldProcess(innerEvent.User, innerEvent.SubType, hasContent, h.botUserID) {
+	if !shouldProcess(innerEvent.SubType, hasContent) {
 		h.log.V(1).Info("Message filtered by shouldProcess",
 			"user", innerEvent.User, "subtype", innerEvent.SubType, "channel", innerEvent.Channel)
 		return
@@ -174,6 +176,16 @@ func (h *SlackHandler) handleMessageEvent(ctx context.Context, innerEvent *slack
 
 	// Enrich message with user info, permalink, channel name
 	msg := h.enrichMessage(ctx, innerEvent)
+
+	// Mark bot-originated messages so spawner-level filtering can decide.
+	// Bot posts via PostMessageContext arrive as subtype "bot_message" with
+	// BotID set and an empty User field, so we must check both identifiers.
+	if innerEvent.SubType == "bot_message" || innerEvent.BotID != "" || innerEvent.User == h.botUserID {
+		msg.IsBotMessage = true
+	}
+	if innerEvent.User == h.botUserID || (h.botID != "" && innerEvent.BotID == h.botID) {
+		msg.IsSelfMessage = true
+	}
 
 	// For thread replies, fetch full thread context so the agent sees
 	// the entire conversation. Spawner filters (mention + triggers)
@@ -430,14 +442,12 @@ func newSocketModeClient(api *goslack.Client) *socketmode.Client {
 }
 
 // shouldProcess decides whether a Slack message should be processed.
-// It filters out bot messages, self-messages, and message subtypes we don't handle.
-// hasContent should be true when the message has text or attachments.
-func shouldProcess(userID, subtype string, hasContent bool, selfUserID string) bool {
-	if userID == selfUserID {
-		return false
-	}
+// It filters out message subtypes that represent edits/deletes rather than
+// new content. Bot and self-message filtering is deferred to per-spawner
+// configuration (BotMessages field).
+func shouldProcess(subtype string, hasContent bool) bool {
 	switch subtype {
-	case "bot_message", "message_changed", "message_deleted", "message_replied":
+	case "message_changed", "message_deleted", "message_replied":
 		return false
 	}
 	return hasContent

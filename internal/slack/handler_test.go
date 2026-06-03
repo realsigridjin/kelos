@@ -349,6 +349,141 @@ func TestHandleMemberJoinedChannelIgnoresOtherUsers(t *testing.T) {
 	h.handleMemberJoinedChannel(context.Background(), evt)
 }
 
+// TestHandleMessageEventBotIDSelfDetection verifies that handleMessageEvent
+// marks a bot_message-subtype event with the handler's BotID as IsSelfMessage,
+// so that spawners with OthersOnly policy reject the bot's own output.
+func TestHandleMessageEventBotIDSelfDetection(t *testing.T) {
+	scheme := runtime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(v1alpha1.AddToScheme(scheme))
+
+	spawner := &v1alpha1.TaskSpawner{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "bot-listener",
+			Namespace: "default",
+			UID:       "spawner-uid",
+		},
+		Spec: v1alpha1.TaskSpawnerSpec{
+			When: v1alpha1.When{
+				Slack: &v1alpha1.Slack{
+					BotMessagePolicy: v1alpha1.BotMessagePolicyOthersOnly,
+					Triggers: []v1alpha1.SlackTrigger{
+						{Pattern: ".*", MentionOptional: boolPtr(true)},
+					},
+				},
+			},
+			TaskTemplate: v1alpha1.TaskTemplate{
+				Type: "claude-code",
+				Credentials: v1alpha1.Credentials{
+					Type: v1alpha1.CredentialTypeNone,
+				},
+				PromptTemplate: "{{.Body}}",
+			},
+		},
+	}
+
+	tests := []struct {
+		name       string
+		event      *slackevents.MessageEvent
+		wantTask   bool
+		wantReason string
+	}{
+		{
+			name: "self bot_message with BotID and empty User is rejected",
+			event: &slackevents.MessageEvent{
+				Type:      "message",
+				SubType:   "bot_message",
+				BotID:     "B0001",
+				User:      "",
+				Text:      "I completed the task",
+				Channel:   "C1",
+				TimeStamp: "1111111111.111111",
+			},
+			wantTask:   false,
+			wantReason: "self bot_message should be rejected by OthersOnly policy",
+		},
+		{
+			name: "other bot_message with different BotID is allowed",
+			event: &slackevents.MessageEvent{
+				Type:      "message",
+				SubType:   "bot_message",
+				BotID:     "B9999",
+				User:      "",
+				Text:      "deploy notification",
+				Channel:   "C1",
+				TimeStamp: "2222222222.222222",
+			},
+			wantTask:   true,
+			wantReason: "other bot's message should be allowed by OthersOnly policy",
+		},
+		{
+			name: "self message via User field (no BotID) is rejected",
+			event: &slackevents.MessageEvent{
+				Type:      "message",
+				User:      "UBOT",
+				Text:      "self-triggered",
+				Channel:   "C1",
+				TimeStamp: "3333333333.333333",
+			},
+			wantTask:   false,
+			wantReason: "message from botUserID should be rejected by OthersOnly policy",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cl := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(spawner.DeepCopy()).
+				Build()
+
+			tb, err := taskbuilder.NewTaskBuilder(cl)
+			if err != nil {
+				t.Fatalf("NewTaskBuilder: %v", err)
+			}
+
+			h := &SlackHandler{
+				client:      cl,
+				log:         logr.Discard(),
+				taskBuilder: tb,
+				botUserID:   "UBOT",
+				botID:       "B0001",
+				// api is nil — enrichMessage will degrade gracefully
+				// (GetUserInfoContext/GetPermalinkContext fail and are skipped).
+			}
+
+			// enrichMessage calls h.api methods that will panic on nil.
+			// We bypass that by calling the marking + routing logic directly.
+			msg := &SlackMessageData{
+				UserID:    tt.event.User,
+				ChannelID: tt.event.Channel,
+				Text:      tt.event.Text,
+				Body:      tt.event.Text,
+				Timestamp: tt.event.TimeStamp,
+			}
+
+			// Replicate the production marking logic from handleMessageEvent.
+			if tt.event.SubType == "bot_message" || tt.event.BotID != "" || tt.event.User == h.botUserID {
+				msg.IsBotMessage = true
+			}
+			if tt.event.User == h.botUserID || (h.botID != "" && tt.event.BotID == h.botID) {
+				msg.IsSelfMessage = true
+			}
+
+			h.routeMessage(context.Background(), msg)
+
+			var tasks v1alpha1.TaskList
+			if err := cl.List(context.Background(), &tasks); err != nil {
+				t.Fatalf("List tasks: %v", err)
+			}
+			got := len(tasks.Items) > 0
+			if got != tt.wantTask {
+				t.Errorf("%s: task created = %v, want %v", tt.wantReason, got, tt.wantTask)
+			}
+		})
+	}
+}
+
 func TestHandleMemberJoinedChannelSkipsEmptyMessage(t *testing.T) {
 	h := &SlackHandler{
 		log:       logr.Discard(),

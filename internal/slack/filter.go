@@ -36,6 +36,10 @@ type SlackMessageData struct {
 	IsSlashCommand bool
 	// SlashCommandID is the composite ID for slash commands (channelID:command:triggerID).
 	SlashCommandID string
+	// IsBotMessage indicates the message originated from a bot.
+	IsBotMessage bool
+	// IsSelfMessage indicates the message was sent by the bot itself.
+	IsSelfMessage bool
 }
 
 var regexpCache sync.Map
@@ -63,8 +67,8 @@ func getOrCompileRegexp(pattern string) (*regexp.Regexp, error) {
 }
 
 // MatchesSpawner checks whether a Slack message matches the given TaskSpawner's
-// Slack configuration (channels, bot mention, trigger patterns, and exclude
-// patterns).
+// Slack configuration (channels, bot mention, trigger patterns, exclude
+// patterns, and bot message policy).
 func MatchesSpawner(slackCfg *v1alpha1.Slack, msg *SlackMessageData, botUserID string) bool {
 	if slackCfg == nil {
 		return false
@@ -75,6 +79,20 @@ func MatchesSpawner(slackCfg *v1alpha1.Slack, msg *SlackMessageData, botUserID s
 	// Slash commands bypass mention, trigger, and exclude filters.
 	if msg.IsSlashCommand {
 		return true
+	}
+	// Apply bot message policy.
+	if msg.IsBotMessage {
+		switch slackCfg.BotMessagePolicy {
+		case v1alpha1.BotMessagePolicyAll:
+			// Allow all bot messages including self.
+		case v1alpha1.BotMessagePolicyOthersOnly:
+			if msg.IsSelfMessage {
+				return false
+			}
+		default:
+			// None or empty — reject all bot messages.
+			return false
+		}
 	}
 	var positiveMatch bool
 	if len(slackCfg.Triggers) == 0 {

@@ -617,6 +617,14 @@ type Slack struct {
 	// +kubebuilder:validation:items:Pattern=`^[CG][A-Z0-9]{8,}$`
 	Channels []string `json:"channels,omitempty"`
 
+	// BotMessages controls whether bot-originated messages can trigger this
+	// spawner. Accepting bot messages carries loop risk — especially "All"
+	// which includes the bot's own output. Use ExcludePatterns or Triggers
+	// to guard against runaway self-triggering.
+	// +optional
+	// +kubebuilder:validation:Enum=None;All;OthersOnly
+	BotMessagePolicy BotMessagePolicy `json:"botMessagePolicy,omitempty"`
+
 	// Triggers define regex patterns that must match the message text.
 	// Bot mention is implicitly required unless MentionOptional is set.
 	// Multiple triggers use OR semantics. When empty, every bot mention fires.
@@ -651,6 +659,19 @@ type SlackTrigger struct {
 	// +optional
 	MentionOptional *bool `json:"mentionOptional,omitempty"`
 }
+
+// BotMessagePolicy controls whether bot-originated messages can trigger a spawner.
+type BotMessagePolicy string
+
+const (
+	// BotMessagePolicyNone rejects all bot messages including self (default).
+	BotMessagePolicyNone BotMessagePolicy = "None"
+	// BotMessagePolicyAll allows all bot messages including the bot's own output.
+	BotMessagePolicyAll BotMessagePolicy = "All"
+	// BotMessagePolicyOthersOnly allows messages from other bots but rejects
+	// the bot's own messages to prevent self-trigger loops.
+	BotMessagePolicyOthersOnly BotMessagePolicy = "OthersOnly"
+)
 
 // ContextSourceFailurePolicy determines behavior when a context source fails.
 type ContextSourceFailurePolicy string

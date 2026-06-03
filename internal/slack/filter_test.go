@@ -272,6 +272,87 @@ func TestMatchesSpawner(t *testing.T) {
 			botUserID: "UBOT1",
 			want:      true,
 		},
+		{
+			name:      "bot message rejected by default (empty policy)",
+			slackCfg:  &v1alpha1.Slack{},
+			msg:       &SlackMessageData{UserID: "UOTHER", ChannelID: "C1", Text: "<@UBOT1> hello", IsBotMessage: true},
+			botUserID: "UBOT1",
+			want:      false,
+		},
+		{
+			name: "bot message rejected when policy is None",
+			slackCfg: &v1alpha1.Slack{
+				BotMessagePolicy: v1alpha1.BotMessagePolicyNone,
+			},
+			msg:       &SlackMessageData{UserID: "UOTHER", ChannelID: "C1", Text: "<@UBOT1> hello", IsBotMessage: true},
+			botUserID: "UBOT1",
+			want:      false,
+		},
+		{
+			name: "other bot message allowed when policy is All",
+			slackCfg: &v1alpha1.Slack{
+				BotMessagePolicy: v1alpha1.BotMessagePolicyAll,
+			},
+			msg:       &SlackMessageData{UserID: "UOTHER", ChannelID: "C1", Text: "<@UBOT1> hello", IsBotMessage: true},
+			botUserID: "UBOT1",
+			want:      true,
+		},
+		{
+			name: "self message allowed when policy is All",
+			slackCfg: &v1alpha1.Slack{
+				BotMessagePolicy: v1alpha1.BotMessagePolicyAll,
+			},
+			msg:       &SlackMessageData{UserID: "UBOT1", ChannelID: "C1", Text: "<@UBOT1> self-trigger", IsBotMessage: true, IsSelfMessage: true},
+			botUserID: "UBOT1",
+			want:      true,
+		},
+		{
+			name: "other bot allowed when policy is OthersOnly",
+			slackCfg: &v1alpha1.Slack{
+				BotMessagePolicy: v1alpha1.BotMessagePolicyOthersOnly,
+			},
+			msg:       &SlackMessageData{UserID: "UOTHER", ChannelID: "C1", Text: "<@UBOT1> hello", IsBotMessage: true},
+			botUserID: "UBOT1",
+			want:      true,
+		},
+		{
+			name: "self message rejected when policy is OthersOnly",
+			slackCfg: &v1alpha1.Slack{
+				BotMessagePolicy: v1alpha1.BotMessagePolicyOthersOnly,
+			},
+			msg:       &SlackMessageData{UserID: "UBOT1", ChannelID: "C1", Text: "<@UBOT1> self-trigger", IsBotMessage: true, IsSelfMessage: true},
+			botUserID: "UBOT1",
+			want:      false,
+		},
+		{
+			name: "bot message with triggers and policy All",
+			slackCfg: &v1alpha1.Slack{
+				BotMessagePolicy: v1alpha1.BotMessagePolicyAll,
+				Triggers:         []v1alpha1.SlackTrigger{{Pattern: "deploy"}},
+			},
+			msg:       &SlackMessageData{UserID: "UOTHER", ChannelID: "C1", Text: "<@UBOT1> deploy now", IsBotMessage: true},
+			botUserID: "UBOT1",
+			want:      true,
+		},
+		{
+			name: "bot message with triggers but pattern does not match",
+			slackCfg: &v1alpha1.Slack{
+				BotMessagePolicy: v1alpha1.BotMessagePolicyAll,
+				Triggers:         []v1alpha1.SlackTrigger{{Pattern: "deploy"}},
+			},
+			msg:       &SlackMessageData{UserID: "UOTHER", ChannelID: "C1", Text: "<@UBOT1> fix bug", IsBotMessage: true},
+			botUserID: "UBOT1",
+			want:      false,
+		},
+		{
+			name: "bot slash command bypasses bot policy",
+			slackCfg: &v1alpha1.Slack{
+				BotMessagePolicy: v1alpha1.BotMessagePolicyNone,
+			},
+			msg:       &SlackMessageData{UserID: "UBOT1", ChannelID: "C1", Text: "do stuff", IsSlashCommand: true, IsBotMessage: true, IsSelfMessage: true},
+			botUserID: "UBOT1",
+			want:      true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -351,70 +432,49 @@ func TestExtractSlackWorkItem(t *testing.T) {
 func TestShouldProcess(t *testing.T) {
 	tests := []struct {
 		name       string
-		userID     string
 		subtype    string
 		hasContent bool
-		selfUserID string
 		want       bool
 	}{
 		{
 			name:       "normal message",
-			userID:     "U1",
 			hasContent: true,
-			selfUserID: "UBOT",
 			want:       true,
 		},
 		{
-			name:       "self message filtered",
-			userID:     "UBOT",
-			hasContent: true,
-			selfUserID: "UBOT",
-			want:       false,
-		},
-		{
-			name:       "bot_message subtype filtered",
-			userID:     "U1",
+			name:       "bot_message subtype allowed through",
 			subtype:    "bot_message",
 			hasContent: true,
-			selfUserID: "UBOT",
-			want:       false,
+			want:       true,
 		},
 		{
 			name:       "message_changed subtype filtered",
-			userID:     "U1",
 			subtype:    "message_changed",
 			hasContent: true,
-			selfUserID: "UBOT",
 			want:       false,
 		},
 		{
 			name:       "message_deleted subtype filtered",
-			userID:     "U1",
 			subtype:    "message_deleted",
 			hasContent: true,
-			selfUserID: "UBOT",
 			want:       false,
 		},
 		{
 			name:       "message_replied subtype filtered",
-			userID:     "U1",
 			subtype:    "message_replied",
 			hasContent: true,
-			selfUserID: "UBOT",
 			want:       false,
 		},
 		{
 			name:       "no content filtered",
-			userID:     "U1",
 			hasContent: false,
-			selfUserID: "UBOT",
 			want:       false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := shouldProcess(tt.userID, tt.subtype, tt.hasContent, tt.selfUserID)
+			got := shouldProcess(tt.subtype, tt.hasContent)
 			if got != tt.want {
 				t.Errorf("shouldProcess() = %v, want %v", got, tt.want)
 			}
