@@ -18,6 +18,7 @@ PROMPT="${1:?Prompt argument is required}"
 if [ -n "${CODEX_AUTH_JSON:-}" ]; then
   mkdir -p ~/.codex
   printf '%s' "$CODEX_AUTH_JSON" | tr -d '\n\r' >~/.codex/auth.json
+  printf 'cli_auth_credentials_store = "file"\n' >>~/.codex/config.toml
 fi
 
 ARGS=(
