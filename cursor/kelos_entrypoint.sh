@@ -29,9 +29,16 @@ if [ -n "${KELOS_MODEL:-}" ]; then
 fi
 
 # Write user-level instructions (global scope read by Cursor CLI)
-if [ -n "${KELOS_AGENTS_MD:-}" ]; then
+if [ -n "${KELOS_AGENTS_MD:-}" ] || [ -n "${KELOS_EFFORT:-}" ]; then
   mkdir -p ~/.cursor
-  printf '%s' "$KELOS_AGENTS_MD" >~/.cursor/AGENTS.md
+  {
+    if [ -n "${KELOS_AGENTS_MD:-}" ]; then
+      printf '%s\n' "$KELOS_AGENTS_MD"
+    fi
+    if [ -n "${KELOS_EFFORT:-}" ]; then
+      printf '\n# Kelos Effort\nUse %s reasoning effort for this task.\n' "$KELOS_EFFORT"
+    fi
+  } >~/.cursor/AGENTS.md
 fi
 
 # Install each plugin's skills and agents into Cursor's config directories.

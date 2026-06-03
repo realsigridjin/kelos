@@ -14,6 +14,7 @@ secret: my-secret
 credentialType: oauth
 type: codex
 model: claude-sonnet-4-5-20250929
+effort: high
 namespace: my-namespace
 workspace:
   name: my-workspace
@@ -38,6 +39,9 @@ workspace:
 	}
 	if cfg.Model != "claude-sonnet-4-5-20250929" {
 		t.Errorf("Model = %q, want %q", cfg.Model, "claude-sonnet-4-5-20250929")
+	}
+	if cfg.Effort != "high" {
+		t.Errorf("Effort = %q, want %q", cfg.Effort, "high")
 	}
 	if cfg.Namespace != "my-namespace" {
 		t.Errorf("Namespace = %q, want %q", cfg.Namespace, "my-namespace")

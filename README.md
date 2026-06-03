@@ -38,7 +38,7 @@ Kelos is built on four resources, grouped by the two concerns above:
 
 **Defining the agent and its environment**
 
-- **Tasks** — A single agent run: prompt, model, credentials, and Pod-level overrides.
+- **Tasks** — A single agent run: prompt, model, effort, credentials, and Pod-level overrides.
 - **Workspaces** — The git repository (URL, ref, auth) the agent operates in.
 - **AgentConfigs** — Reusable bundles of agent instructions (`AGENTS.md`, `CLAUDE.md`), plugins (skills and agents), and MCP servers.
 
@@ -542,7 +542,7 @@ Kelos uses standard Kubernetes RBAC — use namespace isolation to separate team
 
 Running AI agents costs real money. Here's how to stay in control:
 
-**Model costs vary significantly.** Opus is the most capable but most expensive model. Use `spec.model` (or `model` in config) to choose cheaper models like Sonnet for routine tasks and reserve Opus for complex work. Check the [API pricing](https://docs.anthropic.com/en/docs/about-claude/pricing) page for current rates.
+**Model and effort costs vary significantly.** Use `spec.model` (or `model` in config) to choose the model for each workflow, and use `spec.effort` (or `effort` in config) to lower reasoning effort for routine work or raise it for complex reviews and planning. Check your provider's pricing page for current rates.
 
 **Use `maxConcurrency` to cap spend.** Without it, a TaskSpawner can create unlimited concurrent tasks. If 100 issues match your filter on first poll, that's 100 simultaneous agent runs. Always set a limit:
 

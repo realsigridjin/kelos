@@ -53,6 +53,7 @@ func TestRunCommand_DryRun(t *testing.T) {
 		"--prompt", "hello world",
 		"--name", "test-task",
 		"--namespace", "test-ns",
+		"--effort", "xhigh",
 	})
 
 	// Capture stdout.
@@ -84,12 +85,47 @@ func TestRunCommand_DryRun(t *testing.T) {
 	if !strings.Contains(output, "prompt: hello world") {
 		t.Errorf("expected YAML output to contain 'prompt: hello world', got:\n%s", output)
 	}
+	if !strings.Contains(output, "effort: xhigh") {
+		t.Errorf("expected YAML output to contain 'effort: xhigh', got:\n%s", output)
+	}
 	if !strings.Contains(output, "my-secret") {
 		t.Errorf("expected YAML output to contain secret name 'my-secret', got:\n%s", output)
 	}
 	// Ensure no "created" message is printed.
 	if strings.Contains(output, "created") {
 		t.Errorf("dry-run should not print 'created' message, got:\n%s", output)
+	}
+}
+
+func TestRunCommand_DryRun_ConfigEffort(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("secret: my-secret\neffort: high\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	cmd := NewRootCommand()
+	cmd.SetOut(&buf)
+	cmd.SetArgs([]string{
+		"run",
+		"--config", cfgPath,
+		"--dry-run",
+		"--prompt", "hello world",
+		"--name", "test-task",
+		"--namespace", "test-ns",
+	})
+
+	var execErr error
+	output := captureStdout(t, func() {
+		execErr = cmd.Execute()
+	})
+	if execErr != nil {
+		t.Fatalf("unexpected error: %v", execErr)
+	}
+
+	if !strings.Contains(output, "effort: high") {
+		t.Errorf("expected YAML output to contain config effort, got:\n%s", output)
 	}
 }
 

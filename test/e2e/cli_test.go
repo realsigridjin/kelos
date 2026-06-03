@@ -27,6 +27,7 @@ var _ = Describe("CLI", func() {
 			"--secret", "claude-credentials",
 			"--credential-type", "oauth",
 			"--model", testModel,
+			"--effort", "high",
 			"--name", "cli-task",
 		)
 
@@ -37,17 +38,24 @@ var _ = Describe("CLI", func() {
 		output := framework.KelosOutput("get", "task", "cli-task", "-n", f.Namespace)
 		Expect(output).To(ContainSubstring("Succeeded"))
 
+		By("verifying task effort was persisted")
+		task, err := f.KelosClientset.ApiV1alpha1().Tasks(f.Namespace).Get(context.TODO(), "cli-task", metav1.GetOptions{})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(task.Spec.Effort).To(Equal("high"))
+
 		By("verifying YAML output for a single task")
 		output = framework.KelosOutput("get", "task", "cli-task", "-n", f.Namespace, "-o", "yaml")
 		Expect(output).To(ContainSubstring("apiVersion: kelos.dev/v1alpha1"))
 		Expect(output).To(ContainSubstring("kind: Task"))
 		Expect(output).To(ContainSubstring("name: cli-task"))
+		Expect(output).To(ContainSubstring("effort: high"))
 
 		By("verifying JSON output for a single task")
 		output = framework.KelosOutput("get", "task", "cli-task", "-n", f.Namespace, "-o", "json")
 		Expect(output).To(ContainSubstring(`"apiVersion": "kelos.dev/v1alpha1"`))
 		Expect(output).To(ContainSubstring(`"kind": "Task"`))
 		Expect(output).To(ContainSubstring(`"name": "cli-task"`))
+		Expect(output).To(ContainSubstring(`"effort": "high"`))
 
 		By("verifying task logs via CLI")
 		logs := framework.KelosOutput("logs", "cli-task", "-n", f.Namespace)

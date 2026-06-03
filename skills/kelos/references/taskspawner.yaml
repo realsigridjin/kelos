@@ -13,6 +13,7 @@ spec:
       state: open
   taskTemplate:
     type: claude-code
+    effort: high
     workspaceRef:
       name: my-workspace
     credentials:

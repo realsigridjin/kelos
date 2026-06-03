@@ -80,6 +80,51 @@ func TestKelosAPIReviewerTriggerableByBot(t *testing.T) {
 	assertReviewerTriggerableByBot(t, "kelos-api-reviewer.yaml", "/kelos api-review")
 }
 
+func TestDevelopmentTaskSpawnersSetExpectedEffort(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		dir    string
+		file   string
+		effort string
+	}{
+		{dir: "self-development", file: "kelos-api-reviewer.yaml", effort: "xhigh"},
+		{dir: "self-development", file: "kelos-workers.yaml", effort: "xhigh"},
+		{dir: "self-development", file: "kelos-planner.yaml", effort: "xhigh"},
+		{dir: "self-development", file: "kelos-reviewer.yaml", effort: "xhigh"},
+		{dir: "self-development", file: "kelos-self-update.yaml", effort: "xhigh"},
+		{dir: "self-development", file: "kelos-fake-strategist.yaml", effort: "xhigh"},
+		{dir: "self-development", file: "kelos-triage.yaml", effort: "high"},
+		{dir: "self-development", file: "kelos-pr-responder.yaml", effort: "xhigh"},
+		{dir: "self-development", file: "kelos-config-update.yaml", effort: "xhigh"},
+		{dir: "self-development", file: "kelos-image-update.yaml", effort: "medium"},
+		{dir: "self-development", file: "kelos-fake-user.yaml", effort: "medium"},
+		{dir: "self-development", file: "kelos-squash-commits.yaml", effort: "medium"},
+		{dir: "kanon-development", file: "kanon-workers.yaml", effort: "xhigh"},
+		{dir: "kanon-development", file: "kanon-planner.yaml", effort: "xhigh"},
+		{dir: "kanon-development", file: "kanon-reviewer.yaml", effort: "xhigh"},
+		{dir: "kanon-development", file: "kanon-self-update.yaml", effort: "xhigh"},
+		{dir: "kanon-development", file: "kanon-fake-strategist.yaml", effort: "xhigh"},
+		{dir: "kanon-development", file: "kanon-triage.yaml", effort: "high"},
+		{dir: "kanon-development", file: "kanon-pr-responder.yaml", effort: "xhigh"},
+		{dir: "kanon-development", file: "kanon-config-update.yaml", effort: "xhigh"},
+		{dir: "kanon-development", file: "kanon-fake-user.yaml", effort: "medium"},
+		{dir: "kanon-development", file: "kanon-squash-commits.yaml", effort: "medium"},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.dir+"/"+tt.file, func(t *testing.T) {
+			t.Parallel()
+
+			ts := readTaskSpawnerFromDir(t, tt.dir, tt.file)
+			if ts.Spec.TaskTemplate.Effort != tt.effort {
+				t.Fatalf("TaskTemplate.Effort = %q, want %q", ts.Spec.TaskTemplate.Effort, tt.effort)
+			}
+		})
+	}
+}
+
 // assertReviewerTriggerableByBot checks that the given reviewer spawner triggers
 // for both the Kelos bot and a maintainer posting bodyPattern on an open PR, but
 // not for an unauthorized user.
@@ -139,7 +184,13 @@ func assertReviewerTriggerableByBot(t *testing.T, file, bodyPattern string) {
 func readSelfDevelopmentTaskSpawner(t *testing.T, file string) *kelosv1alpha1.TaskSpawner {
 	t.Helper()
 
-	path := filepath.Join("..", "..", "self-development", file)
+	return readTaskSpawnerFromDir(t, "self-development", file)
+}
+
+func readTaskSpawnerFromDir(t *testing.T, dir, file string) *kelosv1alpha1.TaskSpawner {
+	t.Helper()
+
+	path := filepath.Join("..", "..", dir, file)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("reading %s: %v", path, err)

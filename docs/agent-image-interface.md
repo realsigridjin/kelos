@@ -29,6 +29,7 @@ Kelos sets the following reserved environment variables on agent containers:
 | Variable | Description | Always set? |
 |---|---|---|
 | `KELOS_MODEL` | The model name to use | Only when `model` is specified in the Task |
+| `KELOS_EFFORT` | Agent reasoning effort to use | Only when `effort` is specified in the Task |
 | `ANTHROPIC_API_KEY` | API key for Anthropic (`claude-code` agent, api-key credential type) | When credential type is `api-key` and agent type is `claude-code` |
 | `CODEX_API_KEY` | API key for OpenAI Codex (`codex` agent, `api-key` credential type) | When credential type is `api-key` and agent type is `codex` |
 | `CODEX_AUTH_JSON` | Contents of `~/.codex/auth.json` (`codex` agent, `oauth` credential type) | When credential type is `oauth` and agent type is `codex` |
@@ -46,11 +47,20 @@ Kelos sets the following reserved environment variables on agent containers:
 | `KELOS_PLUGIN_DIR` | Path to plugin directory containing skills and agents | When `agentConfigRef` is set and `plugins` is non-empty |
 | `KELOS_SETUP_COMMAND` | JSON-encoded exec-form array from `Workspace.spec.setupCommand`, executed by the entrypoint before the agent starts | When the workspace defines `setupCommand` |
 
-> The names listed in this table are reserved. `PodOverrides.Env` entries that
-> reuse a reserved name are dropped so the built-in value always wins; do not
-> set them manually. `KELOS_SETUP_COMMAND` is additionally dropped from
-> `PodOverrides.Env` even when the workspace does not define `setupCommand`,
-> because it drives entrypoint command execution.
+> The names listed in this table are reserved for Kelos behavior. When Kelos
+> sets one on a Task, `PodOverrides.Env` entries that reuse the same name are
+> dropped so the built-in value wins; do not set them manually.
+> `KELOS_SETUP_COMMAND` is additionally dropped from `PodOverrides.Env` even
+> when the workspace does not define `setupCommand`, because it drives
+> entrypoint command execution.
+
+The bundled agent images handle `KELOS_EFFORT` as follows:
+
+- `codex`: sets Codex `model_reasoning_effort`.
+- `claude-code`: passes `--effort`.
+- `gemini`: writes a temporary model alias with `thinkingConfig` when the model family supports it, otherwise adds effort guidance to user-level instructions.
+- `opencode`: writes agent model options including `reasoningEffort` and provider variants where available.
+- `cursor`: adds effort guidance to user-level instructions because Cursor CLI does not expose a documented effort flag.
 
 ### 4. User ID
 

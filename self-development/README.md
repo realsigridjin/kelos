@@ -456,17 +456,19 @@ To adapt these examples for your own repository:
    - Retrigger an existing issue or PR with a fresh comment or relabel after deployment
    - Duplicate a filter if you need to allow multiple specific GitHub usernames
 
-5. **Adjust the Codex model:**
+5. **Adjust the Codex model and effort:**
    ```yaml
    spec:
      taskTemplate:
        model: gpt-5.5
+       effort: xhigh
    ```
 
    The checked-in spawners use `gpt-5.5` for the tasks that previously used
    Opus, and `gpt-5.4-mini` for the tasks that previously used Sonnet.
-   Codex reasoning effort is configured through Codex `config.toml`; Kelos does
-   not currently expose it as a Task or TaskSpawner field.
+   They set `effort` by role: `xhigh` for complex planning, coding, strategy,
+   review, PR update, and configuration update workflows; `high` for triage;
+   and `medium` for routine image, fake-user, and squash workflows.
 
 ## Feedback Loop Pattern
 

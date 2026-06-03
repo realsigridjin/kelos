@@ -35,6 +35,7 @@ spec:
   type: claude-code
   prompt: "Review the latest PR and provide feedback using /review."
   model: opus
+  effort: high
   credentials:
     type: oauth
     secretRef:

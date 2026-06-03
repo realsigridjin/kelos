@@ -16,6 +16,7 @@ type Config struct {
 	CredentialType string          `json:"credentialType,omitempty"`
 	Type           string          `json:"type,omitempty"`
 	Model          string          `json:"model,omitempty"`
+	Effort         string          `json:"effort,omitempty"`
 	Namespace      string          `json:"namespace,omitempty"`
 	Workspace      WorkspaceConfig `json:"workspace,omitempty"`
 	AgentConfig    string          `json:"agentConfig,omitempty"`

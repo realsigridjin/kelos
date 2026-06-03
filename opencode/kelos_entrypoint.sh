@@ -44,7 +44,41 @@ ARGS=(
   "$PROMPT"
 )
 
-if [ -n "${KELOS_MODEL:-}" ]; then
+if [ -n "${KELOS_EFFORT:-}" ]; then
+  mkdir -p ~/.config/opencode
+  node -e '
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+const cfgPath = path.join(os.homedir(), ".config", "opencode", "opencode.json");
+let existing = {};
+try { existing = JSON.parse(fs.readFileSync(cfgPath, "utf8")); } catch {}
+const model = process.env.KELOS_MODEL || existing.model;
+const effort = process.env.KELOS_EFFORT;
+const provider = model ? model.split("/")[0] : "";
+const normalized = effort.toLowerCase();
+function variantFor(provider, effort) {
+  if (provider === "anthropic") {
+    return effort === "max" || effort === "xhigh" ? "max" : "high";
+  }
+  if (provider === "google") {
+    return effort === "minimal" || effort === "low" ? "low" : "high";
+  }
+  return effort;
+}
+if (model) existing.model = model;
+existing.agent = existing.agent || {};
+existing.agent.build = Object.assign({}, existing.agent.build || {}, {
+  mode: "primary",
+  variant: variantFor(provider, normalized),
+  options: Object.assign({}, (existing.agent.build && existing.agent.build.options) || {}, {
+    reasoningEffort: effort,
+  }),
+});
+if (model) existing.agent.build.model = model;
+fs.writeFileSync(cfgPath, JSON.stringify(existing, null, 2));
+'
+elif [ -n "${KELOS_MODEL:-}" ]; then
   ARGS+=("--model" "$KELOS_MODEL")
 fi
 
