@@ -18,6 +18,20 @@ const (
 	CredentialTypeNone CredentialType = "none"
 )
 
+// AgentContainerName is the stable name of the agent (main) container in
+// task pods. It carries the reserved kelos- prefix so the name no longer
+// varies per agent type and so user-supplied containers
+// (PodOverrides.ExtraContainers / ExtraInitContainers) cannot collide with
+// it. Consumers that read the agent container's logs (controller, CLI,
+// reporting) reference this constant rather than task.Spec.Type.
+const AgentContainerName = "kelos-agent"
+
+// ReservedContainerNamePrefix is reserved for Kelos-internal container names
+// (e.g. AgentContainerName). User-supplied containers
+// (PodOverrides.ExtraContainers / ExtraInitContainers) must not use it, so
+// future Kelos-internal containers can adopt the prefix without colliding.
+const ReservedContainerNamePrefix = "kelos-"
+
 // TaskPhase represents the current phase of a Task.
 type TaskPhase string
 
@@ -146,16 +160,15 @@ type PodOverrides struct {
 	// Applies only to extra containers; to configure the agent container
 	// itself, use the Resources, Env, VolumeMounts, and
 	// ContainerSecurityContext fields.
-	// Container names must not collide with Kelos-reserved container
-	// names: claude-code, codex, gemini, opencode, cursor, git-clone,
-	// remote-setup, branch-setup, workspace-files, plugin-setup,
-	// skills-install.
+	// Container names must not use the Kelos-reserved "kelos-" prefix or
+	// collide with a built-in init container name: git-clone, remote-setup,
+	// branch-setup, workspace-files, plugin-setup, skills-install.
 	// +optional
 	// +kubebuilder:validation:MaxItems=8
 	// +listType=map
 	// +listMapKey=name
 	// +kubebuilder:validation:XValidation:rule="self.all(c, c.name != '')",message="extraContainers[].name must not be empty"
-	// +kubebuilder:validation:XValidation:rule="self.all(c, !(c.name in ['claude-code', 'codex', 'gemini', 'opencode', 'cursor', 'git-clone', 'remote-setup', 'branch-setup', 'workspace-files', 'plugin-setup', 'skills-install']))",message="extraContainers[].name must not use a Kelos-reserved container name"
+	// +kubebuilder:validation:XValidation:rule="self.all(c, !c.name.startsWith('kelos-') && !(c.name in ['git-clone', 'remote-setup', 'branch-setup', 'workspace-files', 'plugin-setup', 'skills-install']))",message="extraContainers[].name must not use the reserved 'kelos-' prefix or a built-in init container name"
 	ExtraContainers []corev1.Container `json:"extraContainers,omitempty"`
 
 	// ExtraInitContainers is a list of additional init containers to run
@@ -170,16 +183,15 @@ type PodOverrides struct {
 	// that the workspace volume uses FSGroup-based permissions; containers
 	// running as a UID outside the pod's FSGroup will not have write
 	// access to the workspace.
-	// Container names must not collide with Kelos-reserved container
-	// names: claude-code, codex, gemini, opencode, cursor, git-clone,
-	// remote-setup, branch-setup, workspace-files, plugin-setup,
-	// skills-install.
+	// Container names must not use the Kelos-reserved "kelos-" prefix or
+	// collide with a built-in init container name: git-clone, remote-setup,
+	// branch-setup, workspace-files, plugin-setup, skills-install.
 	// +optional
 	// +kubebuilder:validation:MaxItems=8
 	// +listType=map
 	// +listMapKey=name
 	// +kubebuilder:validation:XValidation:rule="self.all(c, c.name != '')",message="extraInitContainers[].name must not be empty"
-	// +kubebuilder:validation:XValidation:rule="self.all(c, !(c.name in ['claude-code', 'codex', 'gemini', 'opencode', 'cursor', 'git-clone', 'remote-setup', 'branch-setup', 'workspace-files', 'plugin-setup', 'skills-install']))",message="extraInitContainers[].name must not use a Kelos-reserved container name"
+	// +kubebuilder:validation:XValidation:rule="self.all(c, !c.name.startsWith('kelos-') && !(c.name in ['git-clone', 'remote-setup', 'branch-setup', 'workspace-files', 'plugin-setup', 'skills-install']))",message="extraInitContainers[].name must not use the reserved 'kelos-' prefix or a built-in init container name"
 	ExtraInitContainers []corev1.Container `json:"extraInitContainers,omitempty"`
 }
 

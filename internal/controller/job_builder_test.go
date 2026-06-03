@@ -837,9 +837,9 @@ func TestBuildCodexJob_DefaultImage(t *testing.T) {
 		t.Errorf("Expected image %q, got %q", CodexImage, container.Image)
 	}
 
-	// Container name should match the agent type.
-	if container.Name != task.Spec.Type {
-		t.Errorf("Expected container name %q, got %q", task.Spec.Type, container.Name)
+	// Container name should be the stable agent container name.
+	if container.Name != kelosv1alpha1.AgentContainerName {
+		t.Errorf("Expected container name %q, got %q", kelosv1alpha1.AgentContainerName, container.Name)
 	}
 
 	// Command should be /kelos_entrypoint.sh (uniform interface).
@@ -1084,9 +1084,9 @@ func TestBuildGeminiJob_DefaultImage(t *testing.T) {
 		t.Errorf("Expected image %q, got %q", GeminiImage, container.Image)
 	}
 
-	// Container name should match the agent type.
-	if container.Name != task.Spec.Type {
-		t.Errorf("Expected container name %q, got %q", task.Spec.Type, container.Name)
+	// Container name should be the stable agent container name.
+	if container.Name != kelosv1alpha1.AgentContainerName {
+		t.Errorf("Expected container name %q, got %q", kelosv1alpha1.AgentContainerName, container.Name)
 	}
 
 	// Command should be /kelos_entrypoint.sh (uniform interface).
@@ -1337,9 +1337,9 @@ func TestBuildOpenCodeJob_DefaultImage(t *testing.T) {
 		t.Errorf("Expected image %q, got %q", OpenCodeImage, container.Image)
 	}
 
-	// Container name should match the agent type.
-	if container.Name != task.Spec.Type {
-		t.Errorf("Expected container name %q, got %q", task.Spec.Type, container.Name)
+	// Container name should be the stable agent container name.
+	if container.Name != kelosv1alpha1.AgentContainerName {
+		t.Errorf("Expected container name %q, got %q", kelosv1alpha1.AgentContainerName, container.Name)
 	}
 
 	// Command should be /kelos_entrypoint.sh (uniform interface).
@@ -1598,9 +1598,9 @@ func TestBuildCursorJob_DefaultImage(t *testing.T) {
 		t.Errorf("Expected image %q, got %q", CursorImage, container.Image)
 	}
 
-	// Container name should match the agent type.
-	if container.Name != task.Spec.Type {
-		t.Errorf("Expected container name %q, got %q", task.Spec.Type, container.Name)
+	// Container name should be the stable agent container name.
+	if container.Name != kelosv1alpha1.AgentContainerName {
+		t.Errorf("Expected container name %q, got %q", kelosv1alpha1.AgentContainerName, container.Name)
 	}
 
 	if len(container.Command) != 1 || container.Command[0] != "/kelos_entrypoint.sh" {
@@ -3000,9 +3000,9 @@ func TestBuildJob_AgentConfigCodex(t *testing.T) {
 		t.Errorf("Expected 1 init container, got %d", len(job.Spec.Template.Spec.InitContainers))
 	}
 
-	// Container name should match the agent type.
-	if container.Name != task.Spec.Type {
-		t.Errorf("Expected container name %q, got %q", task.Spec.Type, container.Name)
+	// Container name should be the stable agent container name.
+	if container.Name != kelosv1alpha1.AgentContainerName {
+		t.Errorf("Expected container name %q, got %q", kelosv1alpha1.AgentContainerName, container.Name)
 	}
 }
 
@@ -3066,9 +3066,9 @@ func TestBuildJob_AgentConfigGemini(t *testing.T) {
 		t.Errorf("Expected 1 init container, got %d", len(job.Spec.Template.Spec.InitContainers))
 	}
 
-	// Container name should match the agent type.
-	if container.Name != task.Spec.Type {
-		t.Errorf("Expected container name %q, got %q", task.Spec.Type, container.Name)
+	// Container name should be the stable agent container name.
+	if container.Name != kelosv1alpha1.AgentContainerName {
+		t.Errorf("Expected container name %q, got %q", kelosv1alpha1.AgentContainerName, container.Name)
 	}
 }
 
@@ -3135,9 +3135,9 @@ func TestBuildJob_AgentConfigOpenCode(t *testing.T) {
 		t.Errorf("Expected 1 init container, got %d", len(job.Spec.Template.Spec.InitContainers))
 	}
 
-	// Container name should match the agent type.
-	if container.Name != task.Spec.Type {
-		t.Errorf("Expected container name %q, got %q", task.Spec.Type, container.Name)
+	// Container name should be the stable agent container name.
+	if container.Name != kelosv1alpha1.AgentContainerName {
+		t.Errorf("Expected container name %q, got %q", kelosv1alpha1.AgentContainerName, container.Name)
 	}
 }
 
@@ -5187,7 +5187,7 @@ func TestBuildJob_PodOverridesContainerSecurityContext(t *testing.T) {
 
 func TestBuildJob_ExtraContainers_ReservedNameRejected(t *testing.T) {
 	builder := NewJobBuilder()
-	for _, name := range []string{"claude-code", "codex", "gemini", "opencode", "cursor", "git-clone", "remote-setup", "branch-setup", "workspace-files", "plugin-setup", "skills-install"} {
+	for _, name := range []string{"kelos-agent", "kelos-foo", "git-clone", "remote-setup", "branch-setup", "workspace-files", "plugin-setup", "skills-install"} {
 		t.Run(name, func(t *testing.T) {
 			task := &kelosv1alpha1.Task{
 				ObjectMeta: metav1.ObjectMeta{
@@ -5249,6 +5249,40 @@ func TestBuildJob_ExtraContainers_DuplicateNameRejected(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "duplicate") {
 		t.Errorf("Build() error = %v, want error mentioning duplicate", err)
+	}
+}
+
+func TestBuildJob_ExtraContainers_AgentTypeNamesAllowed(t *testing.T) {
+	builder := NewJobBuilder()
+	// Agent-type literals are no longer reserved: the agent container is
+	// named kelosv1alpha1.AgentContainerName, so these names are free for
+	// user-supplied containers.
+	for _, name := range []string{"claude-code", "codex", "gemini", "opencode", "cursor"} {
+		t.Run(name, func(t *testing.T) {
+			task := &kelosv1alpha1.Task{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-allowed-extra-" + name,
+					Namespace: "default",
+				},
+				Spec: kelosv1alpha1.TaskSpec{
+					Type:   AgentTypeClaudeCode,
+					Prompt: "Extra container with former agent-type name",
+					Credentials: kelosv1alpha1.Credentials{
+						Type:      kelosv1alpha1.CredentialTypeAPIKey,
+						SecretRef: &kelosv1alpha1.SecretReference{Name: "my-secret"},
+					},
+					PodOverrides: &kelosv1alpha1.PodOverrides{
+						ExtraContainers: []corev1.Container{
+							{Name: name, Image: "postgres:16"},
+						},
+					},
+				},
+			}
+
+			if _, err := builder.Build(task, nil, nil, task.Spec.Prompt); err != nil {
+				t.Fatalf("Build() with extra container name %q: expected success, got %v", name, err)
+			}
+		})
 	}
 }
 
@@ -5350,7 +5384,7 @@ func TestBuildJob_ExtraInitContainers_AppendedAfterBuiltins(t *testing.T) {
 
 func TestBuildJob_ExtraInitContainers_ReservedNameRejected(t *testing.T) {
 	builder := NewJobBuilder()
-	for _, name := range []string{"claude-code", "codex", "git-clone", "plugin-setup", "skills-install"} {
+	for _, name := range []string{"kelos-agent", "kelos-bar", "git-clone", "plugin-setup", "skills-install"} {
 		t.Run(name, func(t *testing.T) {
 			task := &kelosv1alpha1.Task{
 				ObjectMeta: metav1.ObjectMeta{

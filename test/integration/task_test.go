@@ -120,7 +120,7 @@ var _ = Describe("Task Controller", func() {
 			By("Verifying the Job spec")
 			Expect(createdJob.Spec.Template.Spec.Containers).To(HaveLen(1))
 			container := createdJob.Spec.Template.Spec.Containers[0]
-			Expect(container.Name).To(Equal("claude-code"))
+			Expect(container.Name).To(Equal(kelosv1alpha1.AgentContainerName))
 			Expect(container.Command).To(Equal([]string{"/kelos_entrypoint.sh"}))
 			Expect(container.Args).To(Equal([]string{"Create a hello world program"}))
 
@@ -1522,7 +1522,7 @@ var _ = Describe("Task Controller", func() {
 			By("Verifying the Job spec")
 			Expect(createdJob.Spec.Template.Spec.Containers).To(HaveLen(1))
 			container := createdJob.Spec.Template.Spec.Containers[0]
-			Expect(container.Name).To(Equal("codex"))
+			Expect(container.Name).To(Equal(kelosv1alpha1.AgentContainerName))
 			Expect(container.Image).To(Equal(controller.CodexImage))
 			Expect(container.Command).To(Equal([]string{"/kelos_entrypoint.sh"}))
 			Expect(container.Args).To(Equal([]string{"Fix the bug"}))
@@ -1615,7 +1615,7 @@ var _ = Describe("Task Controller", func() {
 
 			By("Verifying the main container uses codex image with uniform interface")
 			mainContainer := createdJob.Spec.Template.Spec.Containers[0]
-			Expect(mainContainer.Name).To(Equal("codex"))
+			Expect(mainContainer.Name).To(Equal(kelosv1alpha1.AgentContainerName))
 			Expect(mainContainer.Command).To(Equal([]string{"/kelos_entrypoint.sh"}))
 			Expect(mainContainer.Args).To(Equal([]string{"Refactor the module"}))
 
@@ -1696,7 +1696,7 @@ var _ = Describe("Task Controller", func() {
 
 			By("Verifying the Job has CODEX_AUTH_JSON env var")
 			container := createdJob.Spec.Template.Spec.Containers[0]
-			Expect(container.Name).To(Equal("codex"))
+			Expect(container.Name).To(Equal(kelosv1alpha1.AgentContainerName))
 			Expect(container.Env).To(HaveLen(2))
 			Expect(container.Env[0].Name).To(Equal("KELOS_AGENT_TYPE"))
 			Expect(container.Env[0].Value).To(Equal("codex"))
@@ -1780,7 +1780,7 @@ var _ = Describe("Task Controller", func() {
 			By("Verifying the Job spec")
 			Expect(createdJob.Spec.Template.Spec.Containers).To(HaveLen(1))
 			container := createdJob.Spec.Template.Spec.Containers[0]
-			Expect(container.Name).To(Equal("opencode"))
+			Expect(container.Name).To(Equal(kelosv1alpha1.AgentContainerName))
 			Expect(container.Image).To(Equal(controller.OpenCodeImage))
 			Expect(container.Command).To(Equal([]string{"/kelos_entrypoint.sh"}))
 			Expect(container.Args).To(Equal([]string{"Fix the bug"}))

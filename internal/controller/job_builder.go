@@ -365,7 +365,7 @@ func (b *JobBuilder) buildAgentJob(task *kelosv1alpha1.Task, workspace *kelosv1a
 	agentUID := AgentUID
 
 	mainContainer := corev1.Container{
-		Name:            task.Spec.Type,
+		Name:            kelosv1alpha1.AgentContainerName,
 		Image:           image,
 		ImagePullPolicy: pullPolicy,
 		Command:         []string{"/kelos_entrypoint.sh"},
@@ -860,29 +860,30 @@ func validateUserVolumes(volumes []corev1.Volume) error {
 	return nil
 }
 
-// reservedContainerNames is the set of container names that Kelos uses
-// internally. User-supplied extra/init containers must not use these names.
-// This includes all agent-type literals (the main container is named after
-// the agent type) and all built-in init container names.
+// reservedContainerNames is the set of built-in init container names that
+// Kelos uses internally. User-supplied extra/init containers must not use
+// these names. The agent (main) container is reserved via the
+// kelosv1alpha1.ReservedContainerNamePrefix prefix rather than enumerated
+// here, so agent-type literals (claude-code, codex, gemini, opencode,
+// cursor) are free for user-supplied containers.
 var reservedContainerNames = map[string]struct{}{
-	AgentTypeClaudeCode: {},
-	AgentTypeCodex:      {},
-	AgentTypeGemini:     {},
-	AgentTypeOpenCode:   {},
-	AgentTypeCursor:     {},
-	"git-clone":         {},
-	"remote-setup":      {},
-	"branch-setup":      {},
-	"workspace-files":   {},
-	"plugin-setup":      {},
-	"skills-install":    {},
+	"git-clone":       {},
+	"remote-setup":    {},
+	"branch-setup":    {},
+	"workspace-files": {},
+	"plugin-setup":    {},
+	"skills-install":  {},
 }
 
-// validateExtraContainers ensures no user-supplied container name collides
-// with a Kelos-reserved name or duplicates another container name in the list.
+// validateExtraContainers ensures no user-supplied container name carries the
+// reserved kelos- prefix, collides with a Kelos-reserved name, or duplicates
+// another container name in the list.
 func validateExtraContainers(containers []corev1.Container) error {
 	seen := make(map[string]struct{}, len(containers))
 	for _, c := range containers {
+		if strings.HasPrefix(c.Name, kelosv1alpha1.ReservedContainerNamePrefix) {
+			return fmt.Errorf("podOverrides: %q uses the reserved %q container name prefix", c.Name, kelosv1alpha1.ReservedContainerNamePrefix)
+		}
 		if _, reserved := reservedContainerNames[c.Name]; reserved {
 			return fmt.Errorf("podOverrides: %q is a Kelos-reserved container name", c.Name)
 		}

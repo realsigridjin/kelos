@@ -76,7 +76,7 @@ func newLogsCommand(cfg *ClientConfig) *cobra.Command {
 				}
 			}
 
-			containerName := task.Spec.Type
+			containerName := kelosv1alpha1.AgentContainerName
 
 			if follow && task.Spec.WorkspaceRef != nil {
 				fmt.Fprintf(os.Stderr, "Streaming init container (git-clone) logs...\n")
