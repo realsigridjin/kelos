@@ -631,10 +631,7 @@ func (tr *SlackTaskReporter) updateProgress(ctx context.Context, task *kelosv1al
 		return nil
 	}
 
-	containerName := task.Spec.Type
-	if containerName == "" {
-		containerName = "claude-code"
-	}
+	containerName := kelosv1alpha1.AgentContainerName
 
 	text := tr.ProgressReader.ReadProgress(ctx, task.Namespace, podName, containerName, task.Spec.Type)
 	if text == "" {
@@ -796,10 +793,7 @@ func (tr *SlackTaskReporter) UpdateActivityIndicator(ctx context.Context, task *
 		return
 	}
 
-	containerName := task.Spec.Type
-	if containerName == "" {
-		containerName = "claude-code"
-	}
+	containerName := kelosv1alpha1.AgentContainerName
 
 	text := tr.ActivityReader.ReadActivity(ctx, task.Namespace, podName, containerName, task.Spec.Type)
 

@@ -540,7 +540,7 @@ func (r *TaskReconciler) updateStatus(ctx context.Context, task *kelosv1alpha1.T
 		if effectivePodName == "" {
 			effectivePodName = task.Status.PodName
 		}
-		containerName := task.Spec.Type
+		containerName := kelosv1alpha1.AgentContainerName
 		outputs, results = r.readOutputs(ctx, task.Namespace, effectivePodName, containerName)
 	}
 

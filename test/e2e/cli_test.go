@@ -85,7 +85,7 @@ var _ = Describe("CLI", func() {
 
 		stdout, stderr := framework.KelosOutputWithStderr("logs", "cli-follow-task", "-n", f.Namespace, "-f")
 		By("verifying stderr contains streaming status")
-		Expect(stderr).To(ContainSubstring("Streaming container (claude-code) logs..."))
+		Expect(stderr).To(ContainSubstring("Streaming container (kelos-agent) logs..."))
 		By("verifying stderr contains result summary")
 		Expect(stderr).To(ContainSubstring("[result]"))
 		By("verifying stdout contains log output")
