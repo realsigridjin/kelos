@@ -28,6 +28,7 @@ spec:
     workspaceRef:
       name: kelos-agent
     model: gpt-5.5
+    effort: high
     type: codex
     ttlSecondsAfterFinished: 864000
     credentials:

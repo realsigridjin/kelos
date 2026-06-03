@@ -56,6 +56,7 @@ spec:
     workspaceRef:
       name: kanon-agent
     model: gpt-5.5
+    effort: xhigh
     type: codex
     ttlSecondsAfterFinished: 864000
     credentials:

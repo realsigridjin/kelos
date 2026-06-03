@@ -352,6 +352,11 @@ spec:
                 items:
                   type: string
                 type: array
+              effort:
+                description: |-
+                  Effort optionally controls how much reasoning effort the agent should use.
+                  Values are agent-specific and passed through without validation.
+                type: string
               image:
                 description: |-
                   Image optionally overrides the default agent container image.
@@ -7555,6 +7560,11 @@ spec:
                     items:
                       type: string
                     type: array
+                  effort:
+                    description: |-
+                      Effort optionally controls how much reasoning effort spawned agents should use.
+                      Values are agent-specific and passed through without validation.
+                    type: string
                   image:
                     description: |-
                       Image optionally overrides the default agent container image.

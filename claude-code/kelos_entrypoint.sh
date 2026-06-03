@@ -23,6 +23,10 @@ if [ -n "${KELOS_MODEL:-}" ]; then
   ARGS+=("--model" "$KELOS_MODEL")
 fi
 
+if [ -n "${KELOS_EFFORT:-}" ]; then
+  ARGS+=("--effort" "$KELOS_EFFORT")
+fi
+
 # Write user-level instructions (additive, no conflict with repo)
 if [ -n "${KELOS_AGENTS_MD:-}" ]; then
   mkdir -p ~/.claude

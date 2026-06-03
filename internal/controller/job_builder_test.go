@@ -156,6 +156,41 @@ func TestBuildClaudeCodeJob_NoModel(t *testing.T) {
 	}
 }
 
+func TestBuildAgentJob_WithEffort(t *testing.T) {
+	builder := NewJobBuilder()
+	task := &kelosv1alpha1.Task{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-effort",
+			Namespace: "default",
+		},
+		Spec: kelosv1alpha1.TaskSpec{
+			Type:   AgentTypeCodex,
+			Prompt: "Hello",
+			Credentials: kelosv1alpha1.Credentials{
+				Type:      kelosv1alpha1.CredentialTypeAPIKey,
+				SecretRef: &kelosv1alpha1.SecretReference{Name: "my-secret"},
+			},
+			Effort: "xhigh",
+		},
+	}
+
+	job, err := builder.Build(task, nil, nil, task.Spec.Prompt)
+	if err != nil {
+		t.Fatalf("Build() returned error: %v", err)
+	}
+
+	container := job.Spec.Template.Spec.Containers[0]
+	for _, env := range container.Env {
+		if env.Name == "KELOS_EFFORT" {
+			if env.Value != "xhigh" {
+				t.Errorf("KELOS_EFFORT value: expected %q, got %q", "xhigh", env.Value)
+			}
+			return
+		}
+	}
+	t.Fatal("Expected KELOS_EFFORT env var to be set")
+}
+
 func TestBuildClaudeCodeJob_WorkspaceWithRef(t *testing.T) {
 	builder := NewJobBuilder()
 	task := &kelosv1alpha1.Task{

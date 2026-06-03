@@ -53,6 +53,7 @@ A Task runs an AI agent with a prompt. Key fields:
 - `spec.dependsOn`: Task names that must succeed first
 - `spec.ttlSecondsAfterFinished`: Auto-delete after completion (seconds)
 - `spec.model`: Model override
+- `spec.effort`: Agent reasoning effort
 - `spec.podOverrides`: Resource limits, timeout, env vars, node selector
 
 Task status phases: `Pending` -> `Running` -> `Succeeded` or `Failed`.
@@ -117,7 +118,7 @@ kelos run -p "Fix the login bug" --type claude-code
 kelos run -p "Add tests" --workspace my-ws --agent-config my-ac
 
 # With model override and branch
-kelos run -p "Refactor auth" --model opus --branch feature/auth
+kelos run -p "Refactor auth" --model opus --effort high --branch feature/auth
 
 # Watch task progress
 kelos run -p "Fix bug" -w
@@ -179,6 +180,7 @@ Config file at `~/.kelos/config.yaml`:
 ```yaml
 oauthToken: <token>       # or apiKey: <key>
 model: sonnet                   # or a versioned ID like 'claude-sonnet-4-6' — value is passed to the agent as KELOS_MODEL
+effort: high
 namespace: default
 workspace:
   repo: https://github.com/org/repo.git

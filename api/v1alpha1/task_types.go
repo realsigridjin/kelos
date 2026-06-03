@@ -205,6 +205,11 @@ type TaskSpec struct {
 	// +optional
 	Model string `json:"model,omitempty"`
 
+	// Effort optionally controls how much reasoning effort the agent should use.
+	// Values are agent-specific and passed through without validation.
+	// +optional
+	Effort string `json:"effort,omitempty"`
+
 	// Image optionally overrides the default agent container image.
 	// Custom images must implement the agent image interface
 	// (see docs/agent-image-interface.md).

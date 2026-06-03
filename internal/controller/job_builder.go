@@ -261,6 +261,13 @@ func (b *JobBuilder) buildAgentJob(task *kelosv1alpha1.Task, workspace *kelosv1a
 		})
 	}
 
+	if task.Spec.Effort != "" {
+		envVars = append(envVars, corev1.EnvVar{
+			Name:  "KELOS_EFFORT",
+			Value: task.Spec.Effort,
+		})
+	}
+
 	if task.Spec.Branch != "" {
 		envVars = append(envVars, corev1.EnvVar{
 			Name:  "KELOS_BRANCH",

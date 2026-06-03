@@ -79,6 +79,9 @@ func (tb *TaskBuilder) BuildTask(
 	if taskTemplate.Model != "" {
 		task.Spec.Model = taskTemplate.Model
 	}
+	if taskTemplate.Effort != "" {
+		task.Spec.Effort = taskTemplate.Effort
+	}
 	if taskTemplate.Image != "" {
 		task.Spec.Image = taskTemplate.Image
 	}

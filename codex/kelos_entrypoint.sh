@@ -31,6 +31,11 @@ if [ -n "${KELOS_MODEL:-}" ]; then
   ARGS+=("--model" "$KELOS_MODEL")
 fi
 
+if [ -n "${KELOS_EFFORT:-}" ]; then
+  SAFE_EFFORT=$(printf '%s' "$KELOS_EFFORT" | tr -d '"\\\n\r')
+  ARGS+=("--config" "model_reasoning_effort=\"$SAFE_EFFORT\"")
+fi
+
 # Write user-level instructions (global scope read by Codex CLI)
 if [ -n "${KELOS_AGENTS_MD:-}" ]; then
   mkdir -p ~/.codex

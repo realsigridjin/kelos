@@ -41,6 +41,7 @@ func newRunCommand(cfg *ClientConfig) *cobra.Command {
 		secret          string
 		credentialType  string
 		model           string
+		effort          string
 		image           string
 		name            string
 		watch           bool
@@ -70,6 +71,9 @@ func newRunCommand(cfg *ClientConfig) *cobra.Command {
 				}
 				if !cmd.Flags().Changed("model") && c.Model != "" {
 					model = c.Model
+				}
+				if !cmd.Flags().Changed("effort") && c.Effort != "" {
+					effort = c.Effort
 				}
 				if !cmd.Flags().Changed("workspace") && c.Workspace.Name != "" {
 					workspace = c.Workspace.Name
@@ -241,6 +245,7 @@ func newRunCommand(cfg *ClientConfig) *cobra.Command {
 					Prompt:      prompt,
 					Credentials: creds,
 					Model:       model,
+					Effort:      effort,
 					Image:       image,
 				},
 			}
@@ -330,6 +335,7 @@ func newRunCommand(cfg *ClientConfig) *cobra.Command {
 	cmd.Flags().StringVar(&secret, "secret", "", "secret name with credentials (overrides oauthToken/apiKey in config)")
 	cmd.Flags().StringVar(&credentialType, "credential-type", "api-key", "credential type (api-key, oauth, none)")
 	cmd.Flags().StringVar(&model, "model", "", "model override")
+	cmd.Flags().StringVar(&effort, "effort", "", "agent reasoning effort")
 	cmd.Flags().StringVar(&image, "image", "", "custom agent image (must implement agent image interface)")
 	cmd.Flags().StringVar(&name, "name", "", "task name (auto-generated if omitted)")
 	cmd.Flags().StringVar(&workspace, "workspace", "", "name of Workspace resource to use")
