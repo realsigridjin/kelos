@@ -97,6 +97,10 @@ image: ## Build docker images (use WHAT, IMAGE_PLATFORMS, PUSH=true to customize
 		GOOS=linux GOARCH=$$arch $(MAKE) build WHAT=cmd/kelos-capture; \
 		mv bin/kelos-capture bin/kelos-capture-linux-$$arch; \
 	done
+	@for arch in $(IMAGE_ARCHES); do \
+		GOOS=linux GOARCH=$$arch $(MAKE) build WHAT=cmd/kelos-codex-auth-refresh; \
+		mv bin/kelos-codex-auth-refresh bin/kelos-codex-auth-refresh-linux-$$arch; \
+	done
 	@for dir in $(or $(WHAT),$(IMAGE_DIRS)); do \
 		docker buildx build --platform $(IMAGE_PLATFORMS) \
 			$(if $(filter true,$(PUSH)),--push,--load) \

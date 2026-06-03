@@ -175,6 +175,7 @@ Run `codex auth login` locally, then reference the auth file in your config:
 oauthToken: "@~/.codex/auth.json"
 type: codex
 ```
+For production installs, you can keep Codex OAuth credentials fresh by labeling each credentials Secret with `kelos.dev/codex-oauth-refresh=true`. Kelos creates one CronJob per labeled Secret; each CronJob uses Codex's file-backed auth refresh and writes the updated `auth.json` back to that Secret. See the [Helm chart README](internal/manifests/charts/kelos/README.md#codex-oauth-token-refresh) for values and setup.
 Or set `apiKey` with an OpenAI API key instead.
 
 **Gemini API key** (for Google Gemini):

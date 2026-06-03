@@ -8,6 +8,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -19,6 +20,8 @@ import (
 
 	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
 	"github.com/kelos-dev/kelos/internal/cli"
+	"github.com/kelos-dev/kelos/internal/codexauth"
+	"github.com/kelos-dev/kelos/internal/controller"
 )
 
 // clearNamespaceFinalizers removes finalizers from the kelos-system namespace
@@ -107,6 +110,34 @@ func restoreCRDs(kubeconfigPath string) {
 	deleteControllerResources()
 }
 
+func clusterRoleHasVerbs(clusterRole *rbacv1.ClusterRole, apiGroup, resource string, verbs ...string) bool {
+	for _, rule := range clusterRole.Rules {
+		if !containsString(rule.APIGroups, apiGroup) || !containsString(rule.Resources, resource) {
+			continue
+		}
+		matches := true
+		for _, verb := range verbs {
+			if !containsString(rule.Verbs, verb) {
+				matches = false
+				break
+			}
+		}
+		if matches {
+			return true
+		}
+	}
+	return false
+}
+
+func containsString(items []string, target string) bool {
+	for _, item := range items {
+		if item == target {
+			return true
+		}
+	}
+	return false
+}
+
 var _ = Describe("Install/Uninstall", Ordered, func() {
 	var kubeconfigPath string
 
@@ -140,6 +171,8 @@ var _ = Describe("Install/Uninstall", Ordered, func() {
 			Expect(k8sClient.Get(ctx, types.NamespacedName{
 				Name: "kelos-controller-role",
 			}, cr)).To(Succeed())
+			Expect(clusterRoleHasVerbs(cr, "", "secrets", "get", "list", "watch", "update")).To(BeTrue())
+			Expect(clusterRoleHasVerbs(cr, "batch", "cronjobs", "get", "list", "watch", "create", "update", "patch", "delete")).To(BeTrue())
 
 			By("Verifying the ClusterRoleBinding exists")
 			crb := &rbacv1.ClusterRoleBinding{}
@@ -153,6 +186,133 @@ var _ = Describe("Install/Uninstall", Ordered, func() {
 				Name:      "kelos-controller-manager",
 				Namespace: "kelos-system",
 			}, dep)).To(Succeed())
+
+			By("Verifying no static Codex auth refresher CronJob is rendered")
+			codexRefreshCronJob := &batchv1.CronJob{}
+			err := k8sClient.Get(ctx, types.NamespacedName{
+				Name:      "kelos-codex-auth-refresher",
+				Namespace: "kelos-system",
+			}, codexRefreshCronJob)
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+
+			By("Verifying the controller receives the default refresher schedule")
+			args := dep.Spec.Template.Spec.Containers[0].Args
+			Expect(args).To(ContainElement("--codex-auth-refresher-schedule=0 */6 * * *"))
+		})
+
+		It("Should wire Codex auth refresher controller schedule override", func() {
+			valuesPath := filepath.Join(GinkgoT().TempDir(), "values.yaml")
+			values := `codexAuthRefresher:
+  schedule: "*/15 * * * *"
+`
+			Expect(os.WriteFile(valuesPath, []byte(values), 0o644)).To(Succeed())
+
+			root := cli.NewRootCommand()
+			root.SetArgs([]string{
+				"install",
+				"--kubeconfig", kubeconfigPath,
+				"--values", valuesPath,
+			})
+			Expect(root.Execute()).To(Succeed())
+
+			By("Verifying the static Codex auth refresher CronJob is not rendered")
+			cronJob := &batchv1.CronJob{}
+			err := k8sClient.Get(ctx, types.NamespacedName{
+				Name:      "kelos-codex-auth-refresher",
+				Namespace: "kelos-system",
+			}, cronJob)
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+
+			By("Verifying the controller receives the refresher flags")
+			dep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name:      "kelos-controller-manager",
+				Namespace: "kelos-system",
+			}, dep)).To(Succeed())
+			args := dep.Spec.Template.Spec.Containers[0].Args
+			Expect(args).To(ContainElement("--codex-auth-refresher-schedule=*/15 * * * *"))
+		})
+
+		It("Should create Codex auth refresher CronJob for a labeled Secret", func() {
+			namespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "kelos-system"}}
+			err := k8sClient.Create(ctx, namespace)
+			Expect(client.IgnoreAlreadyExists(err)).To(Succeed())
+
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "default",
+					Name:      "codex-oauth",
+					Labels: map[string]string{
+						codexauth.RefreshLabel: "true",
+					},
+				},
+				Data: map[string][]byte{
+					"CODEX_AUTH_JSON": []byte(`{"tokens":{"refresh_token":"refresh"}}`),
+				},
+			}
+			Expect(k8sClient.Create(ctx, secret)).To(Succeed())
+
+			By("Verifying the per-Secret Codex auth refresher CronJob exists")
+			cronJob := &batchv1.CronJob{}
+			key := types.NamespacedName{
+				Name:      controller.CodexAuthRefresherCronJobName("default", "codex-oauth"),
+				Namespace: "kelos-system",
+			}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, key, cronJob)
+			}, 10*time.Second, 100*time.Millisecond).Should(Succeed())
+
+			Expect(cronJob.Spec.Schedule).To(Equal(controller.DefaultCodexAuthRefreshSchedule))
+			Expect(cronJob.Spec.ConcurrencyPolicy).To(Equal(batchv1.ForbidConcurrent))
+			Expect(cronJob.Spec.JobTemplate.Spec.ActiveDeadlineSeconds).NotTo(BeNil())
+			Expect(*cronJob.Spec.JobTemplate.Spec.ActiveDeadlineSeconds).To(Equal(int64(600)))
+
+			podSpec := cronJob.Spec.JobTemplate.Spec.Template.Spec
+			Expect(podSpec.ServiceAccountName).To(Equal("kelos-controller"))
+			serviceAccount := &corev1.ServiceAccount{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name:      podSpec.ServiceAccountName,
+				Namespace: cronJob.Namespace,
+			}, serviceAccount)).To(Succeed())
+			Expect(podSpec.RestartPolicy).To(Equal(corev1.RestartPolicyOnFailure))
+			Expect(podSpec.SecurityContext).NotTo(BeNil())
+			Expect(podSpec.SecurityContext.RunAsNonRoot).NotTo(BeNil())
+			Expect(*podSpec.SecurityContext.RunAsNonRoot).To(BeTrue())
+			Expect(podSpec.Containers).To(HaveLen(1))
+
+			container := podSpec.Containers[0]
+			Expect(container.Name).To(Equal("codex-auth-refresher"))
+			Expect(container.Image).To(Equal("ghcr.io/kelos-dev/codex:latest"))
+			Expect(container.Command).To(Equal([]string{"/kelos/kelos-codex-auth-refresh"}))
+			Expect(container.Args).To(Equal([]string{"--namespace=default", "--secret=codex-oauth"}))
+			Expect(container.SecurityContext).NotTo(BeNil())
+			Expect(container.SecurityContext.AllowPrivilegeEscalation).NotTo(BeNil())
+			Expect(*container.SecurityContext.AllowPrivilegeEscalation).To(BeFalse())
+		})
+
+		It("Should clean up stale Codex auth refresher CronJob when source Secret is missing", func() {
+			namespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "kelos-system"}}
+			err := k8sClient.Create(ctx, namespace)
+			Expect(client.IgnoreAlreadyExists(err)).To(Succeed())
+
+			sourceSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "default",
+					Name:      "deleted-codex-oauth",
+				},
+			}
+			cronJob := controller.NewCodexAuthRefresherBuilder().Build(sourceSecret)
+			Expect(k8sClient.Create(ctx, cronJob)).To(Succeed())
+
+			By("Verifying the controller deletes the stale managed CronJob")
+			key := types.NamespacedName{
+				Name:      cronJob.Name,
+				Namespace: cronJob.Namespace,
+			}
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, key, &batchv1.CronJob{})
+				return apierrors.IsNotFound(err)
+			}, 10*time.Second, 100*time.Millisecond).Should(BeTrue())
 		})
 
 		It("Should be idempotent", func() {

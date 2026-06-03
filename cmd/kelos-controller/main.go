@@ -61,6 +61,7 @@ func main() {
 	var telemetryReport bool
 	var telemetryEndpoint string
 	var telemetryEnvironment string
+	var codexAuthRefresherSchedule string
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -89,6 +90,7 @@ func main() {
 	flag.BoolVar(&telemetryReport, "telemetry-report", false, "Run a one-shot telemetry report and exit.")
 	flag.StringVar(&telemetryEndpoint, "telemetry-endpoint", telemetry.DefaultPostHogEndpoint, "The PostHog endpoint for sending telemetry reports.")
 	flag.StringVar(&telemetryEnvironment, "telemetry-environment", "production", "The environment label for telemetry reports (e.g., production, development).")
+	flag.StringVar(&codexAuthRefresherSchedule, "codex-auth-refresher-schedule", controller.DefaultCodexAuthRefreshSchedule, "Cron schedule for managed Codex OAuth refresher CronJobs.")
 
 	opts, applyVerbosity := logging.SetupZapOptions(flag.CommandLine)
 	flag.Parse()
@@ -235,6 +237,19 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "TaskSpawner")
 		os.Exit(1)
 	}
+	refresherBuilder := controller.NewCodexAuthRefresherBuilder()
+	refresherBuilder.Namespace = controllerNamespace()
+	refresherBuilder.Schedule = codexAuthRefresherSchedule
+	refresherBuilder.CodexImage = codexImage
+	refresherBuilder.ImagePullPolicy = corev1.PullPolicy(codexImagePullPolicy)
+	if err = (&controller.CodexAuthRefresherReconciler{
+		Client:  mgr.GetClient(),
+		Scheme:  mgr.GetScheme(),
+		Builder: refresherBuilder,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "CodexAuthRefresher")
+		os.Exit(1)
+	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up health check")
@@ -250,4 +265,11 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+func controllerNamespace() string {
+	if namespace := os.Getenv("POD_NAMESPACE"); namespace != "" {
+		return namespace
+	}
+	return "kelos-system"
 }

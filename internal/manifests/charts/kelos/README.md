@@ -91,6 +91,27 @@ helm upgrade kelos oci://ghcr.io/kelos-dev/charts/kelos \
   --set crds.install=false
 ```
 
+## Codex OAuth Token Refresh
+
+Codex OAuth credentials are stored in the `CODEX_AUTH_JSON` key of a credentials Secret. Kelos writes this bundle to `~/.codex/auth.json` and configures Codex to use file-backed credentials (`cli_auth_credentials_store = "file"`), matching OpenAI's CI/CD auth guidance. Agent pods are ephemeral, so refreshed tokens written by the Codex CLI inside a pod are not persisted back to that source Secret.
+
+The chart includes a controller that creates one CronJob per labeled Codex OAuth credentials Secret, refreshing each bundle independently of agent activity:
+
+```yaml
+codexAuthRefresher:
+  schedule: "0 */6 * * *"
+```
+
+Label each Secret that should be refreshed:
+
+```bash
+kubectl label secret codex-credentials \
+  kelos.dev/codex-oauth-refresh=true \
+  -n <credentials-namespace>
+```
+
+The controller watches Secrets labeled `kelos.dev/codex-oauth-refresh=true` and manages a dedicated CronJob for each Secret that has a non-empty `CODEX_AUTH_JSON` key. Each CronJob runs the Codex image under the `kelos-controller` ServiceAccount, targets exactly one Secret, lets the Codex CLI refresh that bundle, and updates only the `CODEX_AUTH_JSON` key. Removing the label or deleting the Secret removes its CronJob. Secrets without `CODEX_AUTH_JSON`, API-key credentials, and OAuth bundles without a `refresh_token` are skipped. Externally managed Secrets, such as ExternalSecrets, Vault-synced Secrets, or sealed-secrets, will overwrite the refreshed value on their next sync and are not supported.
+
 ## Uninstall
 
 To uninstall the Helm release:

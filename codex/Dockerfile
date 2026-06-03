@@ -31,10 +31,11 @@ ARG CODEX_VERSION=0.136.0
 RUN npm install -g @openai/codex@${CODEX_VERSION}
 
 COPY codex/kelos_entrypoint.sh /kelos_entrypoint.sh
-RUN chmod +x /kelos_entrypoint.sh
 
 ARG TARGETARCH
 COPY bin/kelos-capture-linux-${TARGETARCH} /kelos/kelos-capture
+COPY bin/kelos-codex-auth-refresh-linux-${TARGETARCH} /kelos/kelos-codex-auth-refresh
+RUN chmod +x /kelos_entrypoint.sh /kelos/kelos-codex-auth-refresh
 
 RUN useradd -u 61100 -m -s /bin/bash agent
 RUN mkdir -p /home/agent/.codex /home/agent/.local/bin && chown -R agent:agent /home/agent

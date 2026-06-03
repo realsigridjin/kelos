@@ -73,6 +73,7 @@ spec:
             {{- if .Values.ghproxy.cacheTTL }}
             - --ghproxy-cache-ttl={{ .Values.ghproxy.cacheTTL }}
             {{- end }}
+            - --codex-auth-refresher-schedule={{ .Values.codexAuthRefresher.schedule }}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
