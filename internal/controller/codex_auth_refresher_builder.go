@@ -54,6 +54,7 @@ func (b *CodexAuthRefresherBuilder) Build(secret *corev1.Secret) *batchv1.CronJo
 	successfulJobsHistoryLimit := int32(1)
 	failedJobsHistoryLimit := int32(1)
 	runAsNonRoot := true
+	agentUID := AgentUID
 	allowPrivilegeEscalation := false
 
 	labels := codexAuthRefresherLabels()
@@ -82,6 +83,7 @@ func (b *CodexAuthRefresherBuilder) Build(secret *corev1.Secret) *batchv1.CronJo
 							ServiceAccountName: codexAuthRefresherServiceAccountName(secret.Namespace, secret.Name),
 							SecurityContext: &corev1.PodSecurityContext{
 								RunAsNonRoot: &runAsNonRoot,
+								RunAsUser:    &agentUID,
 							},
 							RestartPolicy: corev1.RestartPolicyOnFailure,
 							Containers: []corev1.Container{{

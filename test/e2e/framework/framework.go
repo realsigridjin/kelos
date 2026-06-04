@@ -310,6 +310,37 @@ func (f *Framework) WaitForCronJobCreated(name string) {
 	}, 2*time.Minute, 10*time.Second).Should(Succeed())
 }
 
+// CreateJobFromCronJob creates a one-off Job from a CronJob's jobTemplate.
+func (f *Framework) CreateJobFromCronJob(cronJobName, jobName string) {
+	ctx := context.TODO()
+	cronJob, err := f.Clientset.BatchV1().CronJobs(f.Namespace).Get(ctx, cronJobName, metav1.GetOptions{})
+	Expect(err).NotTo(HaveOccurred(), "Failed to get CronJob %s", cronJobName)
+
+	jobSpec := cronJob.Spec.JobTemplate.Spec.DeepCopy()
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        jobName,
+			Namespace:   f.Namespace,
+			Labels:      cloneStringMap(cronJob.Spec.JobTemplate.Labels),
+			Annotations: cloneStringMap(cronJob.Spec.JobTemplate.Annotations),
+		},
+		Spec: *jobSpec,
+	}
+	_, err = f.Clientset.BatchV1().Jobs(f.Namespace).Create(ctx, job, metav1.CreateOptions{})
+	Expect(err).NotTo(HaveOccurred(), "Failed to create Job %s from CronJob %s", jobName, cronJobName)
+}
+
+func cloneStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
 // GetTaskPhase returns the phase of a Task.
 func (f *Framework) GetTaskPhase(name string) string {
 	task, err := f.KelosClientset.ApiV1alpha1().Tasks(f.Namespace).Get(context.TODO(), name, metav1.GetOptions{})

@@ -99,6 +99,13 @@ func refreshSecret(ctx context.Context, clientset kubernetes.Interface, s *corev
 	if err != nil {
 		return false, err
 	}
+	refreshed, err := verifyRefreshed(updated)
+	if err != nil {
+		return false, err
+	}
+	if !refreshed {
+		return false, nil
+	}
 	if bytes.Equal(bytes.TrimSpace(updated), bytes.TrimSpace(raw)) {
 		return false, nil
 	}
@@ -174,14 +181,7 @@ func DefaultRunner(ctx context.Context, seeded []byte) ([]byte, error) {
 		return nil, fmt.Errorf("writing Codex config: %w", err)
 	}
 
-	cmd := exec.CommandContext(ctx, "codex",
-		"exec",
-		"--skip-git-repo-check",
-		"--sandbox", "read-only",
-		"--ask-for-approval", "never",
-		"-C", workdir,
-		"Reply with the single word OK.",
-	)
+	cmd := exec.CommandContext(ctx, "codex", codexRefreshCommandArgs(workdir)...)
 	cmd.Env = append(os.Environ(), "CODEX_HOME="+codexHome, "HOME="+root)
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
@@ -193,22 +193,29 @@ func DefaultRunner(ctx context.Context, seeded []byte) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading refreshed auth.json: %w", err)
 	}
-	if err := verifyRefreshed(refreshed); err != nil {
-		return nil, err
-	}
 	return refreshed, nil
 }
 
-func verifyRefreshed(raw []byte) error {
+func codexRefreshCommandArgs(workdir string) []string {
+	return []string{
+		"exec",
+		"--skip-git-repo-check",
+		"--sandbox", "read-only",
+		"-C", workdir,
+		"Reply with the single word OK.",
+	}
+}
+
+func verifyRefreshed(raw []byte) (bool, error) {
 	var bundle map[string]any
 	if err := json.Unmarshal(raw, &bundle); err != nil {
-		return fmt.Errorf("parsing refreshed auth.json bundle: %w", err)
+		return false, fmt.Errorf("parsing refreshed auth.json bundle: %w", err)
 	}
 	lastRefresh, _ := bundle["last_refresh"].(string)
 	if lastRefresh == "" || lastRefresh == staleRefresh {
-		return errors.New("Codex did not refresh auth.json")
+		return false, nil
 	}
-	return nil
+	return true, nil
 }
 
 func log(message string, fields ...any) {
