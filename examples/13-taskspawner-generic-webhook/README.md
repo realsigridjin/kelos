@@ -71,8 +71,10 @@ their canonical uppercase aliases (`{{.ID}}`, `{{.Title}}`, `{{.Body}}`,
 Linear sources.
 
 The **`id` key is required** — it is used to derive a stable delivery ID
-for deduplication and to name the spawned Task. Without it, retries of the
-same logical event hash to the same body and may dedupe inconsistently.
+for deduplication. Task names are built from the TaskSpawner name, source,
+and a hashed suffix based on that delivery ID. If the mapped `id` cannot
+be extracted from a payload, retries fall back to a request-body hash and
+may dedupe inconsistently if the raw payload encoding changes.
 
 Missing fields in the payload produce empty strings rather than errors, so
 optional mappings (like `level` here) do not block Task creation. Malformed
