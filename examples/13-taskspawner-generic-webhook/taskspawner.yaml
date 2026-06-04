@@ -14,7 +14,8 @@ spec:
       source: sentry
 
       # JSONPath → template variable. The "id" key is required and is
-      # used for delivery deduplication and Task naming. Lowercase id,
+      # used to derive the delivery ID for deduplication. Task names use
+      # a hashed suffix based on that delivery ID. Lowercase id,
       # title, body, and url are also exposed under {{.ID}}, {{.Title}},
       # {{.Body}}, and {{.URL}} for compatibility with templates written
       # for the GitHub or Linear sources.
