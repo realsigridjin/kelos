@@ -379,10 +379,15 @@ Create a secret with your Codex credentials. The checked-in spawners use OAuth:
 ```bash
 kubectl create secret generic kelos-credentials \
   --from-file=CODEX_AUTH_JSON=$HOME/.codex/auth.json
+kubectl label secret kelos-credentials kelos.dev/codex-oauth-refresh=true
 ```
 
+Labeling the OAuth Secret opts it into controller-managed Codex OAuth refresh.
+Kelos creates one CronJob per labeled Secret with a non-empty `CODEX_AUTH_JSON`
+key, and skips unlabeled Secrets and API-key credentials.
+
 For API-key auth, change the task template credential type to `api-key` and
-create the secret with:
+create the secret without the OAuth refresh label:
 
 ```bash
 kubectl create secret generic kelos-credentials \
