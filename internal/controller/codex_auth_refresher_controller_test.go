@@ -56,6 +56,15 @@ func TestCodexAuthRefresherBuilderBuildsPerSecretCronJob(t *testing.T) {
 	if podSpec.ServiceAccountName != wantServiceAccountName {
 		t.Fatalf("serviceAccountName = %q, want %s", podSpec.ServiceAccountName, wantServiceAccountName)
 	}
+	if podSpec.SecurityContext == nil {
+		t.Fatal("pod securityContext is nil")
+	}
+	if podSpec.SecurityContext.RunAsNonRoot == nil || !*podSpec.SecurityContext.RunAsNonRoot {
+		t.Fatalf("runAsNonRoot = %v, want true", podSpec.SecurityContext.RunAsNonRoot)
+	}
+	if podSpec.SecurityContext.RunAsUser == nil || *podSpec.SecurityContext.RunAsUser != AgentUID {
+		t.Fatalf("runAsUser = %v, want %d", podSpec.SecurityContext.RunAsUser, AgentUID)
+	}
 	if len(podSpec.Containers) != 1 {
 		t.Fatalf("containers = %d, want 1", len(podSpec.Containers))
 	}

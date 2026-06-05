@@ -3,6 +3,7 @@ package codexauth
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -117,11 +118,77 @@ func TestRunSkipsSecretsWithoutRefreshLabel(t *testing.T) {
 	}
 }
 
-func TestVerifyRefreshedRequiresChangedLastRefresh(t *testing.T) {
-	if err := verifyRefreshed([]byte(`{"last_refresh":"1970-01-01T00:00:00Z"}`)); err == nil {
-		t.Fatal("verifyRefreshed() succeeded for stale last_refresh")
+func TestRunSkipsUpdateWhenCodexDoesNotRefresh(t *testing.T) {
+	ctx := context.Background()
+	originalAuth := `{"tokens":{"access_token":"old","id_token":"id","refresh_token":"refresh"},"last_refresh":"2026-01-01T00:00:00Z"}`
+	clientset := fake.NewSimpleClientset(&corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "default",
+			Name:      "codex",
+			Labels: map[string]string{
+				RefreshLabel: "true",
+			},
+		},
+		Data: map[string][]byte{
+			secretKey: []byte(originalAuth),
+		},
+	})
+
+	err := Run(ctx, clientset, Options{
+		Namespace:  "default",
+		SecretName: "codex",
+		Runner: func(context.Context, []byte) ([]byte, error) {
+			return []byte(`{"tokens":{"access_token":"old","id_token":"id","refresh_token":"refresh"},"last_refresh":"1970-01-01T00:00:00Z"}`), nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
 	}
-	if err := verifyRefreshed([]byte(`{"last_refresh":"2026-06-02T00:00:00Z"}`)); err != nil {
+
+	updated, err := clientset.CoreV1().Secrets("default").Get(ctx, "codex", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("getting Secret: %v", err)
+	}
+	if got := string(updated.Data[secretKey]); got != originalAuth {
+		t.Fatalf("updated auth = %s, want original auth unchanged", got)
+	}
+}
+
+func TestCodexRefreshCommandArgsMatchPinnedCLI(t *testing.T) {
+	args := codexRefreshCommandArgs("/tmp/workspace")
+	for _, arg := range args {
+		if arg == "--ask-for-approval" {
+			t.Fatalf("codex refresh args include unsupported flag: %v", args)
+		}
+	}
+	want := []string{
+		"exec",
+		"--skip-git-repo-check",
+		"--sandbox", "read-only",
+		"-C", "/tmp/workspace",
+		"Reply with the single word OK.",
+	}
+	if strings.Join(args, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("codex refresh args = %v, want %v", args, want)
+	}
+}
+
+func TestVerifyRefreshed(t *testing.T) {
+	refreshed, err := verifyRefreshed([]byte(`{"last_refresh":"1970-01-01T00:00:00Z"}`))
+	if err != nil {
 		t.Fatalf("verifyRefreshed() error = %v", err)
+	}
+	if refreshed {
+		t.Fatal("verifyRefreshed() = true for stale last_refresh")
+	}
+	refreshed, err = verifyRefreshed([]byte(`{"last_refresh":"2026-06-02T00:00:00Z"}`))
+	if err != nil {
+		t.Fatalf("verifyRefreshed() error = %v", err)
+	}
+	if !refreshed {
+		t.Fatal("verifyRefreshed() = false for changed last_refresh")
+	}
+	if _, err := verifyRefreshed([]byte(`{`)); err == nil {
+		t.Fatal("verifyRefreshed() succeeded for invalid JSON")
 	}
 }
