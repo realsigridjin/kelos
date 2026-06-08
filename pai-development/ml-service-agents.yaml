@@ -378,3 +378,81 @@ spec:
       ## Rules
       - Read-only on code: do NOT modify files, open PRs, or change other labels/assignees.
       - Only investigate service/agents. Favor a few high-value proposals over many small ones.
+
+---
+apiVersion: kelos.dev/v1alpha1
+kind: TaskSpawner
+metadata:
+  name: agents-performance-scout
+spec:
+  when:
+    cron:
+      schedule: "0 7 * * *" # daily 07:00 UTC (16:00 KST)
+  maxConcurrency: 1
+  taskTemplate:
+    workspaceRef:
+      name: ml-workspace
+    model: opus
+    type: claude-code
+    ttlSecondsAfterFinished: 600
+    credentials:
+      type: oauth
+      secretRef:
+        name: kelos-credentials
+    agentConfigRef:
+      name: kelos-dev-agent
+    podOverrides:
+      env:
+        - name: CLAUDE_CODE_EFFORT_LEVEL
+          value: "max"
+        - name: PAI_NCLAVIS_USER_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: pai-nclavis
+              key: PAI_NCLAVIS_USER_TOKEN
+    promptTemplate: |
+      Daily performance-scout for the Planner Agent service (service/agents) in the pai/ml monorepo.
+
+      Surface high-confidence PERFORMANCE opportunities (latency, throughput, token/cost) on the
+      request-handling path and file them as GitHub issues for human triage. You do NOT change code or
+      open PRs. If nothing is clearly worth proposing, exit WITHOUT filing — a no-op day is a good
+      outcome. The mandatory dedup step + a per-run cap keep this from becoming noise. Precision over
+      recall: do not file speculative micro-optimizations with no measurable impact.
+
+      ## Setup
+      git fetch origin develop
+      curl -LsSf https://astral.sh/uv/0.10.4/install.sh | sh && . $HOME/.local/bin/env
+      cd service/agents
+
+      ## Step 1 — Investigate hot paths
+      Read the code under service/agents/src, focusing on the per-turn request path and A2A boundary.
+      Look for genuine performance issues, e.g.:
+      - independent async calls awaited sequentially that could run concurrently (asyncio.gather)
+      - redundant or repeated LLM calls / recomputation that could be cached or hoisted
+      - blocking/synchronous I/O on an async path (sync network/file calls, time.sleep, a sync client
+        where an async one exists) that stalls the event loop
+      - N+1 patterns: per-item network/LLM calls inside a loop that could be batched
+      - expensive work repeated per request that could be done once at startup (model/config/file
+        loads, recompiled regexes, re-parsed resources)
+      - prompt/token bloat: unbounded history, oversized context, or duplicated content that inflates
+        latency and cost
+      - algorithmic hotspots / inefficient data structures on the request path
+      Back every finding with a concrete file:line, why it is slow (the mechanism), and a rough estimate
+      of the impact (per-request latency, fan-out, or token cost).
+
+      ## Step 2 — Deduplicate (REQUIRED)
+        gh issue list --label gjkim/auto-generated --state all --limit 200
+      Drop anything already covered by an open or recently-closed issue.
+
+      ## Step 3 — File the top findings (capped)
+      - Rank by impact × confidence. File AT MOST 2 this run, assigned to gunju-kim:
+        gh issue create --assignee gunju-kim --label gjkim/auto-generated \
+          --title "[perf] <concise performance opportunity title>" \
+          --body "<what is slow and why (the mechanism), file:line refs, estimated impact, a concrete
+                   suggested direction, and how the win could be measured. Note any behavior or
+                   ordering risk. End with: 'Comment /kelos plan to plan it, or /kelos pick-up to do it.'>"
+      - If nothing meets the bar, report "no high-confidence performance opportunities found" and EXIT.
+
+      ## Rules
+      - Read-only on code: do NOT modify files, open PRs, or change other labels/assignees.
+      - Only investigate service/agents. Favor a few high-impact opportunities over many micro-tweaks.
