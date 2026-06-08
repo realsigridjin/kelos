@@ -30,6 +30,8 @@ spec:
       name: kelos-codex-dev-agent
     podOverrides:
       env:
+        - name: CLEANUP_AFTER_TEST
+          value: "true"
         - name: PAI_NCLAVIS_USER_TOKEN
           valueFrom:
             secretKeyRef:
@@ -126,6 +128,8 @@ spec:
       name: kelos-codex-dev-agent
     podOverrides:
       env:
+        - name: CLEANUP_AFTER_TEST
+          value: "true"
         - name: PAI_NCLAVIS_USER_TOKEN
           valueFrom:
             secretKeyRef:
@@ -207,6 +211,8 @@ spec:
       name: pai-codex-reviewer-agent
     podOverrides:
       env:
+        - name: CLEANUP_AFTER_TEST
+          value: "true"
         - name: PAI_NCLAVIS_USER_TOKEN
           valueFrom:
             secretKeyRef:

@@ -23,6 +23,8 @@ spec:
       env:
         - name: CLAUDE_CODE_EFFORT_LEVEL
           value: "max"
+        - name: CLEANUP_AFTER_TEST
+          value: "true"
         - name: PAI_NCLAVIS_USER_TOKEN
           valueFrom:
             secretKeyRef:
@@ -97,6 +99,8 @@ spec:
       env:
         - name: CLAUDE_CODE_EFFORT_LEVEL
           value: "max"
+        - name: CLEANUP_AFTER_TEST
+          value: "true"
         - name: PAI_NCLAVIS_USER_TOKEN
           valueFrom:
             secretKeyRef:

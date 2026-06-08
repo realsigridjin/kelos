@@ -48,6 +48,8 @@ spec:
       name: kelos-dev-agent
     podOverrides:
       env:
+        - name: CLEANUP_AFTER_TEST
+          value: "true"
         - name: PAI_NCLAVIS_USER_TOKEN
           valueFrom:
             secretKeyRef:
@@ -144,6 +146,8 @@ spec:
       name: kelos-dev-agent
     podOverrides:
       env:
+        - name: CLEANUP_AFTER_TEST
+          value: "true"
         - name: PAI_NCLAVIS_USER_TOKEN
           valueFrom:
             secretKeyRef:
@@ -224,6 +228,8 @@ spec:
       name: pai-planner-agent
     podOverrides:
       env:
+        - name: CLEANUP_AFTER_TEST
+          value: "true"
         - name: PAI_NCLAVIS_USER_TOKEN
           valueFrom:
             secretKeyRef:
@@ -341,6 +347,8 @@ spec:
       name: kelos-dev-agent
     podOverrides:
       env:
+        - name: CLEANUP_AFTER_TEST
+          value: "true"
         - name: PAI_NCLAVIS_USER_TOKEN
           valueFrom:
             secretKeyRef:
@@ -431,6 +439,8 @@ spec:
       name: pai-reviewer-agent
     podOverrides:
       env:
+        - name: CLEANUP_AFTER_TEST
+          value: "true"
         - name: PAI_NCLAVIS_USER_TOKEN
           valueFrom:
             secretKeyRef:
@@ -518,6 +528,8 @@ spec:
       name: kelos-dev-agent
     podOverrides:
       env:
+        - name: CLEANUP_AFTER_TEST
+          value: "true"
         - name: PAI_NCLAVIS_USER_TOKEN
           valueFrom:
             secretKeyRef:
