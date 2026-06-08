@@ -1,0 +1,147 @@
+apiVersion: kelos.dev/v1alpha1
+kind: TaskSpawner
+metadata:
+  name: test-dashboard-improvement-scout
+spec:
+  when:
+    cron:
+      schedule: "0 5 * * *" # daily 05:00 UTC (14:00 KST)
+  maxConcurrency: 1
+  taskTemplate:
+    workspaceRef:
+      name: ml-workspace
+    model: opus
+    type: claude-code
+    ttlSecondsAfterFinished: 600
+    credentials:
+      type: oauth
+      secretRef:
+        name: kelos-credentials
+    agentConfigRef:
+      name: kelos-dev-agent
+    podOverrides:
+      env:
+        - name: CLAUDE_CODE_EFFORT_LEVEL
+          value: "max"
+        - name: PAI_NCLAVIS_USER_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: pai-nclavis
+              key: PAI_NCLAVIS_USER_TOKEN
+    promptTemplate: |
+      Improvement-scout for the test-dashboard service (service/test-dashboard) in the pai/ml monorepo —
+      a web dashboard that visualizes CI test reports stored in object storage.
+
+      This spawner runs indefinitely. Do NOT rely on any assumed list of current gaps — investigate the
+      service as it exists today and judge what matters now. Surface high-value POTENTIAL IMPROVEMENTS and
+      file them as GitHub issues for human triage. You do NOT change code or open PRs. If nothing is
+      clearly worth proposing, exit WITHOUT filing. The mandatory dedup step + a per-run cap keep this
+      from becoming noise.
+
+      ## Setup
+      git fetch origin develop
+      curl -LsSf https://astral.sh/uv/0.10.4/install.sh | sh && . $HOME/.local/bin/env
+      cd service/test-dashboard
+
+      ## Step 1 — Investigate the current state, then look for improvements
+      Read the service's code, tests, and docs to understand how it works today, then look for high-value
+      improvements through these durable lenses:
+      - correctness & reliability (error handling, edge cases, failure recovery, timeouts)
+      - test coverage of important, under-tested paths
+      - observability (logging, metrics, health signals)
+      - maintainability (tech debt, duplication, complexity, clarity)
+      - dependency and build/deploy health
+      - documentation accuracy (docs that no longer match the code)
+      Honor the monorepo conventions (root CLAUDE.md / AGENTS.md / CONTRIBUTING.md). Leave UI and
+      report-schema ideas to the separate test-dashboard-ui-scout.
+
+      ## Step 2 — Deduplicate (REQUIRED)
+        gh issue list --label gjkim/auto-generated --state all --limit 200
+      Drop anything already covered by an open or recently-closed issue.
+
+      ## Step 3 — File the top proposals (capped)
+      - Rank by impact ÷ effort. File AT MOST 2 this run, assigned to gunju-kim:
+        gh issue create --assignee gunju-kim --label gjkim/auto-generated \
+          --title "[test-dashboard] <concise improvement title>" \
+          --body "<the opportunity, why it matters, the affected area, a concrete suggested approach, and
+                   rough effort. End with: 'Comment /kelos plan to plan it, or /kelos pick-up to do it.'>"
+      - If nothing clears the bar, report "no high-value improvements found" and EXIT without filing.
+
+      ## Rules
+      - Read-only on code: do NOT modify files, open PRs, or change other labels/assignees.
+      - Only investigate service/test-dashboard. Favor a few high-value proposals over many small ones.
+
+---
+apiVersion: kelos.dev/v1alpha1
+kind: TaskSpawner
+metadata:
+  name: test-dashboard-ui-scout
+spec:
+  when:
+    cron:
+      schedule: "0 6 * * *" # daily 06:00 UTC (15:00 KST)
+  maxConcurrency: 1
+  taskTemplate:
+    workspaceRef:
+      name: ml-workspace
+    model: opus
+    type: claude-code
+    ttlSecondsAfterFinished: 600
+    credentials:
+      type: oauth
+      secretRef:
+        name: kelos-credentials
+    agentConfigRef:
+      name: kelos-dev-agent
+    podOverrides:
+      env:
+        - name: CLAUDE_CODE_EFFORT_LEVEL
+          value: "max"
+        - name: PAI_NCLAVIS_USER_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: pai-nclavis
+              key: PAI_NCLAVIS_USER_TOKEN
+    promptTemplate: |
+      UI & report-schema improvement-scout for the test-dashboard service (service/test-dashboard) in the
+      pai/ml monorepo — a web dashboard that renders CI test reports (read from object storage) as HTML.
+
+      This spawner runs indefinitely. Do NOT rely on a fixed list of current issues — read the UI and
+      rendering code as they exist today and judge what matters now. Surface high-value improvements to
+      (a) the dashboard UI/UX and (b) the test-report schema it consumes, and file them as GitHub issues.
+      You do NOT change code or open PRs. If nothing is clearly worth proposing, exit WITHOUT filing.
+      Dedup + a per-run cap keep this from becoming noise.
+
+      ## Setup
+      git fetch origin develop
+      curl -LsSf https://astral.sh/uv/0.10.4/install.sh | sh && . $HOME/.local/bin/env
+      cd service/test-dashboard
+
+      ## Step 1 — Investigate the current UI and report handling, then look for improvements
+      Read the templates and the rendering/data code, then look through these durable lenses:
+      UI / UX:
+      - accessibility (semantic markup, labels, contrast, keyboard navigation)
+      - usability & clarity (information hierarchy, navigation, large/empty/error states, responsive
+        layout, readable metrics and charts)
+      report schema:
+      - robustness (validating the report shape; degrading gracefully on missing/malformed data)
+      - a richer, clearer schema (more useful fields, versioning, links back to source runs), noting
+        producer/consumer impact
+
+      ## Step 2 — Deduplicate (REQUIRED)
+        gh issue list --label gjkim/auto-generated --state all --limit 200
+      Drop anything already covered by an open or recently-closed issue. Keep this scout focused on UI and
+      report schema; general code/test/observability items belong to the other scout.
+
+      ## Step 3 — File the top proposals (capped)
+      - File AT MOST 2 this run, assigned to gunju-kim:
+        gh issue create --assignee gunju-kim --label gjkim/auto-generated \
+          --title "[test-dashboard] <concise UI/schema improvement title>" \
+          --body "<the opportunity, why it matters, the affected area, a concrete suggested approach (a
+                   small markup/mockup sketch for UI changes), and rough effort. End with: 'Comment
+                   /kelos plan to plan it, or /kelos pick-up to do it.'>"
+      - If nothing clears the bar, report "no high-value UI/schema improvements found" and EXIT.
+
+      ## Rules
+      - Read-only on code: do NOT modify files, open PRs, or change other labels/assignees.
+      - Only investigate service/test-dashboard. A few high-value proposals beat many small ones.
