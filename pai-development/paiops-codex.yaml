@@ -20,7 +20,7 @@ spec:
       name: paiops-workspace
     model: gpt-5.5
     type: codex
-    ttlSecondsAfterFinished: 600
+    ttlSecondsAfterFinished: 86400
     credentials:
       type: oauth
       secretRef:
@@ -116,7 +116,7 @@ spec:
       name: paiops-workspace
     model: gpt-5.5
     type: codex
-    ttlSecondsAfterFinished: 600
+    ttlSecondsAfterFinished: 86400
     credentials:
       type: oauth
       secretRef:
@@ -197,7 +197,7 @@ spec:
       name: paiops-workspace
     model: gpt-5.5
     type: codex
-    ttlSecondsAfterFinished: 600
+    ttlSecondsAfterFinished: 86400
     credentials:
       type: oauth
       secretRef:

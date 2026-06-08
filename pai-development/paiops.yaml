@@ -38,7 +38,7 @@ spec:
       name: paiops-workspace
     model: opus
     type: claude-code
-    ttlSecondsAfterFinished: 600
+    ttlSecondsAfterFinished: 86400
     credentials:
       type: oauth
       secretRef:
@@ -134,7 +134,7 @@ spec:
       name: paiops-workspace
     model: opus
     type: claude-code
-    ttlSecondsAfterFinished: 600
+    ttlSecondsAfterFinished: 86400
     credentials:
       type: oauth
       secretRef:
@@ -215,7 +215,7 @@ spec:
       name: paiops-workspace
     model: opus
     type: claude-code
-    ttlSecondsAfterFinished: 3600
+    ttlSecondsAfterFinished: 86400
     credentials:
       type: oauth
       secretRef:
@@ -331,7 +331,7 @@ spec:
       name: paiops-workspace
     model: sonnet
     type: claude-code
-    ttlSecondsAfterFinished: 600
+    ttlSecondsAfterFinished: 86400
     credentials:
       type: oauth
       secretRef:
@@ -421,7 +421,7 @@ spec:
       name: paiops-workspace
     model: opus
     type: claude-code
-    ttlSecondsAfterFinished: 600
+    ttlSecondsAfterFinished: 86400
     credentials:
       type: oauth
       secretRef:
@@ -508,7 +508,7 @@ spec:
       name: paiops-workspace
     model: sonnet
     type: claude-code
-    ttlSecondsAfterFinished: 600
+    ttlSecondsAfterFinished: 86400
     credentials:
       type: oauth
       secretRef:

@@ -12,7 +12,7 @@ spec:
       name: ml-workspace
     model: opus
     type: claude-code
-    ttlSecondsAfterFinished: 600
+    ttlSecondsAfterFinished: 86400
     credentials:
       type: oauth
       secretRef:
@@ -90,7 +90,7 @@ spec:
       name: ml-workspace
     model: opus
     type: claude-code
-    ttlSecondsAfterFinished: 600
+    ttlSecondsAfterFinished: 86400
     credentials:
       type: oauth
       secretRef:
@@ -171,7 +171,7 @@ spec:
       name: ml-workspace
     model: opus
     type: claude-code
-    ttlSecondsAfterFinished: 600
+    ttlSecondsAfterFinished: 86400
     credentials:
       type: oauth
       secretRef:
@@ -254,7 +254,7 @@ spec:
       name: ml-workspace
     model: opus
     type: claude-code
-    ttlSecondsAfterFinished: 600
+    ttlSecondsAfterFinished: 86400
     credentials:
       type: oauth
       secretRef:
@@ -326,7 +326,7 @@ spec:
       name: ml-workspace
     model: opus
     type: claude-code
-    ttlSecondsAfterFinished: 600
+    ttlSecondsAfterFinished: 86400
     credentials:
       type: oauth
       secretRef:
@@ -394,7 +394,7 @@ spec:
       name: ml-workspace
     model: opus
     type: claude-code
-    ttlSecondsAfterFinished: 600
+    ttlSecondsAfterFinished: 86400
     credentials:
       type: oauth
       secretRef:
