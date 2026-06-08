@@ -1,0 +1,380 @@
+apiVersion: kelos.dev/v1alpha1
+kind: TaskSpawner
+metadata:
+  name: agents-test-health
+spec:
+  when:
+    cron:
+      schedule: "0 0 * * *" # daily 00:00 UTC (09:00 KST)
+  maxConcurrency: 1
+  taskTemplate:
+    workspaceRef:
+      name: ml-workspace
+    model: opus
+    type: claude-code
+    ttlSecondsAfterFinished: 600
+    credentials:
+      type: oauth
+      secretRef:
+        name: kelos-credentials
+    agentConfigRef:
+      name: kelos-dev-agent
+    branch: kelos/agents-test-health
+    podOverrides:
+      env:
+        - name: CLAUDE_CODE_EFFORT_LEVEL
+          value: "max"
+        - name: PAI_NCLAVIS_USER_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: pai-nclavis
+              key: PAI_NCLAVIS_USER_TOKEN
+    promptTemplate: |
+      Daily test-health check for the Planner Agent service (service/agents) in the pai/ml monorepo.
+
+      Keep service/agents tests green. Run the project's CI test command; if anything is broken or
+      flaky, fix it with the SMALLEST possible change and open/update a single rolling PR. If
+      everything passes, exit cleanly WITHOUT creating a PR, branch, or comment.
+
+      ## Setup
+      git fetch origin develop
+      curl -LsSf https://astral.sh/uv/0.10.4/install.sh | sh && . $HOME/.local/bin/env
+      cd service/agents
+
+      ## Step 1 — Run tests (exactly what CI runs)
+      ./ci_test.sh      # -> uv run pytest tests/ -v -m "not stage and not e2e_fixme"
+      Capture the full output.
+
+      ## Step 2 — Decide
+      - All tests pass: report "service/agents tests green" and EXIT. No branch/PR/comment.
+      - Failures: continue.
+
+      ## Step 3 — Rolling PR
+      gh pr list --head kelos/agents-test-health --state open
+      - If a PR exists: check out the branch, `git rebase origin/develop`, read the existing diff and
+        comments, and build on the existing work — do NOT start over.
+      - If not: create branch kelos/agents-test-health from origin/develop.
+
+      ## Step 4 — Fix
+      - Diagnose each failure: real regression in service/agents code vs. flaky/environment issue.
+      - Apply the smallest fix that makes ./ci_test.sh pass. Follow service/agents/CLAUDE.md and
+        AGENTS.md (state changes via EventActions.state_delta; dependency injection; AgentIO
+        contracts in state.py). No opportunistic refactors. Re-run ./ci_test.sh until it passes.
+
+      ## Step 5 — Open/update the PR
+      - Commit (commit skill) and push origin kelos/agents-test-health.
+      - Create or update ONE PR targeting develop (pull-request skill; Korean description).
+      - Label it: gh pr edit <number> --add-label gjkim/auto-generated
+      - /review the PR; address findings; repeat until it passes.
+      - Poll CI: gh pr checks <number> (do NOT redirect stderr). 0 -> done; 8 -> pending, sleep 30s
+        and retry up to ~15 min; any other code -> post `/kelos needs-input` with the error and exit.
+
+      ## Rules
+      - Only touch files under service/agents.
+      - If a failure is purely environmental (missing internal CA bundle, no network, missing secret)
+        and NOT a code bug, do not hack around it: post `/kelos needs-input` on the PR — or, if no PR
+        exists, `gh issue create --assignee gunju-kim --label gjkim/auto-generated` — describing the gap, and exit.
+
+---
+apiVersion: kelos.dev/v1alpha1
+kind: TaskSpawner
+metadata:
+  name: agents-io-contract-sync
+spec:
+  when:
+    cron:
+      schedule: "0 1 * * *" # daily 01:00 UTC (10:00 KST)
+  maxConcurrency: 1
+  taskTemplate:
+    workspaceRef:
+      name: ml-workspace
+    model: opus
+    type: claude-code
+    ttlSecondsAfterFinished: 600
+    credentials:
+      type: oauth
+      secretRef:
+        name: kelos-credentials
+    agentConfigRef:
+      name: kelos-dev-agent
+    branch: kelos/agents-io-contract-sync
+    podOverrides:
+      env:
+        - name: CLAUDE_CODE_EFFORT_LEVEL
+          value: "max"
+        - name: PAI_NCLAVIS_USER_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: pai-nclavis
+              key: PAI_NCLAVIS_USER_TOKEN
+    promptTemplate: |
+      Daily contract-doc drift check for the Planner Agent service (service/agents) in pai/ml.
+
+      Per service/agents/CLAUDE.md, every cross-agent slot is a typed AgentIO contract in
+      src/place_agents/state.py, and the catalogue + per-turn flow diagram in IO.md MUST stay in sync
+      with it ("drift between the two is a smell"). api.md documents the A2A wire spec. CODE IS THE
+      SOURCE OF TRUTH. Update the DOCS to match the code. If there is no drift, exit WITHOUT a PR.
+
+      ## Setup
+      git fetch origin develop
+      curl -LsSf https://astral.sh/uv/0.10.4/install.sh | sh && . $HOME/.local/bin/env
+      cd service/agents
+
+      ## Step 1 — Inventory contracts from code
+      - Read src/place_agents/state.py. Enumerate every AgentIO subclass: fields/types, producer,
+        consumers, scope, lifecycle.
+      - Grep from_state / to_state / state_delta usages to confirm each contract's producer/consumers.
+
+      ## Step 2 — Compare against docs
+      - IO.md: is every contract listed, with correct fields, producer, consumers, scope, lifecycle,
+        and per-turn flow-diagram edges?
+      - api.md: does the documented A2A request/response shape still match src/place_agents/a2a/*?
+      - Produce a concrete drift list (missing/renamed/added/removed fields, wrong producer/consumer,
+        stale diagram edges, stale api.md fields).
+
+      ## Step 3 — Decide
+      - No drift: report "IO.md / api.md in sync with state.py" and EXIT. No branch/PR/comment.
+      - Drift: continue.
+
+      ## Step 4 — Rolling PR
+      gh pr list --head kelos/agents-io-contract-sync --state open
+      - If exists: check out, `git rebase origin/develop`, read existing diff/comments, build on it.
+      - If not: create branch kelos/agents-io-contract-sync from origin/develop.
+
+      ## Step 5 — Fix the DOCS only
+      - Update IO.md (and api.md) to match the code exactly, including the per-turn flow diagram.
+      - Do NOT modify state.py or any other code. Preserve existing Korean text; do not translate.
+
+      ## Step 6 — Open/update the PR
+      - Commit + push origin kelos/agents-io-contract-sync.
+      - Create or update ONE PR targeting develop (pull-request skill; Korean description) listing the
+        drift fixed. Label: gh pr edit <number> --add-label gjkim/auto-generated
+      - /review; address; repeat. Poll CI with `gh pr checks <number>` as in agents-test-health.
+
+      ## Rules
+      - Docs-only changes (IO.md, api.md, docs). Only touch files under service/agents.
+      - If you find the CODE is actually wrong (a real bug, not a doc gap), do NOT fix it here — open
+        an issue (gh issue create --assignee gunju-kim --label gjkim/auto-generated) and exclude it from this PR.
+
+---
+apiVersion: kelos.dev/v1alpha1
+kind: TaskSpawner
+metadata:
+  name: agents-simplify
+spec:
+  when:
+    cron:
+      schedule: "0 2 * * *" # daily 02:00 UTC (11:00 KST)
+  maxConcurrency: 1
+  taskTemplate:
+    workspaceRef:
+      name: ml-workspace
+    model: opus
+    type: claude-code
+    ttlSecondsAfterFinished: 600
+    credentials:
+      type: oauth
+      secretRef:
+        name: kelos-credentials
+    agentConfigRef:
+      name: kelos-dev-agent
+    branch: kelos/agents-simplify
+    podOverrides:
+      env:
+        - name: CLAUDE_CODE_EFFORT_LEVEL
+          value: "max"
+        - name: PAI_NCLAVIS_USER_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: pai-nclavis
+              key: PAI_NCLAVIS_USER_TOKEN
+    promptTemplate: |
+      Daily, CONSERVATIVE simplification pass for the Planner Agent service (service/agents) in pai/ml.
+
+      Goal: improve clarity / reduce incidental complexity in ONE small, self-contained area per run,
+      WITHOUT changing behavior. This is NOT a license to refactor broadly. service/agents/CLAUDE.md
+      and AGENTS.md require: keep patches minimal, avoid opportunistic refactors, preserve Korean
+      comments, route state via EventActions.state_delta, use dependency injection, keep AgentIO
+      contracts intact. If you cannot find a clearly worthwhile, low-risk simplification, exit cleanly
+      WITHOUT a PR. A no-op day is the correct and common outcome.
+
+      ## Setup
+      git fetch origin develop
+      curl -LsSf https://astral.sh/uv/0.10.4/install.sh | sh && . $HOME/.local/bin/env
+      cd service/agents
+
+      ## Step 1 — Green baseline
+      Run ./ci_test.sh and confirm it PASSES before any change. If it does not, EXIT immediately
+      (test health is a separate task). Never simplify on a red baseline.
+
+      ## Step 2 — Find ONE small target
+      e.g. dead/unused code, an import, a collapsible duplication, an over-nested function that reads
+      clearer flattened, or a stale comment/docstring that restates the code. Pick exactly ONE target
+      with a small diff (rule of thumb: < ~80 changed lines). Do NOT touch public contracts (AgentIO
+      subclasses in state.py, A2A request/response shapes, cross-module function signatures).
+
+      ## Step 3 — Decide
+      - Nothing clearly worth simplifying at low risk: report "no low-risk simplification found" and
+        EXIT. No branch/PR/comment.
+      - Otherwise continue.
+
+      ## Step 4 — Rolling PR
+      gh pr list --head kelos/agents-simplify --state open
+      - If exists: check out, `git rebase origin/develop`, read existing diff/comments. Stack only
+        closely-related cleanups; otherwise wait until it merges (EXIT).
+      - If not: create branch kelos/agents-simplify from origin/develop.
+
+      ## Step 5 — Simplify (behavior-preserving)
+      - Make the change; preserve behavior exactly; preserve Korean comments/docstrings.
+      - Run ./ci_test.sh — it MUST still pass. If it does not and the fix is not trivial, revert and EXIT.
+
+      ## Step 6 — Open/update the PR
+      - Commit + push origin kelos/agents-simplify.
+      - Create or update ONE PR targeting develop (pull-request skill; Korean description) explaining
+        what was simplified and why it is behavior-preserving. Label:
+        gh pr edit <number> --add-label gjkim/auto-generated
+      - /review; address findings; repeat. Poll CI with `gh pr checks <number>` as in the others.
+
+      ## Rules
+      - One small, behavior-preserving simplification per run. No feature/dependency/format-only churn.
+      - Only touch files under service/agents. When in doubt, do nothing and exit.
+
+---
+apiVersion: kelos.dev/v1alpha1
+kind: TaskSpawner
+metadata:
+  name: agents-bug-scout
+spec:
+  when:
+    cron:
+      schedule: "0 3 * * *" # daily 03:00 UTC (12:00 KST)
+  maxConcurrency: 1
+  taskTemplate:
+    workspaceRef:
+      name: ml-workspace
+    model: opus
+    type: claude-code
+    ttlSecondsAfterFinished: 600
+    credentials:
+      type: oauth
+      secretRef:
+        name: kelos-credentials
+    agentConfigRef:
+      name: kelos-dev-agent
+    podOverrides:
+      env:
+        - name: CLAUDE_CODE_EFFORT_LEVEL
+          value: "max"
+        - name: PAI_NCLAVIS_USER_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: pai-nclavis
+              key: PAI_NCLAVIS_USER_TOKEN
+    promptTemplate: |
+      Daily bug-scout for the Planner Agent service (service/agents) in the pai/ml monorepo.
+
+      Hunt for LATENT, high-confidence correctness bugs and file them as GitHub issues for human
+      triage. You do NOT change code, open PRs, or change any label other than the one below. If you
+      find nothing genuinely worth filing, exit cleanly WITHOUT creating an issue — a no-op day is a
+      good outcome. Precision over recall: do not file speculative noise.
+
+      ## Setup
+      git fetch origin develop
+      curl -LsSf https://astral.sh/uv/0.10.4/install.sh | sh && . $HOME/.local/bin/env
+      cd service/agents
+
+      ## Step 1 — Investigate
+      Read the code under service/agents/src and tests. Look for real defects, e.g.:
+      - state mutated directly instead of via Event(actions=EventActions(state_delta=...))
+        (forbidden by CLAUDE.md — silently drops state across turns / races under multiprocess)
+      - AgentIO contract misuse: addressing a slot by raw string key, missing from_state/to_state
+      - error/exception paths that swallow failures, missing timeouts, unawaited coroutines
+      - off-by-one / None-handling / boundary bugs; incorrect async usage
+      - dependency-injection violations (os.getenv fallbacks inside __init__, module-level env reads)
+      Back every finding with a concrete file:line and a plausible failure scenario.
+
+      ## Step 2 — Deduplicate (REQUIRED)
+      List already-filed issues so you never refile:
+        gh issue list --label gjkim/auto-generated --state all --limit 200
+      Drop any finding already covered by an open or recently-closed issue.
+
+      ## Step 3 — File the top findings (capped)
+      - Rank remaining findings by severity × confidence. File AT MOST 3 this run (highest value).
+      - For each, create one issue:
+        gh issue create --assignee gunju-kim --label gjkim/auto-generated \
+          --title "<concise bug title>" \
+          --body "<what's wrong, why it's a bug, file:line refs, a failure scenario, and a suggested
+                   direction. End with: 'Comment /kelos plan to plan a fix, or /kelos pick-up to fix.'>"
+      - If nothing meets the bar, report "no high-confidence bugs found" and EXIT without filing.
+
+      ## Rules
+      - Read-only on code: do NOT modify files, open PRs, or change other labels/assignees.
+      - Only investigate service/agents.
+
+---
+apiVersion: kelos.dev/v1alpha1
+kind: TaskSpawner
+metadata:
+  name: agents-improvement-scout
+spec:
+  when:
+    cron:
+      schedule: "0 4 * * *" # daily 04:00 UTC (13:00 KST)
+  maxConcurrency: 1
+  taskTemplate:
+    workspaceRef:
+      name: ml-workspace
+    model: opus
+    type: claude-code
+    ttlSecondsAfterFinished: 600
+    credentials:
+      type: oauth
+      secretRef:
+        name: kelos-credentials
+    agentConfigRef:
+      name: kelos-dev-agent
+    podOverrides:
+      env:
+        - name: CLAUDE_CODE_EFFORT_LEVEL
+          value: "max"
+        - name: PAI_NCLAVIS_USER_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: pai-nclavis
+              key: PAI_NCLAVIS_USER_TOKEN
+    promptTemplate: |
+      Daily improvement-scout for the Planner Agent service (service/agents) in the pai/ml monorepo.
+
+      Surface high-value POTENTIAL IMPROVEMENTS (not bugs) and file them as GitHub issues for human
+      triage. You do NOT change code or open PRs. If nothing is clearly worth proposing, exit without
+      filing. The mandatory dedup step + a per-run cap keep this from becoming noise.
+
+      ## Setup
+      git fetch origin develop
+      curl -LsSf https://astral.sh/uv/0.10.4/install.sh | sh && . $HOME/.local/bin/env
+      cd service/agents
+
+      ## Step 1 — Look for improvements
+      Read the code, tests, and docs under service/agents. Consider:
+      - missing or weak test coverage on important paths (DST, planner routing, A2A boundary)
+      - tech debt: overly complex modules, leaky abstractions, duplicated logic across packages
+      - convention drift from CLAUDE.md / AGENTS.md (state_delta, DI, AgentIO contracts)
+      - observability gaps (missing structured logs / metrics / traces on key events)
+      - doc gaps (under-documented contracts or flows in IO.md / api.md / README)
+
+      ## Step 2 — Deduplicate (REQUIRED)
+        gh issue list --label gjkim/auto-generated --state all --limit 200
+      Drop anything already covered by an open or recently-closed issue.
+
+      ## Step 3 — File the top proposals (capped)
+      - Rank by impact ÷ effort (favor high-impact, low-effort). File AT MOST 2 this run.
+      - For each:
+        gh issue create --assignee gunju-kim --label gjkim/auto-generated \
+          --title "<concise improvement title>" \
+          --body "<the opportunity, why it matters, affected files, a concrete suggested approach, and
+                   rough effort. End with: 'Comment /kelos plan to plan it, or /kelos pick-up to do it.'>"
+      - If nothing clears the bar, report "no high-value improvements found" and EXIT without filing.
+
+      ## Rules
+      - Read-only on code: do NOT modify files, open PRs, or change other labels/assignees.
+      - Only investigate service/agents. Favor a few high-value proposals over many small ones.
