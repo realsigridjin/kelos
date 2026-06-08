@@ -46,6 +46,13 @@ spec:
     branch: "gjkim-kelos-task-{{.Number}}"
     agentConfigRef:
       name: kelos-dev-agent
+    podOverrides:
+      env:
+        - name: PAI_NCLAVIS_USER_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: pai-nclavis
+              key: PAI_NCLAVIS_USER_TOKEN
     promptTemplate: |
       You are a coding agent. You handle issues triggered by `/kelos pick-up`.
 
@@ -135,6 +142,13 @@ spec:
     branch: "{{.Branch}}"
     agentConfigRef:
       name: kelos-dev-agent
+    podOverrides:
+      env:
+        - name: PAI_NCLAVIS_USER_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: pai-nclavis
+              key: PAI_NCLAVIS_USER_TOKEN
     promptTemplate: |
       You are a coding agent updating an existing PR in response to `/kelos pick-up`.
 
@@ -208,6 +222,13 @@ spec:
         name: kelos-credentials
     agentConfigRef:
       name: pai-planner-agent
+    podOverrides:
+      env:
+        - name: PAI_NCLAVIS_USER_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: pai-nclavis
+              key: PAI_NCLAVIS_USER_TOKEN
     promptTemplate: |
       You are an implementation planner. Your job is to investigate an issue,
       inspect the codebase, and post a structured implementation plan as a comment
@@ -318,6 +339,13 @@ spec:
     branch: "{{.Branch}}"
     agentConfigRef:
       name: kelos-dev-agent
+    podOverrides:
+      env:
+        - name: PAI_NCLAVIS_USER_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: pai-nclavis
+              key: PAI_NCLAVIS_USER_TOKEN
     promptTemplate: |
       You are a rebase agent. Your only task is to keep a PR branch rebased on its base branch.
 
@@ -401,6 +429,13 @@ spec:
     branch: "{{.Branch}}"
     agentConfigRef:
       name: pai-reviewer-agent
+    podOverrides:
+      env:
+        - name: PAI_NCLAVIS_USER_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: pai-nclavis
+              key: PAI_NCLAVIS_USER_TOKEN
     promptTemplate: |
       You are a code review agent. Your only task is to review a PR and post
       inline review comments on problematic code.
@@ -486,6 +521,13 @@ spec:
     branch: "{{.Branch}}"
     agentConfigRef:
       name: kelos-dev-agent
+    podOverrides:
+      env:
+        - name: PAI_NCLAVIS_USER_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: pai-nclavis
+              key: PAI_NCLAVIS_USER_TOKEN
     promptTemplate: |
       You are a coding agent. Your only task is to rebase and squash commits on a PR branch.
 
