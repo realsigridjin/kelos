@@ -16,10 +16,14 @@
 | `spec.dependsOn` | Task names that must succeed before this Task starts (creates `Waiting` phase) | No |
 | `spec.branch` | Git branch to work on; only one Task with the same branch runs at a time (mutex) | No |
 | `spec.ttlSecondsAfterFinished` | Auto-delete task after N seconds (0 for immediate) | No |
+| `spec.podOverrides.labels` | Additional labels to apply to the Job and its Pod. Merged with built-in labels; built-in labels take precedence on conflict | No |
 | `spec.podOverrides.resources` | CPU/memory requests and limits for the agent container | No |
 | `spec.podOverrides.activeDeadlineSeconds` | Maximum duration in seconds before the agent pod is terminated | No |
 | `spec.podOverrides.env` | Additional environment variables (built-in vars take precedence on conflict) | No |
 | `spec.podOverrides.nodeSelector` | Node selection labels to constrain which nodes run agent pods | No |
+| `spec.podOverrides.tolerations` | Tolerations for the agent pod; use with `nodeSelector` or `affinity` to target dedicated node pools (e.g., GPU nodes, agent-specific pools) | No |
+| `spec.podOverrides.affinity` | Node, pod, and pod-anti-affinity rules. Use for spreading agents across nodes or expressing scheduling preferences beyond `nodeSelector` | No |
+| `spec.podOverrides.imagePullSecrets` | Secrets used to pull container images from private registries. Required when the agent image or any init container image is in a private registry | No |
 | `spec.podOverrides.serviceAccountName` | Service account name for the agent pod; use with workload identity systems (IRSA, GKE Workload Identity, Azure) | No |
 | `spec.podOverrides.volumes` | Additional volumes to attach to the agent pod. Names must not collide with Kelos-reserved names (`workspace`, `kelos-plugin`) | No |
 | `spec.podOverrides.volumeMounts` | Additional volume mounts on the agent container; names must reference either a user-supplied volume from `volumes` or a Kelos-managed volume (`workspace`, `kelos-plugin`) | No |
@@ -312,7 +316,7 @@ GitHub Apps are preferred over PATs for production use because they offer fine-g
 | `spec.taskTemplate.dependsOn` | Task names that spawned Tasks depend on | No |
 | `spec.taskTemplate.branch` | Git branch template for spawned Tasks (supports Go template variables, e.g., `kelos-task-{{.Number}}`) | No |
 | `spec.taskTemplate.ttlSecondsAfterFinished` | Auto-delete spawned tasks after N seconds | No |
-| `spec.taskTemplate.podOverrides` | Pod customization for spawned Tasks (resources, timeout, env, nodeSelector, serviceAccountName, volumes, volumeMounts, podSecurityContext, containerSecurityContext, extraContainers, extraInitContainers). Same fields and constraints as `Task.spec.podOverrides` | No |
+| `spec.taskTemplate.podOverrides` | Pod customization for spawned Tasks (labels, resources, activeDeadlineSeconds, env, nodeSelector, tolerations, affinity, imagePullSecrets, serviceAccountName, volumes, volumeMounts, podSecurityContext, containerSecurityContext, extraContainers, extraInitContainers). Same fields and constraints as `Task.spec.podOverrides` | No |
 | `spec.taskTemplate.metadata.labels` | Labels merged into spawned Tasks; values support the same Go template variables as `branch`/`promptTemplate`; the `kelos.dev/taskspawner` label is always set to the TaskSpawner name and overrides any user value for that key | No |
 | `spec.taskTemplate.metadata.annotations` | Annotations merged into spawned Tasks; values support the same Go template variables as `branch`/`promptTemplate`; source annotations (e.g. `kelos.dev/source-kind`) are applied after rendering and override conflicting user values | No |
 | `spec.taskTemplate.contextSources` | External data sources fetched in parallel before task creation; each source's value is exposed as `{{.Context.NAME}}` in `branch`, `promptTemplate`, and `metadata` templates (see [Context Sources](#context-sources) below). Maximum 8 entries; names must be unique | No |
