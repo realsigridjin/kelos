@@ -75,7 +75,15 @@ spec:
       - Only touch files under service/agents.
       - If a failure is purely environmental (missing internal CA bundle, no network, missing secret)
         and NOT a code bug, do not hack around it: post `/kelos needs-input` on the PR — or, if no PR
-        exists, `gh issue create --assignee gunju-kim --label gjkim/auto-generated` — describing the gap, and exit.
+        exists, first enforce the `[service/agents]` open issue cap:
+          MAX_OPEN_AUTO_ISSUES=10
+          open_count=$(gh issue list --label gjkim/auto-generated --state open \
+            --search '"[service/agents]" in:title' --json number --jq 'length')
+          remaining_budget=$((MAX_OPEN_AUTO_ISSUES - open_count))
+        If remaining_budget is 0 or less, report "service/agents auto-generated issue backlog is at cap"
+        and exit without filing. Otherwise create one issue with title
+        `[service/agents] <concise environment gap title>` and label `gjkim/auto-generated`, describing
+        the gap, then exit.
 
 ---
 apiVersion: kelos.dev/v1alpha1
@@ -158,7 +166,15 @@ spec:
       ## Rules
       - Docs-only changes (IO.md, api.md, docs). Only touch files under service/agents.
       - If you find the CODE is actually wrong (a real bug, not a doc gap), do NOT fix it here — open
-        an issue (gh issue create --assignee gunju-kim --label gjkim/auto-generated) and exclude it from this PR.
+        an issue only if the `[service/agents]` open issue cap allows it:
+          MAX_OPEN_AUTO_ISSUES=10
+          open_count=$(gh issue list --label gjkim/auto-generated --state open \
+            --search '"[service/agents]" in:title' --json number --jq 'length')
+          remaining_budget=$((MAX_OPEN_AUTO_ISSUES - open_count))
+        If remaining_budget is 0 or less, report "service/agents auto-generated issue backlog is at cap"
+        and exit without filing. Otherwise create one issue with title
+        `[service/agents] <concise correctness bug title>` and label `gjkim/auto-generated`, then
+        exclude it from this PR.
 
 ---
 apiVersion: kelos.dev/v1alpha1
@@ -301,16 +317,24 @@ spec:
       - dependency-injection violations (os.getenv fallbacks inside __init__, module-level env reads)
       Back every finding with a concrete file:line and a plausible failure scenario.
 
-      ## Step 2 — Deduplicate (REQUIRED)
+      ## Step 2 — Deduplicate and enforce open-backlog cap (REQUIRED)
       List already-filed issues so you never refile:
-        gh issue list --label gjkim/auto-generated --state all --limit 200
+        MAX_OPEN_AUTO_ISSUES=10
+        open_count=$(gh issue list --label gjkim/auto-generated --state open \
+          --search '"[service/agents]" in:title' --json number --jq 'length')
+        remaining_budget=$((MAX_OPEN_AUTO_ISSUES - open_count))
+        gh issue list --label gjkim/auto-generated --state all \
+          --search '"[service/agents]" in:title' --limit 200
       Drop any finding already covered by an open or recently-closed issue.
+      If remaining_budget is 0 or less, report "service/agents auto-generated issue backlog is at cap"
+      and EXIT without filing.
 
       ## Step 3 — File the top findings (capped)
-      - Rank remaining findings by severity × confidence. File AT MOST 3 this run (highest value).
-      - For each, create one issue:
+      - Rank remaining findings by severity × confidence. File AT MOST min(3, remaining_budget) this
+        run (highest value).
+      - For each, create one issue. Every issue title MUST start with "[service/agents]":
         gh issue create --assignee gunju-kim --label gjkim/auto-generated \
-          --title "<concise bug title>" \
+          --title "[service/agents] <concise bug title>" \
           --body "<what's wrong, why it's a bug, file:line refs, a failure scenario, and a suggested
                    direction. End with: 'Comment /kelos plan to plan a fix, or /kelos pick-up to fix.'>"
       - If nothing meets the bar, report "no high-confidence bugs found" and EXIT without filing.
@@ -372,15 +396,23 @@ spec:
       - observability gaps (missing structured logs / metrics / traces on key events)
       - doc gaps (under-documented contracts or flows in IO.md / api.md / README)
 
-      ## Step 2 — Deduplicate (REQUIRED)
-        gh issue list --label gjkim/auto-generated --state all --limit 200
+      ## Step 2 — Deduplicate and enforce open-backlog cap (REQUIRED)
+        MAX_OPEN_AUTO_ISSUES=10
+        open_count=$(gh issue list --label gjkim/auto-generated --state open \
+          --search '"[service/agents]" in:title' --json number --jq 'length')
+        remaining_budget=$((MAX_OPEN_AUTO_ISSUES - open_count))
+        gh issue list --label gjkim/auto-generated --state all \
+          --search '"[service/agents]" in:title' --limit 200
       Drop anything already covered by an open or recently-closed issue.
+      If remaining_budget is 0 or less, report "service/agents auto-generated issue backlog is at cap"
+      and EXIT without filing.
 
       ## Step 3 — File the top proposals (capped)
-      - Rank by impact ÷ effort (favor high-impact, low-effort). File AT MOST 2 this run.
+      - Rank by impact ÷ effort (favor high-impact, low-effort). File AT MOST min(2, remaining_budget)
+        this run.
       - For each:
         gh issue create --assignee gunju-kim --label gjkim/auto-generated \
-          --title "<concise improvement title>" \
+          --title "[service/agents] <concise improvement title>" \
           --body "<the opportunity, why it matters, affected files, a concrete suggested approach, and
                    rough effort. End with: 'Comment /kelos plan to plan it, or /kelos pick-up to do it.'>"
       - If nothing clears the bar, report "no high-value improvements found" and EXIT without filing.
@@ -452,14 +484,22 @@ spec:
       Back every finding with a concrete file:line, why it is slow (the mechanism), and a rough estimate
       of the impact (per-request latency, fan-out, or token cost).
 
-      ## Step 2 — Deduplicate (REQUIRED)
-        gh issue list --label gjkim/auto-generated --state all --limit 200
+      ## Step 2 — Deduplicate and enforce open-backlog cap (REQUIRED)
+        MAX_OPEN_AUTO_ISSUES=10
+        open_count=$(gh issue list --label gjkim/auto-generated --state open \
+          --search '"[service/agents]" in:title' --json number --jq 'length')
+        remaining_budget=$((MAX_OPEN_AUTO_ISSUES - open_count))
+        gh issue list --label gjkim/auto-generated --state all \
+          --search '"[service/agents]" in:title' --limit 200
       Drop anything already covered by an open or recently-closed issue.
+      If remaining_budget is 0 or less, report "service/agents auto-generated issue backlog is at cap"
+      and EXIT without filing.
 
       ## Step 3 — File the top findings (capped)
-      - Rank by impact × confidence. File AT MOST 2 this run, assigned to gunju-kim:
+      - Rank by impact × confidence. File AT MOST min(2, remaining_budget) this run, assigned to
+        gunju-kim. Every issue title MUST start with "[service/agents]":
         gh issue create --assignee gunju-kim --label gjkim/auto-generated \
-          --title "[perf] <concise performance opportunity title>" \
+          --title "[service/agents] [perf] <concise performance opportunity title>" \
           --body "<what is slow and why (the mechanism), file:line refs, estimated impact, a concrete
                    suggested direction, and how the win could be measured. Note any behavior or
                    ordering risk. End with: 'Comment /kelos plan to plan it, or /kelos pick-up to do it.'>"
