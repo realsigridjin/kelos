@@ -1,5 +1,5 @@
 // Package codexauth refreshes Codex OAuth credentials stored in Kubernetes
-// Secrets by running the Codex CLI against a file-backed auth.json.
+// Secrets by calling the OpenAI OAuth token endpoint with the refresh token.
 package codexauth
 
 import (
@@ -8,9 +8,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"os"
-	"os/exec"
-	"path/filepath"
+	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -23,12 +26,17 @@ const (
 	// scheduled Codex OAuth refresh.
 	RefreshLabel = "kelos.dev/codex-oauth-refresh"
 
-	secretKey    = "CODEX_AUTH_JSON"
-	staleRefresh = "1970-01-01T00:00:00Z"
+	secretKey               = "CODEX_AUTH_JSON"
+	oauthTokenURL           = "https://auth.openai.com/oauth/token"
+	oauthTokenMethod        = http.MethodPost
+	oauthGrantType          = "refresh_token"
+	oauthClientIDKey        = "client_id"
+	oauthContentType        = "application/x-www-form-urlencoded"
+	defaultOAuthClientID    = "app_EMoamEEZ73f0CkXaXp7hrann"
+	defaultOAuthHTTPTimeout = 30 * time.Second
 )
 
-// Runner invokes Codex with seeded auth.json bytes and returns the auth.json
-// bytes Codex wrote back.
+// Runner refreshes auth.json bytes and returns the bytes that should be stored.
 type Runner func(context.Context, []byte) ([]byte, error)
 
 // Options configures a refresh run.
@@ -87,7 +95,7 @@ func refreshSecret(ctx context.Context, clientset kubernetes.Interface, s *corev
 		return false, nil
 	}
 
-	seeded, ok, err := seedAuth(raw)
+	refreshable, ok, err := authWithRefreshToken(raw)
 	if err != nil {
 		return false, err
 	}
@@ -95,16 +103,9 @@ func refreshSecret(ctx context.Context, clientset kubernetes.Interface, s *corev
 		return false, nil
 	}
 
-	updated, err := runner(ctx, seeded)
+	updated, err := runner(ctx, refreshable)
 	if err != nil {
 		return false, err
-	}
-	refreshed, err := verifyRefreshed(updated)
-	if err != nil {
-		return false, err
-	}
-	if !refreshed {
-		return false, nil
 	}
 	if bytes.Equal(bytes.TrimSpace(updated), bytes.TrimSpace(raw)) {
 		return false, nil
@@ -132,7 +133,7 @@ func refreshSecret(ctx context.Context, clientset kubernetes.Interface, s *corev
 	return true, nil
 }
 
-func seedAuth(raw []byte) ([]byte, bool, error) {
+func authWithRefreshToken(raw []byte) ([]byte, bool, error) {
 	var bundle map[string]any
 	if err := json.Unmarshal(raw, &bundle); err != nil {
 		return nil, false, fmt.Errorf("parsing auth.json bundle: %w", err)
@@ -145,77 +146,102 @@ func seedAuth(raw []byte) ([]byte, bool, error) {
 	if refreshToken == "" {
 		return nil, false, nil
 	}
-	bundle["last_refresh"] = staleRefresh
-
-	seeded, err := json.Marshal(bundle)
-	if err != nil {
-		return nil, false, fmt.Errorf("building seeded auth.json bundle: %w", err)
-	}
-	return seeded, true, nil
+	return raw, true, nil
 }
 
-// DefaultRunner refreshes auth.json by invoking the Codex CLI with
-// cli_auth_credentials_store=file.
-func DefaultRunner(ctx context.Context, seeded []byte) ([]byte, error) {
-	root, err := os.MkdirTemp("", "kelos-codex-auth-")
+// DefaultRunner refreshes auth.json by refreshing the OAuth access token against
+// the OpenAI token endpoint.
+func DefaultRunner(ctx context.Context, authJSON []byte) ([]byte, error) {
+	return refreshWithOAuthToken(ctx, authJSON, oauthTokenURL, &http.Client{Timeout: defaultOAuthHTTPTimeout})
+}
+
+func refreshWithOAuthToken(ctx context.Context, authJSON []byte, tokenEndpoint string, client *http.Client) ([]byte, error) {
+	if client == nil {
+		return nil, fmt.Errorf("http client is required")
+	}
+
+	var bundle map[string]any
+	if err := json.Unmarshal(authJSON, &bundle); err != nil {
+		return nil, fmt.Errorf("parsing auth.json bundle: %w", err)
+	}
+
+	tokens, ok := bundle["tokens"].(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("auth.json missing tokens object")
+	}
+	refreshToken, _ := tokens["refresh_token"].(string)
+	if refreshToken == "" {
+		return nil, fmt.Errorf("auth.json missing refresh_token")
+	}
+	clientID, _ := bundle[oauthClientIDKey].(string)
+	if clientID == "" {
+		clientID, _ = tokens["client_id"].(string)
+	}
+	if clientID == "" {
+		clientID = defaultOAuthClientID
+	}
+
+	form := url.Values{}
+	form.Set("grant_type", oauthGrantType)
+	form.Set("refresh_token", refreshToken)
+	form.Set("client_id", clientID)
+
+	request, err := http.NewRequestWithContext(ctx, oauthTokenMethod, tokenEndpoint, strings.NewReader(form.Encode()))
 	if err != nil {
-		return nil, fmt.Errorf("creating temp dir: %w", err)
+		return nil, fmt.Errorf("building OAuth refresh request: %w", err)
 	}
-	defer os.RemoveAll(root)
+	request.Header.Set("Content-Type", oauthContentType)
 
-	codexHome := filepath.Join(root, ".codex")
-	workdir := filepath.Join(root, "workspace")
-	if err := os.MkdirAll(codexHome, 0o700); err != nil {
-		return nil, fmt.Errorf("creating Codex home: %w", err)
-	}
-	if err := os.MkdirAll(workdir, 0o700); err != nil {
-		return nil, fmt.Errorf("creating workspace: %w", err)
-	}
-
-	authPath := filepath.Join(codexHome, "auth.json")
-	if err := os.WriteFile(authPath, seeded, 0o600); err != nil {
-		return nil, fmt.Errorf("writing auth.json: %w", err)
-	}
-	configPath := filepath.Join(codexHome, "config.toml")
-	if err := os.WriteFile(configPath, []byte("cli_auth_credentials_store = \"file\"\n"), 0o600); err != nil {
-		return nil, fmt.Errorf("writing Codex config: %w", err)
-	}
-
-	cmd := exec.CommandContext(ctx, "codex", codexRefreshCommandArgs(workdir)...)
-	cmd.Env = append(os.Environ(), "CODEX_HOME="+codexHome, "HOME="+root)
-	cmd.Stdout = os.Stderr
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("running Codex refresh command: %w", err)
-	}
-
-	refreshed, err := os.ReadFile(authPath)
+	response, err := client.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("reading refreshed auth.json: %w", err)
+		return nil, fmt.Errorf("calling OAuth refresh endpoint: %w", err)
+	}
+	responseBody, err := io.ReadAll(response.Body)
+	closeErr := response.Body.Close()
+	if err != nil {
+		return nil, fmt.Errorf("reading OAuth refresh response: %w", err)
+	}
+	if closeErr != nil {
+		return nil, fmt.Errorf("closing OAuth refresh response: %w", closeErr)
+	}
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("OAuth refresh endpoint returned %s: %s", response.Status, strings.TrimSpace(string(responseBody)))
+	}
+
+	var tokenResponse map[string]any
+	if err := json.Unmarshal(responseBody, &tokenResponse); err != nil {
+		return nil, fmt.Errorf("parsing OAuth refresh response: %w", err)
+	}
+
+	accessToken, _ := tokenResponse["access_token"].(string)
+	if accessToken == "" {
+		return nil, fmt.Errorf("OAuth response is missing access_token")
+	}
+
+	expiresAt, hasExpiresAt := tokenResponse["expires_at"]
+	_, hasExpiresIn := tokenResponse["expires_in"]
+	if (!hasExpiresAt || expiresAt == nil) && hasExpiresIn {
+		delete(tokens, "expires_at")
+	}
+
+	for _, key := range []string{"access_token", "id_token", "refresh_token", "token_type", "scope", "expires_at", "expires_in"} {
+		value, ok := tokenResponse[key]
+		if !ok || value == nil {
+			continue
+		}
+		if text, ok := value.(string); ok && text == "" {
+			continue
+		}
+		tokens[key] = value
+	}
+
+	bundle["last_refresh"] = time.Now().UTC().Format(time.RFC3339)
+
+	refreshed, err := json.Marshal(bundle)
+	if err != nil {
+		return nil, fmt.Errorf("building refreshed auth.json bundle: %w", err)
 	}
 	return refreshed, nil
-}
-
-func codexRefreshCommandArgs(workdir string) []string {
-	return []string{
-		"exec",
-		"--skip-git-repo-check",
-		"--sandbox", "read-only",
-		"-C", workdir,
-		"Reply with the single word OK.",
-	}
-}
-
-func verifyRefreshed(raw []byte) (bool, error) {
-	var bundle map[string]any
-	if err := json.Unmarshal(raw, &bundle); err != nil {
-		return false, fmt.Errorf("parsing refreshed auth.json bundle: %w", err)
-	}
-	lastRefresh, _ := bundle["last_refresh"].(string)
-	if lastRefresh == "" || lastRefresh == staleRefresh {
-		return false, nil
-	}
-	return true, nil
 }
 
 func log(message string, fields ...any) {

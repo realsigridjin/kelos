@@ -25,11 +25,6 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Codex CLI
-        run: |
-          version=$(grep -oP 'ARG CODEX_VERSION=\K[0-9.]+' codex/Dockerfile)
-          npm install -g @openai/codex@"${version}"
-
       - name: Mint secret-manager token
         id: app-token
         uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547
@@ -60,7 +55,6 @@ jobs:
             --env ok-to-test
 
       - name: Refresh Codex auth.json
-        id: refresh-auth
         env:
           CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
         run: |
@@ -69,26 +63,88 @@ jobs:
             exit 1
           fi
 
+          refresh_token=$(jq -r '.tokens.refresh_token // ""' <<<"${CODEX_AUTH_JSON}")
+          if [ -z "${refresh_token}" ] || [ "${refresh_token}" = "null" ]; then
+            echo "::error::CODEX_AUTH_JSON is missing tokens.refresh_token"
+            exit 1
+          fi
+
+          client_id=$(jq -r '.client_id // .tokens.client_id // ""' <<<"${CODEX_AUTH_JSON}")
+          if [ -z "${client_id}" ] || [ "${client_id}" = "null" ]; then
+            # OpenAI's public Codex OAuth client id. This is a public identifier
+            # used by Codex CLI for refresh_token exchange when no client_id is
+            # embedded in the auth JSON bundle.
+            client_id="app_EMoamEEZ73f0CkXaXp7hrann"
+          fi
+
           mkdir -p ~/.codex
           chmod 700 ~/.codex
-          # Seed last_refresh to the epoch so Codex force-refreshes the token.
-          jq '.last_refresh = "1970-01-01T00:00:00Z"' <<<"${CODEX_AUTH_JSON}" >~/.codex/auth.json
-          chmod 600 ~/.codex/auth.json
-          printf 'cli_auth_credentials_store = "file"\n' >~/.codex/config.toml
 
-          codex exec --skip-git-repo-check --sandbox read-only \
-            "Reply with the single word OK."
-
-          last_refresh=$(jq -r '.last_refresh // ""' ~/.codex/auth.json)
-          if [ "${last_refresh}" = "1970-01-01T00:00:00Z" ] || [ -z "${last_refresh}" ]; then
-            echo "::notice::Codex did not refresh auth.json; leaving CODEX_AUTH_JSON secrets unchanged"
-            echo "refreshed=false" >>"${GITHUB_OUTPUT}"
-            exit 0
+          response_file="$(mktemp)"
+          if ! http_status=$(curl -sS \
+            --request POST \
+            --header "Content-Type: application/x-www-form-urlencoded" \
+            --data-urlencode "grant_type=refresh_token" \
+            --data-urlencode "refresh_token=${refresh_token}" \
+            --data-urlencode "client_id=${client_id}" \
+            --output "${response_file}" \
+            --write-out "%{http_code}" \
+            "https://auth.openai.com/oauth/token"); then
+            rm -f "${response_file}"
+            echo "::error::OAuth token endpoint request failed"
+            exit 1
           fi
-          echo "refreshed=true" >>"${GITHUB_OUTPUT}"
+          response="$(cat "${response_file}")"
+          rm -f "${response_file}"
+          if [ "${http_status}" != "200" ]; then
+            echo "::error::OAuth token endpoint returned HTTP ${http_status}"
+            echo "${response}"
+            exit 1
+          fi
+          if [ -z "${response}" ]; then
+            echo "::error::OAuth token endpoint returned an empty response"
+            exit 1
+          fi
+          if ! jq -e 'type == "object"' >/dev/null <<<"${response}" 2>&1; then
+            echo "::error::OAuth token response is invalid JSON"
+            echo "${response}"
+            exit 1
+          fi
+          access_token=$(jq -r 'if (.access_token | type) == "string" then .access_token else "" end' <<<"${response}")
+          if [ -z "${access_token}" ] || [ "${access_token}" = "null" ]; then
+            echo "::error::OAuth token response is missing access_token"
+            exit 1
+          fi
+
+          jq --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --argjson refreshed "${response}" \
+            '.last_refresh = $now
+             | .tokens = (.tokens // {})
+             | if ($refreshed.expires_at == null and $refreshed.expires_in != null)
+               then del(.tokens.expires_at)
+               else .
+               end
+             | .tokens |= . + (
+                 $refreshed
+                 | to_entries
+                 | map(select(
+                     .value != null and
+                     ((.value | type) != "string" or .value != "") and (
+                       .key == "access_token" or
+                       .key == "id_token" or
+                       .key == "refresh_token" or
+                       .key == "token_type" or
+                       .key == "scope" or
+                       .key == "expires_at" or
+                       .key == "expires_in"
+                     )
+                   ))
+                 | from_entries
+               )' \
+            <<<"${CODEX_AUTH_JSON}" > ~/.codex/auth.json
+          chmod 600 ~/.codex/auth.json
 
       - name: Update CODEX_AUTH_JSON secrets
-        if: steps.refresh-auth.outputs.refreshed == 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
