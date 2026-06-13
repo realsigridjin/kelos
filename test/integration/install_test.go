@@ -1,8 +1,14 @@
 package integration
 
 import (
+	"bytes"
+	"errors"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -16,13 +22,24 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/yaml"
+	"k8s.io/client-go/discovery"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
 	"github.com/kelos-dev/kelos/internal/cli"
 	"github.com/kelos-dev/kelos/internal/codexauth"
 	"github.com/kelos-dev/kelos/internal/controller"
+	"github.com/kelos-dev/kelos/internal/manifests"
 )
+
+var crdGVK = schema.GroupVersionKind{Group: "apiextensions.k8s.io", Version: "v1", Kind: "CustomResourceDefinition"}
+
+type kelosCRDResource struct {
+	crdName  string
+	resource string
+	kind     string
+}
 
 // clearNamespaceFinalizers removes finalizers from the kelos-system namespace
 // so it can be deleted in envtest (which has no namespace controller).
@@ -98,10 +115,153 @@ func deleteControllerResources() {
 	}, 30*time.Second, 100*time.Millisecond).Should(BeTrue())
 }
 
+func kelosCRDResources() []kelosCRDResource {
+	resources, err := parseKelosCRDResources()
+	Expect(err).NotTo(HaveOccurred())
+	return resources
+}
+
+func parseKelosCRDResources() ([]kelosCRDResource, error) {
+	decoder := yaml.NewYAMLOrJSONDecoder(bytes.NewReader(manifests.InstallCRD), 4096)
+	var resources []kelosCRDResource
+	for {
+		obj := &unstructured.Unstructured{}
+		if err := decoder.Decode(obj); err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return nil, fmt.Errorf("decoding CRD manifest: %w", err)
+		}
+		if obj.Object == nil || obj.GetKind() != "CustomResourceDefinition" {
+			continue
+		}
+
+		group, _, _ := unstructured.NestedString(obj.Object, "spec", "group")
+		if group != kelosv1alpha1.GroupVersion.Group || !crdServesVersion(obj, kelosv1alpha1.GroupVersion.Version) {
+			continue
+		}
+
+		resource, _, _ := unstructured.NestedString(obj.Object, "spec", "names", "plural")
+		kind, _, _ := unstructured.NestedString(obj.Object, "spec", "names", "kind")
+		if obj.GetName() == "" || resource == "" || kind == "" {
+			return nil, fmt.Errorf("CRD %q is missing name, plural, or kind", obj.GetName())
+		}
+		resources = append(resources, kelosCRDResource{
+			crdName:  obj.GetName(),
+			resource: resource,
+			kind:     kind,
+		})
+	}
+
+	if len(resources) == 0 {
+		return nil, fmt.Errorf("no Kelos CRDs found in install manifest")
+	}
+	sort.Slice(resources, func(i, j int) bool {
+		return resources[i].crdName < resources[j].crdName
+	})
+	return resources, nil
+}
+
+func crdServesVersion(obj *unstructured.Unstructured, version string) bool {
+	versions, _, _ := unstructured.NestedSlice(obj.Object, "spec", "versions")
+	for _, item := range versions {
+		versionObj, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		name, _, _ := unstructured.NestedString(versionObj, "name")
+		served, _, _ := unstructured.NestedBool(versionObj, "served")
+		if name == version && served {
+			return true
+		}
+	}
+	return false
+}
+
+func waitForCRDDeleted(name string) {
+	Eventually(func() bool {
+		crd := &unstructured.Unstructured{}
+		crd.SetGroupVersionKind(crdGVK)
+		err := k8sClient.Get(ctx, types.NamespacedName{Name: name}, crd)
+		return apierrors.IsNotFound(err)
+	}, 30*time.Second, 100*time.Millisecond).Should(BeTrue())
+}
+
+func waitForCRDEstablished(name string) {
+	Eventually(func() error {
+		crd := &unstructured.Unstructured{}
+		crd.SetGroupVersionKind(crdGVK)
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: name}, crd); err != nil {
+			return err
+		}
+		if !crdEstablished(crd) {
+			return fmt.Errorf("CRD %s is not established", name)
+		}
+		return nil
+	}, 30*time.Second, 100*time.Millisecond).Should(Succeed())
+}
+
+func crdEstablished(crd *unstructured.Unstructured) bool {
+	conditions, _, _ := unstructured.NestedSlice(crd.Object, "status", "conditions")
+	for _, item := range conditions {
+		condition, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		conditionType, _, _ := unstructured.NestedString(condition, "type")
+		status, _, _ := unstructured.NestedString(condition, "status")
+		if conditionType == "Established" && status == "True" {
+			return true
+		}
+	}
+	return false
+}
+
+func waitForFreshKelosDiscovery(resources []kelosCRDResource) {
+	Eventually(func() error {
+		dc, err := discovery.NewDiscoveryClientForConfig(cfg)
+		if err != nil {
+			return err
+		}
+		apiResources, err := dc.ServerResourcesForGroupVersion(kelosv1alpha1.GroupVersion.String())
+		if err != nil {
+			return err
+		}
+
+		seen := map[string]string{}
+		for _, resource := range apiResources.APIResources {
+			seen[resource.Name] = resource.Kind
+		}
+
+		var missing []string
+		for _, expected := range resources {
+			if kind, ok := seen[expected.resource]; !ok || kind != expected.kind {
+				missing = append(missing, fmt.Sprintf("%s/%s", expected.resource, expected.kind))
+			}
+		}
+		if len(missing) > 0 {
+			return fmt.Errorf("fresh discovery missing %s", strings.Join(missing, ", "))
+		}
+		return nil
+	}, 30*time.Second, 100*time.Millisecond).Should(Succeed())
+}
+
+func waitForFreshTaskSpawnerCLIClient(kubeconfigPath string) {
+	Eventually(func() error {
+		cl, _, err := (&cli.ClientConfig{Kubeconfig: kubeconfigPath}).NewClient()
+		if err != nil {
+			return err
+		}
+		return cl.List(ctx, &kelosv1alpha1.TaskSpawnerList{})
+	}, 30*time.Second, 100*time.Millisecond).Should(Succeed())
+}
+
 // restoreCRDs re-applies CRDs by running install followed by cleanup of
 // non-CRD resources. This restores the envtest environment after uninstall
 // removes CRDs that were originally loaded by the BeforeSuite.
 func restoreCRDs(kubeconfigPath string) {
+	resources := kelosCRDResources()
+
 	// Wait for namespace termination to complete before re-installing.
 	clearNamespaceFinalizers()
 	Eventually(func() bool {
@@ -112,33 +272,21 @@ func restoreCRDs(kubeconfigPath string) {
 	// Wait for all CRDs to be fully deleted before reinstalling. If install's
 	// server-side apply patches a CRD that still has a deletionTimestamp, the
 	// patch succeeds but the CRD is still deleted, leaving the API unavailable.
-	crdGVK := schema.GroupVersionKind{Group: "apiextensions.k8s.io", Version: "v1", Kind: "CustomResourceDefinition"}
-	for _, name := range []string{"tasks.kelos.dev", "taskspawners.kelos.dev", "workspaces.kelos.dev"} {
-		Eventually(func() bool {
-			crd := &unstructured.Unstructured{}
-			crd.SetGroupVersionKind(crdGVK)
-			err := k8sClient.Get(ctx, types.NamespacedName{Name: name}, crd)
-			return apierrors.IsNotFound(err)
-		}, 30*time.Second, 100*time.Millisecond).Should(BeTrue())
+	for _, resource := range resources {
+		waitForCRDDeleted(resource.crdName)
 	}
 
 	reinstall := cli.NewRootCommand()
 	reinstall.SetArgs([]string{"install", "--kubeconfig", kubeconfigPath})
 	Expect(reinstall.Execute()).To(Succeed())
 
-	// Wait for all CRDs to be fully established before subsequent tests
-	// can create custom resources. We verify by attempting to list each type.
-	Eventually(func() error {
-		return k8sClient.List(ctx, &kelosv1alpha1.TaskList{})
-	}, 30*time.Second, 100*time.Millisecond).Should(Succeed())
-	Eventually(func() error {
-		return k8sClient.List(ctx, &kelosv1alpha1.TaskSpawnerList{})
-	}, 30*time.Second, 100*time.Millisecond).Should(Succeed())
-	Eventually(func() error {
-		return k8sClient.List(ctx, &kelosv1alpha1.WorkspaceList{})
-	}, 30*time.Second, 100*time.Millisecond).Should(Succeed())
+	for _, resource := range resources {
+		waitForCRDEstablished(resource.crdName)
+	}
+	waitForFreshKelosDiscovery(resources)
 
 	deleteControllerResources()
+	waitForFreshTaskSpawnerCLIClient(kubeconfigPath)
 }
 
 func clusterRoleHasVerbs(clusterRole *rbacv1.ClusterRole, apiGroup, resource string, verbs ...string) bool {
