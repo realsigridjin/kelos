@@ -4985,11 +4985,29 @@ func TestBuildJob_PodOverridesVolumes(t *testing.T) {
 
 func TestBuildJob_PodOverridesVolumes_ReservedNameRejected(t *testing.T) {
 	builder := NewJobBuilder()
-	for _, name := range []string{WorkspaceVolumeName, PluginVolumeName} {
-		t.Run(name, func(t *testing.T) {
+	tests := []struct {
+		name      string
+		wantError string
+	}{
+		{
+			name:      WorkspaceVolumeName,
+			wantError: "Kelos-reserved volume name",
+		},
+		{
+			name:      PluginVolumeName,
+			wantError: "reserved \"kelos-\" volume name prefix",
+		},
+		{
+			name:      "kelos-cache",
+			wantError: "reserved \"kelos-\" volume name prefix",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			task := &kelosv1alpha1.Task{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-reserved-" + name,
+					Name:      "test-reserved-" + tt.name,
 					Namespace: "default",
 				},
 				Spec: kelosv1alpha1.TaskSpec{
@@ -5002,7 +5020,7 @@ func TestBuildJob_PodOverridesVolumes_ReservedNameRejected(t *testing.T) {
 					PodOverrides: &kelosv1alpha1.PodOverrides{
 						Volumes: []corev1.Volume{
 							{
-								Name:         name,
+								Name:         tt.name,
 								VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
 							},
 						},
@@ -5012,10 +5030,10 @@ func TestBuildJob_PodOverridesVolumes_ReservedNameRejected(t *testing.T) {
 
 			_, err := builder.Build(task, nil, nil, task.Spec.Prompt)
 			if err == nil {
-				t.Fatalf("Build() with reserved volume name %q: expected error, got nil", name)
+				t.Fatalf("Build() with reserved volume name %q: expected error, got nil", tt.name)
 			}
-			if !strings.Contains(err.Error(), "reserved") {
-				t.Errorf("Build() error = %v, want error mentioning reserved", err)
+			if !strings.Contains(err.Error(), tt.wantError) {
+				t.Errorf("Build() error = %v, want error containing %q", err, tt.wantError)
 			}
 		})
 	}

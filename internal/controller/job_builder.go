@@ -847,11 +847,11 @@ func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
 }
 
-// reservedVolumeNames is the set of volume names that Kelos manages
-// internally. PodOverrides.Volumes entries must not use these names.
+// reservedVolumeNames is the set of non-prefixed volume names that Kelos
+// manages internally. PodOverrides.Volumes entries must not use these names
+// or the Kelos-reserved volume prefix.
 var reservedVolumeNames = map[string]struct{}{
 	WorkspaceVolumeName: {},
-	PluginVolumeName:    {},
 }
 
 // validateUserVolumes ensures no user-supplied volume name collides with
@@ -859,6 +859,9 @@ var reservedVolumeNames = map[string]struct{}{
 func validateUserVolumes(volumes []corev1.Volume) error {
 	seen := make(map[string]struct{}, len(volumes))
 	for _, v := range volumes {
+		if strings.HasPrefix(v.Name, kelosv1alpha1.ReservedVolumeNamePrefix) {
+			return fmt.Errorf("podOverrides.volumes: %q uses the reserved %q volume name prefix", v.Name, kelosv1alpha1.ReservedVolumeNamePrefix)
+		}
 		if _, reserved := reservedVolumeNames[v.Name]; reserved {
 			return fmt.Errorf("podOverrides.volumes: %q is a Kelos-reserved volume name", v.Name)
 		}
