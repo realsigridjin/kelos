@@ -16,7 +16,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
 	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 	"github.com/kelos-dev/kelos/internal/controller"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -70,17 +69,17 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, secret)).Should(Succeed())
 
 			By("Creating a Task")
-			task := &kelosv1alpha1.Task{
+			task := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-task",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   "claude-code",
 					Prompt: "Create a hello world program",
-					Credentials: kelosv1alpha1.Credentials{
-						Type: kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{
+					Credentials: kelos.Credentials{
+						Type: kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{
 							Name: "anthropic-api-key",
 						},
 					},
@@ -90,7 +89,7 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, task)).Should(Succeed())
 
 			taskLookupKey := types.NamespacedName{Name: task.Name, Namespace: ns.Name}
-			createdTask := &kelosv1alpha1.Task{}
+			createdTask := &kelos.Task{}
 
 			By("Verifying the Task has a finalizer")
 			Eventually(func() bool {
@@ -121,7 +120,7 @@ var _ = Describe("Task Controller", func() {
 			By("Verifying the Job spec")
 			Expect(createdJob.Spec.Template.Spec.Containers).To(HaveLen(1))
 			container := createdJob.Spec.Template.Spec.Containers[0]
-			Expect(container.Name).To(Equal(kelosv1alpha1.AgentContainerName))
+			Expect(container.Name).To(Equal(kelos.AgentContainerName))
 			Expect(container.Command).To(Equal([]string{"/kelos_entrypoint.sh"}))
 			Expect(container.Args).To(Equal([]string{"Create a hello world program"}))
 
@@ -158,13 +157,13 @@ var _ = Describe("Task Controller", func() {
 			}, timeout, interval).Should(Succeed())
 
 			By("Verifying Task status is Running")
-			Eventually(func() kelosv1alpha1.TaskPhase {
+			Eventually(func() kelos.TaskPhase {
 				err := k8sClient.Get(ctx, taskLookupKey, createdTask)
 				if err != nil {
 					return ""
 				}
 				return createdTask.Status.Phase
-			}, timeout, interval).Should(Equal(kelosv1alpha1.TaskPhaseRunning))
+			}, timeout, interval).Should(Equal(kelos.TaskPhaseRunning))
 
 			By("Simulating Job completion")
 			Eventually(func() error {
@@ -177,13 +176,13 @@ var _ = Describe("Task Controller", func() {
 			}, timeout, interval).Should(Succeed())
 
 			By("Verifying Task status is Succeeded")
-			Eventually(func() kelosv1alpha1.TaskPhase {
+			Eventually(func() kelos.TaskPhase {
 				err := k8sClient.Get(ctx, taskLookupKey, createdTask)
 				if err != nil {
 					return ""
 				}
 				return createdTask.Status.Phase
-			}, timeout, interval).Should(Equal(kelosv1alpha1.TaskPhaseSucceeded))
+			}, timeout, interval).Should(Equal(kelos.TaskPhaseSucceeded))
 
 			By("Verifying Task has completion time")
 			Expect(createdTask.Status.CompletionTime).NotTo(BeNil())
@@ -225,17 +224,17 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, secret)).Should(Succeed())
 
 			By("Creating a Task with OAuth")
-			task := &kelosv1alpha1.Task{
+			task := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-oauth-task",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   "claude-code",
 					Prompt: "Create a hello world program",
-					Credentials: kelosv1alpha1.Credentials{
-						Type: kelosv1alpha1.CredentialTypeOAuth,
-						SecretRef: &kelosv1alpha1.SecretReference{
+					Credentials: kelos.Credentials{
+						Type: kelos.CredentialTypeOAuth,
+						SecretRef: &kelos.SecretReference{
 							Name: "claude-oauth",
 						},
 					},
@@ -330,19 +329,19 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, agentConfig)).Should(Succeed())
 
 			By("Creating a Task referencing the AgentConfig")
-			task := &kelosv1alpha1.Task{
+			task := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "task-mcp-headers-from",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   "claude-code",
 					Prompt: "Resolve MCP headersFrom",
-					Credentials: kelosv1alpha1.Credentials{
-						Type:      kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{Name: "anthropic-api-key"},
+					Credentials: kelos.Credentials{
+						Type:      kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{Name: "anthropic-api-key"},
 					},
-					AgentConfigRef: &kelosv1alpha1.AgentConfigReference{Name: "mcp-headers-from-config"},
+					AgentConfigRefs: []kelos.AgentConfigReference{{Name: "mcp-headers-from-config"}},
 				},
 			}
 			Expect(k8sClient.Create(ctx, task)).Should(Succeed())
@@ -436,19 +435,19 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, agentConfig)).Should(Succeed())
 
 			By("Creating a Task referencing the AgentConfig")
-			task := &kelosv1alpha1.Task{
+			task := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "task-mcp-env-from",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   "claude-code",
 					Prompt: "Resolve MCP envFrom",
-					Credentials: kelosv1alpha1.Credentials{
-						Type:      kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{Name: "anthropic-api-key"},
+					Credentials: kelos.Credentials{
+						Type:      kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{Name: "anthropic-api-key"},
 					},
-					AgentConfigRef: &kelosv1alpha1.AgentConfigReference{Name: "mcp-env-from-config"},
+					AgentConfigRefs: []kelos.AgentConfigReference{{Name: "mcp-env-from-config"}},
 				},
 			}
 			Expect(k8sClient.Create(ctx, task)).Should(Succeed())
@@ -525,32 +524,32 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, agentConfig)).Should(Succeed())
 
 			By("Creating a Task referencing the AgentConfig")
-			task := &kelosv1alpha1.Task{
+			task := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "task-mcp-missing-secret",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   "claude-code",
 					Prompt: "Fail on missing MCP secret",
-					Credentials: kelosv1alpha1.Credentials{
-						Type:      kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{Name: "anthropic-api-key"},
+					Credentials: kelos.Credentials{
+						Type:      kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{Name: "anthropic-api-key"},
 					},
-					AgentConfigRef: &kelosv1alpha1.AgentConfigReference{Name: "mcp-missing-secret-config"},
+					AgentConfigRefs: []kelos.AgentConfigReference{{Name: "mcp-missing-secret-config"}},
 				},
 			}
 			Expect(k8sClient.Create(ctx, task)).Should(Succeed())
 
 			By("Verifying the Task transitions to Failed")
 			taskLookupKey := types.NamespacedName{Name: task.Name, Namespace: ns.Name}
-			createdTask := &kelosv1alpha1.Task{}
-			Eventually(func() kelosv1alpha1.TaskPhase {
+			createdTask := &kelos.Task{}
+			Eventually(func() kelos.TaskPhase {
 				if err := k8sClient.Get(ctx, taskLookupKey, createdTask); err != nil {
 					return ""
 				}
 				return createdTask.Status.Phase
-			}, timeout, interval).Should(Equal(kelosv1alpha1.TaskPhaseFailed))
+			}, timeout, interval).Should(Equal(kelos.TaskPhaseFailed))
 
 			By("Verifying the error mentions the missing secret")
 			Expect(createdTask.Status.Message).To(ContainSubstring("missing-secret"))
@@ -620,19 +619,19 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, agentConfig)).Should(Succeed())
 
 			By("Creating a Task referencing the AgentConfig")
-			task := &kelosv1alpha1.Task{
+			task := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "task-mcp-precedence",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   "claude-code",
 					Prompt: "Prefer MCP secret values",
-					Credentials: kelosv1alpha1.Credentials{
-						Type:      kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{Name: "anthropic-api-key"},
+					Credentials: kelos.Credentials{
+						Type:      kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{Name: "anthropic-api-key"},
 					},
-					AgentConfigRef: &kelosv1alpha1.AgentConfigReference{Name: "mcp-precedence-config"},
+					AgentConfigRefs: []kelos.AgentConfigReference{{Name: "mcp-precedence-config"}},
 				},
 			}
 			Expect(k8sClient.Create(ctx, task)).Should(Succeed())
@@ -745,19 +744,19 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, agentConfig)).Should(Succeed())
 
 			By("Creating a Task referencing the AgentConfig")
-			task := &kelosv1alpha1.Task{
+			task := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "task-mcp-value-from",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   "claude-code",
 					Prompt: "Resolve MCP env valueFrom",
-					Credentials: kelosv1alpha1.Credentials{
-						Type:      kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{Name: "anthropic-api-key"},
+					Credentials: kelos.Credentials{
+						Type:      kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{Name: "anthropic-api-key"},
 					},
-					AgentConfigRef: &kelosv1alpha1.AgentConfigReference{Name: "mcp-value-from-config"},
+					AgentConfigRefs: []kelos.AgentConfigReference{{Name: "mcp-value-from-config"}},
 				},
 			}
 			Expect(k8sClient.Create(ctx, task)).Should(Succeed())
@@ -836,32 +835,32 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, agentConfig)).Should(Succeed())
 
 			By("Creating a Task referencing the AgentConfig")
-			task := &kelosv1alpha1.Task{
+			task := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "task-mcp-fieldref",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   "claude-code",
 					Prompt: "Fail on unsupported MCP env valueFrom",
-					Credentials: kelosv1alpha1.Credentials{
-						Type:      kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{Name: "anthropic-api-key"},
+					Credentials: kelos.Credentials{
+						Type:      kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{Name: "anthropic-api-key"},
 					},
-					AgentConfigRef: &kelosv1alpha1.AgentConfigReference{Name: "mcp-fieldref-config"},
+					AgentConfigRefs: []kelos.AgentConfigReference{{Name: "mcp-fieldref-config"}},
 				},
 			}
 			Expect(k8sClient.Create(ctx, task)).Should(Succeed())
 
 			By("Verifying the Task transitions to Failed with a clear message")
 			taskLookupKey := types.NamespacedName{Name: task.Name, Namespace: ns.Name}
-			createdTask := &kelosv1alpha1.Task{}
-			Eventually(func() kelosv1alpha1.TaskPhase {
+			createdTask := &kelos.Task{}
+			Eventually(func() kelos.TaskPhase {
 				if err := k8sClient.Get(ctx, taskLookupKey, createdTask); err != nil {
 					return ""
 				}
 				return createdTask.Status.Phase
-			}, timeout, interval).Should(Equal(kelosv1alpha1.TaskPhaseFailed))
+			}, timeout, interval).Should(Equal(kelos.TaskPhaseFailed))
 			Expect(createdTask.Status.Message).To(ContainSubstring("secretKeyRef and configMapKeyRef"))
 		})
 
@@ -985,19 +984,19 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, agentConfig)).Should(Succeed())
 
 			By("Creating a Task referencing the AgentConfig")
-			task := &kelosv1alpha1.Task{
+			task := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "task-mcp-optional-missing",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   "claude-code",
 					Prompt: "Resolve MCP env optional valueFrom",
-					Credentials: kelosv1alpha1.Credentials{
-						Type:      kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{Name: "anthropic-api-key"},
+					Credentials: kelos.Credentials{
+						Type:      kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{Name: "anthropic-api-key"},
 					},
-					AgentConfigRef: &kelosv1alpha1.AgentConfigReference{Name: "mcp-optional-missing-config"},
+					AgentConfigRefs: []kelos.AgentConfigReference{{Name: "mcp-optional-missing-config"}},
 				},
 			}
 			Expect(k8sClient.Create(ctx, task)).Should(Succeed())
@@ -1055,12 +1054,12 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, secret)).Should(Succeed())
 
 			By("Creating a Workspace resource")
-			ws := &kelosv1alpha1.Workspace{
+			ws := &kelos.Workspace{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-workspace",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.WorkspaceSpec{
+				Spec: kelos.WorkspaceSpec{
 					Repo: "https://github.com/example/repo.git",
 					Ref:  "main",
 				},
@@ -1068,21 +1067,21 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, ws)).Should(Succeed())
 
 			By("Creating a Task with workspace ref")
-			task := &kelosv1alpha1.Task{
+			task := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-workspace-ref",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   "claude-code",
 					Prompt: "Fix the bug",
-					Credentials: kelosv1alpha1.Credentials{
-						Type: kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{
+					Credentials: kelos.Credentials{
+						Type: kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{
 							Name: "anthropic-api-key",
 						},
 					},
-					WorkspaceRef: &kelosv1alpha1.WorkspaceReference{
+					WorkspaceRef: &kelos.WorkspaceReference{
 						Name: "test-workspace",
 					},
 				},
@@ -1175,15 +1174,15 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, ghSecret)).Should(Succeed())
 
 			By("Creating a Workspace resource with secretRef")
-			ws := &kelosv1alpha1.Workspace{
+			ws := &kelos.Workspace{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-workspace-secret",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.WorkspaceSpec{
+				Spec: kelos.WorkspaceSpec{
 					Repo: "https://github.com/example/repo.git",
 					Ref:  "main",
-					SecretRef: &kelosv1alpha1.SecretReference{
+					SecretRef: &kelos.SecretReference{
 						Name: "github-token",
 					},
 				},
@@ -1191,21 +1190,21 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, ws)).Should(Succeed())
 
 			By("Creating a Task with workspace ref")
-			task := &kelosv1alpha1.Task{
+			task := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-workspace-secret",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   "claude-code",
 					Prompt: "Create a PR",
-					Credentials: kelosv1alpha1.Credentials{
-						Type: kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{
+					Credentials: kelos.Credentials{
+						Type: kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{
 							Name: "anthropic-api-key",
 						},
 					},
-					WorkspaceRef: &kelosv1alpha1.WorkspaceReference{
+					WorkspaceRef: &kelos.WorkspaceReference{
 						Name: "test-workspace-secret",
 					},
 				},
@@ -1298,33 +1297,33 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, secret)).Should(Succeed())
 
 			By("Creating a Workspace resource without ref")
-			ws := &kelosv1alpha1.Workspace{
+			ws := &kelos.Workspace{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-workspace-noref",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.WorkspaceSpec{
+				Spec: kelos.WorkspaceSpec{
 					Repo: "https://github.com/example/repo.git",
 				},
 			}
 			Expect(k8sClient.Create(ctx, ws)).Should(Succeed())
 
 			By("Creating a Task with workspace ref but no git ref")
-			task := &kelosv1alpha1.Task{
+			task := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-workspace-noref",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   "claude-code",
 					Prompt: "Review the code",
-					Credentials: kelosv1alpha1.Credentials{
-						Type: kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{
+					Credentials: kelos.Credentials{
+						Type: kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{
 							Name: "anthropic-api-key",
 						},
 					},
-					WorkspaceRef: &kelosv1alpha1.WorkspaceReference{
+					WorkspaceRef: &kelos.WorkspaceReference{
 						Name: "test-workspace-noref",
 					},
 				},
@@ -1387,17 +1386,17 @@ var _ = Describe("Task Controller", func() {
 
 			By("Creating a Task with TTL")
 			ttl := int32(3) // 3 second TTL
-			task := &kelosv1alpha1.Task{
+			task := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-task-ttl",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   "claude-code",
 					Prompt: "Create a hello world program",
-					Credentials: kelosv1alpha1.Credentials{
-						Type: kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{
+					Credentials: kelos.Credentials{
+						Type: kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{
 							Name: "anthropic-api-key",
 						},
 					},
@@ -1407,7 +1406,7 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, task)).Should(Succeed())
 
 			taskLookupKey := types.NamespacedName{Name: task.Name, Namespace: ns.Name}
-			createdTask := &kelosv1alpha1.Task{}
+			createdTask := &kelos.Task{}
 
 			By("Verifying a Job is created")
 			jobLookupKey := types.NamespacedName{Name: task.Name, Namespace: ns.Name}
@@ -1434,7 +1433,7 @@ var _ = Describe("Task Controller", func() {
 					// Task already deleted by TTL, which implies it reached a terminal phase
 					return true
 				}
-				return createdTask.Status.Phase == kelosv1alpha1.TaskPhaseSucceeded
+				return createdTask.Status.Phase == kelos.TaskPhaseSucceeded
 			}, timeout, interval).Should(BeTrue())
 
 			By("Verifying the Task is automatically deleted after TTL")
@@ -1469,17 +1468,17 @@ var _ = Describe("Task Controller", func() {
 
 			By("Creating a Task with TTL=0")
 			ttl := int32(0)
-			task := &kelosv1alpha1.Task{
+			task := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-task-ttl-zero",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   "claude-code",
 					Prompt: "Create a hello world program",
-					Credentials: kelosv1alpha1.Credentials{
-						Type: kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{
+					Credentials: kelos.Credentials{
+						Type: kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{
 							Name: "anthropic-api-key",
 						},
 					},
@@ -1489,7 +1488,7 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, task)).Should(Succeed())
 
 			taskLookupKey := types.NamespacedName{Name: task.Name, Namespace: ns.Name}
-			createdTask := &kelosv1alpha1.Task{}
+			createdTask := &kelos.Task{}
 
 			By("Verifying a Job is created")
 			jobLookupKey := types.NamespacedName{Name: task.Name, Namespace: ns.Name}
@@ -1540,17 +1539,17 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, secret)).Should(Succeed())
 
 			By("Creating a Task without TTL")
-			task := &kelosv1alpha1.Task{
+			task := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-task-no-ttl",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   "claude-code",
 					Prompt: "Create a hello world program",
-					Credentials: kelosv1alpha1.Credentials{
-						Type: kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{
+					Credentials: kelos.Credentials{
+						Type: kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{
 							Name: "anthropic-api-key",
 						},
 					},
@@ -1559,7 +1558,7 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, task)).Should(Succeed())
 
 			taskLookupKey := types.NamespacedName{Name: task.Name, Namespace: ns.Name}
-			createdTask := &kelosv1alpha1.Task{}
+			createdTask := &kelos.Task{}
 
 			By("Verifying a Job is created")
 			jobLookupKey := types.NamespacedName{Name: task.Name, Namespace: ns.Name}
@@ -1580,13 +1579,13 @@ var _ = Describe("Task Controller", func() {
 			}, timeout, interval).Should(Succeed())
 
 			By("Verifying Task reaches Succeeded")
-			Eventually(func() kelosv1alpha1.TaskPhase {
+			Eventually(func() kelos.TaskPhase {
 				err := k8sClient.Get(ctx, taskLookupKey, createdTask)
 				if err != nil {
 					return ""
 				}
 				return createdTask.Status.Phase
-			}, timeout, interval).Should(Equal(kelosv1alpha1.TaskPhaseSucceeded))
+			}, timeout, interval).Should(Equal(kelos.TaskPhaseSucceeded))
 
 			By("Verifying the Task is NOT deleted after waiting")
 			Consistently(func() error {
@@ -1618,12 +1617,12 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, secret)).Should(Succeed())
 
 			By("Creating a Workspace resource")
-			ws := &kelosv1alpha1.Workspace{
+			ws := &kelos.Workspace{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-workspace",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.WorkspaceSpec{
+				Spec: kelos.WorkspaceSpec{
 					Repo: "https://github.com/example/repo.git",
 					Ref:  "main",
 				},
@@ -1631,23 +1630,23 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, ws)).Should(Succeed())
 
 			By("Creating a Task with custom image")
-			task := &kelosv1alpha1.Task{
+			task := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-custom-image",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   "claude-code",
 					Prompt: "Fix the bug",
-					Credentials: kelosv1alpha1.Credentials{
-						Type: kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{
+					Credentials: kelos.Credentials{
+						Type: kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{
 							Name: "anthropic-api-key",
 						},
 					},
 					Model: "gpt-4",
 					Image: "my-custom-agent:v1",
-					WorkspaceRef: &kelosv1alpha1.WorkspaceReference{
+					WorkspaceRef: &kelos.WorkspaceReference{
 						Name: "test-workspace",
 					},
 				},
@@ -1727,15 +1726,15 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, ghSecret)).Should(Succeed())
 
 			By("Creating a Workspace resource with GitHub Enterprise URL")
-			ws := &kelosv1alpha1.Workspace{
+			ws := &kelos.Workspace{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-ghe-workspace",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.WorkspaceSpec{
+				Spec: kelos.WorkspaceSpec{
 					Repo: "https://github.example.com/my-org/my-repo.git",
 					Ref:  "main",
-					SecretRef: &kelosv1alpha1.SecretReference{
+					SecretRef: &kelos.SecretReference{
 						Name: "github-token",
 					},
 				},
@@ -1743,21 +1742,21 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, ws)).Should(Succeed())
 
 			By("Creating a Task referencing the GHE workspace")
-			task := &kelosv1alpha1.Task{
+			task := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-ghe-workspace",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   "claude-code",
 					Prompt: "Fix the bug",
-					Credentials: kelosv1alpha1.Credentials{
-						Type: kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{
+					Credentials: kelos.Credentials{
+						Type: kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{
 							Name: "anthropic-api-key",
 						},
 					},
-					WorkspaceRef: &kelosv1alpha1.WorkspaceReference{
+					WorkspaceRef: &kelos.WorkspaceReference{
 						Name: "test-ghe-workspace",
 					},
 				},
@@ -1838,17 +1837,17 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, secret)).Should(Succeed())
 
 			By("Creating a Codex Task")
-			task := &kelosv1alpha1.Task{
+			task := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-codex-task",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   "codex",
 					Prompt: "Fix the bug",
-					Credentials: kelosv1alpha1.Credentials{
-						Type: kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{
+					Credentials: kelos.Credentials{
+						Type: kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{
 							Name: "codex-api-key",
 						},
 					},
@@ -1858,7 +1857,7 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, task)).Should(Succeed())
 
 			taskLookupKey := types.NamespacedName{Name: task.Name, Namespace: ns.Name}
-			createdTask := &kelosv1alpha1.Task{}
+			createdTask := &kelos.Task{}
 
 			By("Verifying the Task has a finalizer")
 			Eventually(func() bool {
@@ -1889,7 +1888,7 @@ var _ = Describe("Task Controller", func() {
 			By("Verifying the Job spec")
 			Expect(createdJob.Spec.Template.Spec.Containers).To(HaveLen(1))
 			container := createdJob.Spec.Template.Spec.Containers[0]
-			Expect(container.Name).To(Equal(kelosv1alpha1.AgentContainerName))
+			Expect(container.Name).To(Equal(kelos.AgentContainerName))
 			Expect(container.Image).To(Equal(controller.CodexImage))
 			Expect(container.Command).To(Equal([]string{"/kelos_entrypoint.sh"}))
 			Expect(container.Args).To(Equal([]string{"Fix the bug"}))
@@ -1934,12 +1933,12 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, secret)).Should(Succeed())
 
 			By("Creating a Workspace resource")
-			ws := &kelosv1alpha1.Workspace{
+			ws := &kelos.Workspace{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-codex-workspace",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.WorkspaceSpec{
+				Spec: kelos.WorkspaceSpec{
 					Repo: "https://github.com/example/repo.git",
 					Ref:  "main",
 				},
@@ -1947,21 +1946,21 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, ws)).Should(Succeed())
 
 			By("Creating a Codex Task with workspace ref")
-			task := &kelosv1alpha1.Task{
+			task := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-codex-workspace",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   "codex",
 					Prompt: "Refactor the module",
-					Credentials: kelosv1alpha1.Credentials{
-						Type: kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{
+					Credentials: kelos.Credentials{
+						Type: kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{
 							Name: "codex-api-key",
 						},
 					},
-					WorkspaceRef: &kelosv1alpha1.WorkspaceReference{
+					WorkspaceRef: &kelos.WorkspaceReference{
 						Name: "test-codex-workspace",
 					},
 				},
@@ -1982,7 +1981,7 @@ var _ = Describe("Task Controller", func() {
 
 			By("Verifying the main container uses codex image with uniform interface")
 			mainContainer := createdJob.Spec.Template.Spec.Containers[0]
-			Expect(mainContainer.Name).To(Equal(kelosv1alpha1.AgentContainerName))
+			Expect(mainContainer.Name).To(Equal(kelos.AgentContainerName))
 			Expect(mainContainer.Command).To(Equal([]string{"/kelos_entrypoint.sh"}))
 			Expect(mainContainer.Args).To(Equal([]string{"Refactor the module"}))
 
@@ -2031,17 +2030,17 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, secret)).Should(Succeed())
 
 			By("Creating a Codex Task with OAuth credentials")
-			task := &kelosv1alpha1.Task{
+			task := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-codex-oauth",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   "codex",
 					Prompt: "Review the code",
-					Credentials: kelosv1alpha1.Credentials{
-						Type: kelosv1alpha1.CredentialTypeOAuth,
-						SecretRef: &kelosv1alpha1.SecretReference{
+					Credentials: kelos.Credentials{
+						Type: kelos.CredentialTypeOAuth,
+						SecretRef: &kelos.SecretReference{
 							Name: "codex-oauth-secret",
 						},
 					},
@@ -2063,7 +2062,7 @@ var _ = Describe("Task Controller", func() {
 
 			By("Verifying the Job has CODEX_AUTH_JSON env var")
 			container := createdJob.Spec.Template.Spec.Containers[0]
-			Expect(container.Name).To(Equal(kelosv1alpha1.AgentContainerName))
+			Expect(container.Name).To(Equal(kelos.AgentContainerName))
 			Expect(container.Env).To(HaveLen(2))
 			Expect(container.Env[0].Name).To(Equal("KELOS_AGENT_TYPE"))
 			Expect(container.Env[0].Value).To(Equal("codex"))
@@ -2096,17 +2095,17 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, secret)).Should(Succeed())
 
 			By("Creating an OpenCode Task")
-			task := &kelosv1alpha1.Task{
+			task := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-opencode-task",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   "opencode",
 					Prompt: "Fix the bug",
-					Credentials: kelosv1alpha1.Credentials{
-						Type: kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{
+					Credentials: kelos.Credentials{
+						Type: kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{
 							Name: "opencode-api-key",
 						},
 					},
@@ -2116,7 +2115,7 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, task)).Should(Succeed())
 
 			taskLookupKey := types.NamespacedName{Name: task.Name, Namespace: ns.Name}
-			createdTask := &kelosv1alpha1.Task{}
+			createdTask := &kelos.Task{}
 
 			By("Verifying the Task has a finalizer")
 			Eventually(func() bool {
@@ -2147,7 +2146,7 @@ var _ = Describe("Task Controller", func() {
 			By("Verifying the Job spec")
 			Expect(createdJob.Spec.Template.Spec.Containers).To(HaveLen(1))
 			container := createdJob.Spec.Template.Spec.Containers[0]
-			Expect(container.Name).To(Equal(kelosv1alpha1.AgentContainerName))
+			Expect(container.Name).To(Equal(kelos.AgentContainerName))
 			Expect(container.Image).To(Equal(controller.OpenCodeImage))
 			Expect(container.Command).To(Equal([]string{"/kelos_entrypoint.sh"}))
 			Expect(container.Args).To(Equal([]string{"Fix the bug"}))
@@ -2192,21 +2191,21 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, secret)).Should(Succeed())
 
 			By("Creating a Task referencing a nonexistent Workspace")
-			task := &kelosv1alpha1.Task{
+			task := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-workspace-missing",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   "claude-code",
 					Prompt: "Fix the bug",
-					Credentials: kelosv1alpha1.Credentials{
-						Type: kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{
+					Credentials: kelos.Credentials{
+						Type: kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{
 							Name: "anthropic-api-key",
 						},
 					},
-					WorkspaceRef: &kelosv1alpha1.WorkspaceReference{
+					WorkspaceRef: &kelos.WorkspaceReference{
 						Name: "nonexistent-workspace",
 					},
 				},
@@ -2224,23 +2223,23 @@ var _ = Describe("Task Controller", func() {
 
 			By("Verifying the Task is not marked as Failed")
 			taskLookupKey := types.NamespacedName{Name: task.Name, Namespace: ns.Name}
-			createdTask := &kelosv1alpha1.Task{}
+			createdTask := &kelos.Task{}
 
 			Consistently(func() bool {
 				err := k8sClient.Get(ctx, taskLookupKey, createdTask)
 				if err != nil {
 					return true
 				}
-				return createdTask.Status.Phase != kelosv1alpha1.TaskPhaseFailed
+				return createdTask.Status.Phase != kelos.TaskPhaseFailed
 			}, 3*time.Second, interval).Should(BeTrue())
 
 			By("Creating the Workspace and verifying the Job is eventually created")
-			ws := &kelosv1alpha1.Workspace{
+			ws := &kelos.Workspace{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "nonexistent-workspace",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.WorkspaceSpec{
+				Spec: kelos.WorkspaceSpec{
 					Repo: "https://github.com/example/repo.git",
 					Ref:  "main",
 				},
@@ -2299,15 +2298,15 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, ghAppSecret)).Should(Succeed())
 
 			By("Creating a Workspace with GitHub App secretRef")
-			ws := &kelosv1alpha1.Workspace{
+			ws := &kelos.Workspace{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-workspace-app",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.WorkspaceSpec{
+				Spec: kelos.WorkspaceSpec{
 					Repo: "https://github.com/example/repo.git",
 					Ref:  "main",
-					SecretRef: &kelosv1alpha1.SecretReference{
+					SecretRef: &kelos.SecretReference{
 						Name: "github-app-creds",
 					},
 				},
@@ -2315,21 +2314,21 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, ws)).Should(Succeed())
 
 			By("Creating a Task with workspace ref")
-			task := &kelosv1alpha1.Task{
+			task := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-task-github-app",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   "claude-code",
 					Prompt: "Fix the bug",
-					Credentials: kelosv1alpha1.Credentials{
-						Type: kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{
+					Credentials: kelos.Credentials{
+						Type: kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{
 							Name: "anthropic-api-key",
 						},
 					},
-					WorkspaceRef: &kelosv1alpha1.WorkspaceReference{
+					WorkspaceRef: &kelos.WorkspaceReference{
 						Name: "test-workspace-app",
 					},
 				},
@@ -2405,17 +2404,17 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, secret)).Should(Succeed())
 
 			By("Creating a Task")
-			task := &kelosv1alpha1.Task{
+			task := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-task-events",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   "claude-code",
 					Prompt: "Test events",
-					Credentials: kelosv1alpha1.Credentials{
-						Type: kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{
+					Credentials: kelos.Credentials{
+						Type: kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{
 							Name: "anthropic-api-key",
 						},
 					},
@@ -2424,7 +2423,7 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, task)).Should(Succeed())
 
 			taskLookupKey := types.NamespacedName{Name: task.Name, Namespace: ns.Name}
-			createdTask := &kelosv1alpha1.Task{}
+			createdTask := &kelos.Task{}
 			jobLookupKey := types.NamespacedName{Name: task.Name, Namespace: ns.Name}
 			createdJob := &batchv1.Job{}
 
@@ -2453,13 +2452,13 @@ var _ = Describe("Task Controller", func() {
 			}, timeout, interval).Should(Succeed())
 
 			By("Verifying Task status is Running")
-			Eventually(func() kelosv1alpha1.TaskPhase {
+			Eventually(func() kelos.TaskPhase {
 				err := k8sClient.Get(ctx, taskLookupKey, createdTask)
 				if err != nil {
 					return ""
 				}
 				return createdTask.Status.Phase
-			}, timeout, interval).Should(Equal(kelosv1alpha1.TaskPhaseRunning))
+			}, timeout, interval).Should(Equal(kelos.TaskPhaseRunning))
 
 			By("Verifying TaskRunning event is emitted")
 			Eventually(func() *corev1.Event {
@@ -2480,13 +2479,13 @@ var _ = Describe("Task Controller", func() {
 			}, timeout, interval).Should(Succeed())
 
 			By("Verifying Task status is Succeeded")
-			Eventually(func() kelosv1alpha1.TaskPhase {
+			Eventually(func() kelos.TaskPhase {
 				err := k8sClient.Get(ctx, taskLookupKey, createdTask)
 				if err != nil {
 					return ""
 				}
 				return createdTask.Status.Phase
-			}, timeout, interval).Should(Equal(kelosv1alpha1.TaskPhaseSucceeded))
+			}, timeout, interval).Should(Equal(kelos.TaskPhaseSucceeded))
 
 			By("Verifying TaskSucceeded event is emitted")
 			Eventually(func() *corev1.Event {
@@ -2521,17 +2520,17 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, secret)).Should(Succeed())
 
 			By("Creating a Task")
-			task := &kelosv1alpha1.Task{
+			task := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-task-fail-event",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   "claude-code",
 					Prompt: "Test failure event",
-					Credentials: kelosv1alpha1.Credentials{
-						Type: kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{
+					Credentials: kelos.Credentials{
+						Type: kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{
 							Name: "anthropic-api-key",
 						},
 					},
@@ -2563,14 +2562,14 @@ var _ = Describe("Task Controller", func() {
 
 			By("Verifying Task status is Failed")
 			taskLookupKey := types.NamespacedName{Name: task.Name, Namespace: ns.Name}
-			createdTask := &kelosv1alpha1.Task{}
-			Eventually(func() kelosv1alpha1.TaskPhase {
+			createdTask := &kelos.Task{}
+			Eventually(func() kelos.TaskPhase {
 				err := k8sClient.Get(ctx, taskLookupKey, createdTask)
 				if err != nil {
 					return ""
 				}
 				return createdTask.Status.Phase
-			}, timeout, interval).Should(Equal(kelosv1alpha1.TaskPhaseFailed))
+			}, timeout, interval).Should(Equal(kelos.TaskPhaseFailed))
 
 			By("Verifying TaskFailed event is emitted")
 			Eventually(func() *corev1.Event {
@@ -2605,35 +2604,35 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, secret)).Should(Succeed())
 
 			By("Creating dependency Task A")
-			taskA := &kelosv1alpha1.Task{
+			taskA := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "task-a",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   "claude-code",
 					Prompt: "Do something",
-					Credentials: kelosv1alpha1.Credentials{
-						Type:      kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{Name: "anthropic-api-key"},
+					Credentials: kelos.Credentials{
+						Type:      kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{Name: "anthropic-api-key"},
 					},
 				},
 			}
 			Expect(k8sClient.Create(ctx, taskA)).Should(Succeed())
 
 			By("Creating Task B that depends on Task A")
-			taskB := &kelosv1alpha1.Task{
+			taskB := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "task-b",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:      "claude-code",
 					Prompt:    "Continue work",
 					DependsOn: []string{"task-a"},
-					Credentials: kelosv1alpha1.Credentials{
-						Type:      kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{Name: "anthropic-api-key"},
+					Credentials: kelos.Credentials{
+						Type:      kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{Name: "anthropic-api-key"},
 					},
 				},
 			}
@@ -2641,13 +2640,13 @@ var _ = Describe("Task Controller", func() {
 
 			By("Verifying Task B enters Waiting phase")
 			taskBKey := types.NamespacedName{Name: "task-b", Namespace: ns.Name}
-			Eventually(func() kelosv1alpha1.TaskPhase {
-				var t kelosv1alpha1.Task
+			Eventually(func() kelos.TaskPhase {
+				var t kelos.Task
 				if err := k8sClient.Get(ctx, taskBKey, &t); err != nil {
 					return ""
 				}
 				return t.Status.Phase
-			}, timeout, interval).Should(Equal(kelosv1alpha1.TaskPhaseWaiting))
+			}, timeout, interval).Should(Equal(kelos.TaskPhaseWaiting))
 
 			By("Verifying no Job is created for Task B while dependency is not met")
 			jobBKey := types.NamespacedName{Name: "task-b", Namespace: ns.Name}
@@ -2682,13 +2681,13 @@ var _ = Describe("Task Controller", func() {
 
 			By("Verifying Task A reaches Succeeded")
 			taskAKey := types.NamespacedName{Name: "task-a", Namespace: ns.Name}
-			Eventually(func() kelosv1alpha1.TaskPhase {
-				var t kelosv1alpha1.Task
+			Eventually(func() kelos.TaskPhase {
+				var t kelos.Task
 				if err := k8sClient.Get(ctx, taskAKey, &t); err != nil {
 					return ""
 				}
 				return t.Status.Phase
-			}, timeout, interval).Should(Equal(kelosv1alpha1.TaskPhaseSucceeded))
+			}, timeout, interval).Should(Equal(kelos.TaskPhaseSucceeded))
 
 			By("Verifying Task B Job is eventually created")
 			Eventually(func() bool {
@@ -2721,35 +2720,35 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, secret)).Should(Succeed())
 
 			By("Creating dependency Task A")
-			taskA := &kelosv1alpha1.Task{
+			taskA := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "dep-task-a",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   "claude-code",
 					Prompt: "Do something",
-					Credentials: kelosv1alpha1.Credentials{
-						Type:      kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{Name: "anthropic-api-key"},
+					Credentials: kelos.Credentials{
+						Type:      kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{Name: "anthropic-api-key"},
 					},
 				},
 			}
 			Expect(k8sClient.Create(ctx, taskA)).Should(Succeed())
 
 			By("Creating Task B that depends on Task A")
-			taskB := &kelosv1alpha1.Task{
+			taskB := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "dep-task-b",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:      "claude-code",
 					Prompt:    "Continue work",
 					DependsOn: []string{"dep-task-a"},
-					Credentials: kelosv1alpha1.Credentials{
-						Type:      kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{Name: "anthropic-api-key"},
+					Credentials: kelos.Credentials{
+						Type:      kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{Name: "anthropic-api-key"},
 					},
 				},
 			}
@@ -2776,25 +2775,25 @@ var _ = Describe("Task Controller", func() {
 
 			By("Verifying Task A reaches Failed")
 			taskAKey := types.NamespacedName{Name: "dep-task-a", Namespace: ns.Name}
-			Eventually(func() kelosv1alpha1.TaskPhase {
-				var t kelosv1alpha1.Task
+			Eventually(func() kelos.TaskPhase {
+				var t kelos.Task
 				if err := k8sClient.Get(ctx, taskAKey, &t); err != nil {
 					return ""
 				}
 				return t.Status.Phase
-			}, timeout, interval).Should(Equal(kelosv1alpha1.TaskPhaseFailed))
+			}, timeout, interval).Should(Equal(kelos.TaskPhaseFailed))
 
 			By("Verifying Task B transitions to Failed with dependency message")
 			taskBKey := types.NamespacedName{Name: "dep-task-b", Namespace: ns.Name}
-			Eventually(func() kelosv1alpha1.TaskPhase {
-				var t kelosv1alpha1.Task
+			Eventually(func() kelos.TaskPhase {
+				var t kelos.Task
 				if err := k8sClient.Get(ctx, taskBKey, &t); err != nil {
 					return ""
 				}
 				return t.Status.Phase
-			}, 2*timeout, interval).Should(Equal(kelosv1alpha1.TaskPhaseFailed))
+			}, 2*timeout, interval).Should(Equal(kelos.TaskPhaseFailed))
 
-			var taskBFinal kelosv1alpha1.Task
+			var taskBFinal kelos.Task
 			Expect(k8sClient.Get(ctx, taskBKey, &taskBFinal)).Should(Succeed())
 			Expect(taskBFinal.Status.Message).To(ContainSubstring("dep-task-a"))
 		})
@@ -2823,18 +2822,18 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, secret)).Should(Succeed())
 
 			By("Creating Task A with branch feature-1")
-			taskA := &kelosv1alpha1.Task{
+			taskA := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "branch-task-a",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   "claude-code",
 					Prompt: "Task A",
 					Branch: "feature-1",
-					Credentials: kelosv1alpha1.Credentials{
-						Type:      kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{Name: "anthropic-api-key"},
+					Credentials: kelos.Credentials{
+						Type:      kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{Name: "anthropic-api-key"},
 					},
 				},
 			}
@@ -2857,27 +2856,27 @@ var _ = Describe("Task Controller", func() {
 
 			By("Verifying Task A is Running")
 			taskAKey := types.NamespacedName{Name: "branch-task-a", Namespace: ns.Name}
-			Eventually(func() kelosv1alpha1.TaskPhase {
-				var t kelosv1alpha1.Task
+			Eventually(func() kelos.TaskPhase {
+				var t kelos.Task
 				if err := k8sClient.Get(ctx, taskAKey, &t); err != nil {
 					return ""
 				}
 				return t.Status.Phase
-			}, timeout, interval).Should(Equal(kelosv1alpha1.TaskPhaseRunning))
+			}, timeout, interval).Should(Equal(kelos.TaskPhaseRunning))
 
 			By("Creating Task B with the same branch")
-			taskB := &kelosv1alpha1.Task{
+			taskB := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "branch-task-b",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   "claude-code",
 					Prompt: "Task B",
 					Branch: "feature-1",
-					Credentials: kelosv1alpha1.Credentials{
-						Type:      kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{Name: "anthropic-api-key"},
+					Credentials: kelos.Credentials{
+						Type:      kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{Name: "anthropic-api-key"},
 					},
 				},
 			}
@@ -2885,16 +2884,16 @@ var _ = Describe("Task Controller", func() {
 
 			By("Verifying Task B enters Waiting phase")
 			taskBKey := types.NamespacedName{Name: "branch-task-b", Namespace: ns.Name}
-			Eventually(func() kelosv1alpha1.TaskPhase {
-				var t kelosv1alpha1.Task
+			Eventually(func() kelos.TaskPhase {
+				var t kelos.Task
 				if err := k8sClient.Get(ctx, taskBKey, &t); err != nil {
 					return ""
 				}
 				return t.Status.Phase
-			}, timeout, interval).Should(Equal(kelosv1alpha1.TaskPhaseWaiting))
+			}, timeout, interval).Should(Equal(kelos.TaskPhaseWaiting))
 
 			By("Verifying Task B message mentions branch lock")
-			var taskBWaiting kelosv1alpha1.Task
+			var taskBWaiting kelos.Task
 			Expect(k8sClient.Get(ctx, taskBKey, &taskBWaiting)).Should(Succeed())
 			Expect(taskBWaiting.Status.Message).To(ContainSubstring("feature-1"))
 
@@ -2940,12 +2939,12 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, secret)).Should(Succeed())
 
 			By("Creating a Workspace resource")
-			ws := &kelosv1alpha1.Workspace{
+			ws := &kelos.Workspace{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-workspace",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.WorkspaceSpec{
+				Spec: kelos.WorkspaceSpec{
 					Repo: "https://github.com/example/repo.git",
 					Ref:  "main",
 				},
@@ -2953,20 +2952,20 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, ws)).Should(Succeed())
 
 			By("Creating a Task with branch and workspace")
-			task := &kelosv1alpha1.Task{
+			task := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "branch-init-task",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   "claude-code",
 					Prompt: "Work on branch",
 					Branch: "feature-x",
-					Credentials: kelosv1alpha1.Credentials{
-						Type:      kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{Name: "anthropic-api-key"},
+					Credentials: kelos.Credentials{
+						Type:      kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{Name: "anthropic-api-key"},
 					},
-					WorkspaceRef: &kelosv1alpha1.WorkspaceReference{
+					WorkspaceRef: &kelos.WorkspaceReference{
 						Name: "test-workspace",
 					},
 				},
@@ -3045,24 +3044,24 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, secret)).Should(Succeed())
 
 			By("Creating two Workspace resources")
-			wsA := &kelosv1alpha1.Workspace{
+			wsA := &kelos.Workspace{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "workspace-a",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.WorkspaceSpec{
+				Spec: kelos.WorkspaceSpec{
 					Repo: "https://github.com/org/repo-a.git",
 					Ref:  "main",
 				},
 			}
 			Expect(k8sClient.Create(ctx, wsA)).Should(Succeed())
 
-			wsB := &kelosv1alpha1.Workspace{
+			wsB := &kelos.Workspace{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "workspace-b",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.WorkspaceSpec{
+				Spec: kelos.WorkspaceSpec{
 					Repo: "https://github.com/org/repo-b.git",
 					Ref:  "main",
 				},
@@ -3070,20 +3069,20 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, wsB)).Should(Succeed())
 
 			By("Creating Task A on workspace-a with branch feature-1")
-			taskA := &kelosv1alpha1.Task{
+			taskA := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "diff-ws-task-a",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   "claude-code",
 					Prompt: "Task A",
 					Branch: "feature-1",
-					Credentials: kelosv1alpha1.Credentials{
-						Type:      kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{Name: "anthropic-api-key"},
+					Credentials: kelos.Credentials{
+						Type:      kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{Name: "anthropic-api-key"},
 					},
-					WorkspaceRef: &kelosv1alpha1.WorkspaceReference{Name: "workspace-a"},
+					WorkspaceRef: &kelos.WorkspaceReference{Name: "workspace-a"},
 				},
 			}
 			Expect(k8sClient.Create(ctx, taskA)).Should(Succeed())
@@ -3105,29 +3104,29 @@ var _ = Describe("Task Controller", func() {
 
 			By("Verifying Task A is Running")
 			taskAKey := types.NamespacedName{Name: "diff-ws-task-a", Namespace: ns.Name}
-			Eventually(func() kelosv1alpha1.TaskPhase {
-				var t kelosv1alpha1.Task
+			Eventually(func() kelos.TaskPhase {
+				var t kelos.Task
 				if err := k8sClient.Get(ctx, taskAKey, &t); err != nil {
 					return ""
 				}
 				return t.Status.Phase
-			}, timeout, interval).Should(Equal(kelosv1alpha1.TaskPhaseRunning))
+			}, timeout, interval).Should(Equal(kelos.TaskPhaseRunning))
 
 			By("Creating Task B on workspace-b with the same branch name")
-			taskB := &kelosv1alpha1.Task{
+			taskB := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "diff-ws-task-b",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   "claude-code",
 					Prompt: "Task B",
 					Branch: "feature-1",
-					Credentials: kelosv1alpha1.Credentials{
-						Type:      kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{Name: "anthropic-api-key"},
+					Credentials: kelos.Credentials{
+						Type:      kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{Name: "anthropic-api-key"},
 					},
-					WorkspaceRef: &kelosv1alpha1.WorkspaceReference{Name: "workspace-b"},
+					WorkspaceRef: &kelos.WorkspaceReference{Name: "workspace-b"},
 				},
 			}
 			Expect(k8sClient.Create(ctx, taskB)).Should(Succeed())
@@ -3164,36 +3163,36 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, secret)).Should(Succeed())
 
 			By("Creating Task A that depends on Task B")
-			taskA := &kelosv1alpha1.Task{
+			taskA := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "cycle-task-a",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:      "claude-code",
 					Prompt:    "Task A",
 					DependsOn: []string{"cycle-task-b"},
-					Credentials: kelosv1alpha1.Credentials{
-						Type:      kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{Name: "anthropic-api-key"},
+					Credentials: kelos.Credentials{
+						Type:      kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{Name: "anthropic-api-key"},
 					},
 				},
 			}
 			Expect(k8sClient.Create(ctx, taskA)).Should(Succeed())
 
 			By("Creating Task B that depends on Task A")
-			taskB := &kelosv1alpha1.Task{
+			taskB := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "cycle-task-b",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:      "claude-code",
 					Prompt:    "Task B",
 					DependsOn: []string{"cycle-task-a"},
-					Credentials: kelosv1alpha1.Credentials{
-						Type:      kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{Name: "anthropic-api-key"},
+					Credentials: kelos.Credentials{
+						Type:      kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{Name: "anthropic-api-key"},
 					},
 				},
 			}
@@ -3201,12 +3200,12 @@ var _ = Describe("Task Controller", func() {
 
 			By("Verifying at least one task fails with circular dependency message")
 			Eventually(func() bool {
-				var tA kelosv1alpha1.Task
-				var tB kelosv1alpha1.Task
+				var tA kelos.Task
+				var tB kelos.Task
 				k8sClient.Get(ctx, types.NamespacedName{Name: "cycle-task-a", Namespace: ns.Name}, &tA)
 				k8sClient.Get(ctx, types.NamespacedName{Name: "cycle-task-b", Namespace: ns.Name}, &tB)
-				aFailed := tA.Status.Phase == kelosv1alpha1.TaskPhaseFailed && tA.Status.Message != "" && strings.Contains(tA.Status.Message, "Circular dependency")
-				bFailed := tB.Status.Phase == kelosv1alpha1.TaskPhaseFailed && tB.Status.Message != "" && strings.Contains(tB.Status.Message, "Circular dependency")
+				aFailed := tA.Status.Phase == kelos.TaskPhaseFailed && tA.Status.Message != "" && strings.Contains(tA.Status.Message, "Circular dependency")
+				bFailed := tB.Status.Phase == kelos.TaskPhaseFailed && tB.Status.Message != "" && strings.Contains(tB.Status.Message, "Circular dependency")
 				return aFailed || bFailed
 			}, 2*timeout, interval).Should(BeTrue())
 		})
@@ -3235,17 +3234,17 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, secret)).Should(Succeed())
 
 			By("Creating Task A and simulating it succeeding with outputs")
-			taskA := &kelosv1alpha1.Task{
+			taskA := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "tmpl-task-a",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   "claude-code",
 					Prompt: "Generate outputs",
-					Credentials: kelosv1alpha1.Credentials{
-						Type:      kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{Name: "anthropic-api-key"},
+					Credentials: kelos.Credentials{
+						Type:      kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{Name: "anthropic-api-key"},
 					},
 				},
 			}
@@ -3266,17 +3265,17 @@ var _ = Describe("Task Controller", func() {
 			}, timeout, interval).Should(Succeed())
 
 			taskAKey := types.NamespacedName{Name: "tmpl-task-a", Namespace: ns.Name}
-			Eventually(func() kelosv1alpha1.TaskPhase {
-				var t kelosv1alpha1.Task
+			Eventually(func() kelos.TaskPhase {
+				var t kelos.Task
 				if err := k8sClient.Get(ctx, taskAKey, &t); err != nil {
 					return ""
 				}
 				return t.Status.Phase
-			}, timeout, interval).Should(Equal(kelosv1alpha1.TaskPhaseSucceeded))
+			}, timeout, interval).Should(Equal(kelos.TaskPhaseSucceeded))
 
 			By("Manually setting outputs on Task A")
 			Eventually(func() error {
-				var t kelosv1alpha1.Task
+				var t kelos.Task
 				if err := k8sClient.Get(ctx, taskAKey, &t); err != nil {
 					return err
 				}
@@ -3285,18 +3284,18 @@ var _ = Describe("Task Controller", func() {
 			}, timeout, interval).Should(Succeed())
 
 			By("Creating Task B with prompt template")
-			taskB := &kelosv1alpha1.Task{
+			taskB := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "tmpl-task-b",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:      "claude-code",
 					Prompt:    `Review outputs: {{ index .Deps "tmpl-task-a" "Outputs" }}`,
 					DependsOn: []string{"tmpl-task-a"},
-					Credentials: kelosv1alpha1.Credentials{
-						Type:      kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{Name: "anthropic-api-key"},
+					Credentials: kelos.Credentials{
+						Type:      kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{Name: "anthropic-api-key"},
 					},
 				},
 			}
@@ -3337,17 +3336,17 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, secret)).Should(Succeed())
 
 			By("Creating Task A and simulating it succeeding with results")
-			taskA := &kelosv1alpha1.Task{
+			taskA := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "results-task-a",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   "claude-code",
 					Prompt: "Generate results",
-					Credentials: kelosv1alpha1.Credentials{
-						Type:      kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{Name: "anthropic-api-key"},
+					Credentials: kelos.Credentials{
+						Type:      kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{Name: "anthropic-api-key"},
 					},
 				},
 			}
@@ -3368,17 +3367,17 @@ var _ = Describe("Task Controller", func() {
 			}, timeout, interval).Should(Succeed())
 
 			taskAKey := types.NamespacedName{Name: "results-task-a", Namespace: ns.Name}
-			Eventually(func() kelosv1alpha1.TaskPhase {
-				var t kelosv1alpha1.Task
+			Eventually(func() kelos.TaskPhase {
+				var t kelos.Task
 				if err := k8sClient.Get(ctx, taskAKey, &t); err != nil {
 					return ""
 				}
 				return t.Status.Phase
-			}, timeout, interval).Should(Equal(kelosv1alpha1.TaskPhaseSucceeded))
+			}, timeout, interval).Should(Equal(kelos.TaskPhaseSucceeded))
 
 			By("Manually setting outputs on Task A (results are derived from key: value lines)")
 			Eventually(func() error {
-				var t kelosv1alpha1.Task
+				var t kelos.Task
 				if err := k8sClient.Get(ctx, taskAKey, &t); err != nil {
 					return err
 				}
@@ -3391,18 +3390,18 @@ var _ = Describe("Task Controller", func() {
 			}, timeout, interval).Should(Succeed())
 
 			By("Creating Task B with prompt template referencing results")
-			taskB := &kelosv1alpha1.Task{
+			taskB := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "results-task-b",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:      "claude-code",
 					Prompt:    `Review branch {{ index .Deps "results-task-a" "Results" "branch" }}`,
 					DependsOn: []string{"results-task-a"},
-					Credentials: kelosv1alpha1.Credentials{
-						Type:      kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{Name: "anthropic-api-key"},
+					Credentials: kelos.Credentials{
+						Type:      kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{Name: "anthropic-api-key"},
 					},
 				},
 			}
@@ -3443,12 +3442,12 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, secret)).Should(Succeed())
 
 			By("Creating a Workspace")
-			ws := &kelosv1alpha1.Workspace{
+			ws := &kelos.Workspace{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-workspace",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.WorkspaceSpec{
+				Spec: kelos.WorkspaceSpec{
 					Repo: "https://github.com/example/repo.git",
 					Ref:  "main",
 				},
@@ -3456,7 +3455,7 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, ws)).Should(Succeed())
 
 			By("Creating Task for issue #42 with rendered branch kelos-task-42")
-			task42 := &kelosv1alpha1.Task{
+			task42 := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "spawner-42",
 					Namespace: ns.Name,
@@ -3464,21 +3463,21 @@ var _ = Describe("Task Controller", func() {
 						"kelos.dev/taskspawner": "my-spawner",
 					},
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   "claude-code",
 					Prompt: "Issue #42: Fix login bug",
 					Branch: "kelos-task-42",
-					Credentials: kelosv1alpha1.Credentials{
-						Type:      kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{Name: "anthropic-api-key"},
+					Credentials: kelos.Credentials{
+						Type:      kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{Name: "anthropic-api-key"},
 					},
-					WorkspaceRef: &kelosv1alpha1.WorkspaceReference{Name: "test-workspace"},
+					WorkspaceRef: &kelos.WorkspaceReference{Name: "test-workspace"},
 				},
 			}
 			Expect(k8sClient.Create(ctx, task42)).Should(Succeed())
 
 			By("Creating Task for issue #99 with rendered branch kelos-task-99")
-			task99 := &kelosv1alpha1.Task{
+			task99 := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "spawner-99",
 					Namespace: ns.Name,
@@ -3486,15 +3485,15 @@ var _ = Describe("Task Controller", func() {
 						"kelos.dev/taskspawner": "my-spawner",
 					},
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   "claude-code",
 					Prompt: "Issue #99: Add feature",
 					Branch: "kelos-task-99",
-					Credentials: kelosv1alpha1.Credentials{
-						Type:      kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{Name: "anthropic-api-key"},
+					Credentials: kelos.Credentials{
+						Type:      kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{Name: "anthropic-api-key"},
 					},
-					WorkspaceRef: &kelosv1alpha1.WorkspaceReference{Name: "test-workspace"},
+					WorkspaceRef: &kelos.WorkspaceReference{Name: "test-workspace"},
 				},
 			}
 			Expect(k8sClient.Create(ctx, task99)).Should(Succeed())
@@ -3592,12 +3591,12 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, secret)).Should(Succeed())
 
 			By("Creating a Workspace")
-			ws := &kelosv1alpha1.Workspace{
+			ws := &kelos.Workspace{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "lock-workspace",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.WorkspaceSpec{
+				Spec: kelos.WorkspaceSpec{
 					Repo: "https://github.com/example/repo.git",
 					Ref:  "main",
 				},
@@ -3605,7 +3604,7 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, ws)).Should(Succeed())
 
 			By("Creating first Task with branch kelos-task-42")
-			taskFirst := &kelosv1alpha1.Task{
+			taskFirst := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "spawner-42-first",
 					Namespace: ns.Name,
@@ -3613,15 +3612,15 @@ var _ = Describe("Task Controller", func() {
 						"kelos.dev/taskspawner": "my-spawner",
 					},
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   "claude-code",
 					Prompt: "First attempt at issue #42",
 					Branch: "kelos-task-42",
-					Credentials: kelosv1alpha1.Credentials{
-						Type:      kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{Name: "anthropic-api-key"},
+					Credentials: kelos.Credentials{
+						Type:      kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{Name: "anthropic-api-key"},
 					},
-					WorkspaceRef: &kelosv1alpha1.WorkspaceReference{Name: "lock-workspace"},
+					WorkspaceRef: &kelos.WorkspaceReference{Name: "lock-workspace"},
 				},
 			}
 			Expect(k8sClient.Create(ctx, taskFirst)).Should(Succeed())
@@ -3642,16 +3641,16 @@ var _ = Describe("Task Controller", func() {
 			}, timeout, interval).Should(Succeed())
 
 			taskFirstKey := types.NamespacedName{Name: "spawner-42-first", Namespace: ns.Name}
-			Eventually(func() kelosv1alpha1.TaskPhase {
-				var t kelosv1alpha1.Task
+			Eventually(func() kelos.TaskPhase {
+				var t kelos.Task
 				if err := k8sClient.Get(ctx, taskFirstKey, &t); err != nil {
 					return ""
 				}
 				return t.Status.Phase
-			}, timeout, interval).Should(Equal(kelosv1alpha1.TaskPhaseRunning))
+			}, timeout, interval).Should(Equal(kelos.TaskPhaseRunning))
 
 			By("Creating second Task with same branch kelos-task-42")
-			taskSecond := &kelosv1alpha1.Task{
+			taskSecond := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "spawner-42-second",
 					Namespace: ns.Name,
@@ -3659,31 +3658,31 @@ var _ = Describe("Task Controller", func() {
 						"kelos.dev/taskspawner": "my-spawner",
 					},
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   "claude-code",
 					Prompt: "Second attempt at issue #42",
 					Branch: "kelos-task-42",
-					Credentials: kelosv1alpha1.Credentials{
-						Type:      kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{Name: "anthropic-api-key"},
+					Credentials: kelos.Credentials{
+						Type:      kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{Name: "anthropic-api-key"},
 					},
-					WorkspaceRef: &kelosv1alpha1.WorkspaceReference{Name: "lock-workspace"},
+					WorkspaceRef: &kelos.WorkspaceReference{Name: "lock-workspace"},
 				},
 			}
 			Expect(k8sClient.Create(ctx, taskSecond)).Should(Succeed())
 
 			By("Verifying second Task enters Waiting phase due to branch lock")
 			taskSecondKey := types.NamespacedName{Name: "spawner-42-second", Namespace: ns.Name}
-			Eventually(func() kelosv1alpha1.TaskPhase {
-				var t kelosv1alpha1.Task
+			Eventually(func() kelos.TaskPhase {
+				var t kelos.Task
 				if err := k8sClient.Get(ctx, taskSecondKey, &t); err != nil {
 					return ""
 				}
 				return t.Status.Phase
-			}, timeout, interval).Should(Equal(kelosv1alpha1.TaskPhaseWaiting))
+			}, timeout, interval).Should(Equal(kelos.TaskPhaseWaiting))
 
 			By("Verifying waiting message references the branch")
-			var taskSecondWaiting kelosv1alpha1.Task
+			var taskSecondWaiting kelos.Task
 			Expect(k8sClient.Get(ctx, taskSecondKey, &taskSecondWaiting)).Should(Succeed())
 			Expect(taskSecondWaiting.Status.Message).To(ContainSubstring("kelos-task-42"))
 
@@ -3729,17 +3728,17 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, secret)).Should(Succeed())
 
 			By("Creating a Task")
-			task := &kelosv1alpha1.Task{
+			task := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-immutable",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   "claude-code",
 					Prompt: "Original prompt",
-					Credentials: kelosv1alpha1.Credentials{
-						Type: kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{
+					Credentials: kelos.Credentials{
+						Type: kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{
 							Name: "anthropic-api-key",
 						},
 					},
@@ -3749,7 +3748,7 @@ var _ = Describe("Task Controller", func() {
 
 			By("Waiting for the Task to be reconciled with a finalizer")
 			taskLookupKey := types.NamespacedName{Name: task.Name, Namespace: ns.Name}
-			createdTask := &kelosv1alpha1.Task{}
+			createdTask := &kelos.Task{}
 			Eventually(func() bool {
 				err := k8sClient.Get(ctx, taskLookupKey, createdTask)
 				if err != nil {
@@ -3794,15 +3793,15 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, secret)).Should(Succeed())
 
 			By("Creating a Workspace with remotes")
-			ws := &kelosv1alpha1.Workspace{
+			ws := &kelos.Workspace{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-workspace-remotes",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.WorkspaceSpec{
+				Spec: kelos.WorkspaceSpec{
 					Repo: "https://github.com/org/repo.git",
 					Ref:  "main",
-					Remotes: []kelosv1alpha1.GitRemote{
+					Remotes: []kelos.GitRemote{
 						{Name: "private", URL: "https://github.com/user/repo.git"},
 						{Name: "downstream", URL: "https://github.com/vendor/repo.git"},
 					},
@@ -3811,21 +3810,21 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, ws)).Should(Succeed())
 
 			By("Creating a Task referencing the workspace")
-			task := &kelosv1alpha1.Task{
+			task := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-task-remotes",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   "claude-code",
 					Prompt: "Work on feature",
-					Credentials: kelosv1alpha1.Credentials{
-						Type: kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{
+					Credentials: kelos.Credentials{
+						Type: kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{
 							Name: "anthropic-api-key",
 						},
 					},
-					WorkspaceRef: &kelosv1alpha1.WorkspaceReference{
+					WorkspaceRef: &kelos.WorkspaceReference{
 						Name: "test-workspace-remotes",
 					},
 				},
@@ -3924,19 +3923,19 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, roleConfig)).Should(Succeed())
 
 			By("Creating a Task referencing both AgentConfigs")
-			task := &kelosv1alpha1.Task{
+			task := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "task-multi-agentconfig",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   "claude-code",
 					Prompt: "Test multi agentconfig merge",
-					Credentials: kelosv1alpha1.Credentials{
-						Type:      kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{Name: "anthropic-api-key"},
+					Credentials: kelos.Credentials{
+						Type:      kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{Name: "anthropic-api-key"},
 					},
-					AgentConfigRefs: []kelosv1alpha1.AgentConfigReference{
+					AgentConfigRefs: []kelos.AgentConfigReference{
 						{Name: "base-config"},
 						{Name: "role-config"},
 					},

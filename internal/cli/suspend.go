@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
+	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 )
 
 func newSuspendCommand(cfg *ClientConfig) *cobra.Command {
@@ -49,7 +49,7 @@ func newSuspendTaskSpawnerCommand(cfg *ClientConfig) *cobra.Command {
 			ctx := context.Background()
 			key := client.ObjectKey{Name: args[0], Namespace: ns}
 
-			ts := &kelosv1alpha1.TaskSpawner{}
+			ts := &kelos.TaskSpawner{}
 			if err := cl.Get(ctx, key, ts); err != nil {
 				return fmt.Errorf("getting task spawner: %w", err)
 			}
@@ -114,7 +114,7 @@ func newResumeTaskSpawnerCommand(cfg *ClientConfig) *cobra.Command {
 			ctx := context.Background()
 			key := client.ObjectKey{Name: args[0], Namespace: ns}
 
-			ts := &kelosv1alpha1.TaskSpawner{}
+			ts := &kelos.TaskSpawner{}
 			if err := cl.Get(ctx, key, ts); err != nil {
 				return fmt.Errorf("getting task spawner: %w", err)
 			}

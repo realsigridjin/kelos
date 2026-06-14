@@ -10,17 +10,17 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
+	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 )
 
 func TestWatchTask_SucceededReturnsNil(t *testing.T) {
-	task := &kelosv1alpha1.Task{
+	task := &kelos.Task{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "task-ok",
 			Namespace: "default",
 		},
-		Status: kelosv1alpha1.TaskStatus{
-			Phase: kelosv1alpha1.TaskPhaseSucceeded,
+		Status: kelos.TaskStatus{
+			Phase: kelos.TaskPhaseSucceeded,
 		},
 	}
 
@@ -40,13 +40,13 @@ func TestWatchTask_SucceededReturnsNil(t *testing.T) {
 }
 
 func TestWatchTask_FailedReturnsError(t *testing.T) {
-	task := &kelosv1alpha1.Task{
+	task := &kelos.Task{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "task-bad",
 			Namespace: "default",
 		},
-		Status: kelosv1alpha1.TaskStatus{
-			Phase: kelosv1alpha1.TaskPhaseFailed,
+		Status: kelos.TaskStatus{
+			Phase: kelos.TaskPhaseFailed,
 		},
 	}
 

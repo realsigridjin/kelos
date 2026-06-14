@@ -12,10 +12,17 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes/scheme"
 
 	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
 	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 )
+
+func init() {
+	if err := kelosv1alpha1.AddToScheme(scheme.Scheme); err != nil {
+		panic(err)
+	}
+}
 
 // kelosCRDNames are the kelos CRDs that serve two versions with a conversion
 // webhook.

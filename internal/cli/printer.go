@@ -12,11 +12,10 @@ import (
 	"k8s.io/apimachinery/pkg/util/duration"
 	"sigs.k8s.io/yaml"
 
-	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
 	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 )
 
-func taskDuration(status *kelosv1alpha1.TaskStatus) string {
+func taskDuration(status *kelos.TaskStatus) string {
 	if status.StartTime == nil {
 		return "-"
 	}
@@ -26,7 +25,7 @@ func taskDuration(status *kelosv1alpha1.TaskStatus) string {
 	return duration.HumanDuration(time.Since(status.StartTime.Time))
 }
 
-func printTaskTable(w io.Writer, tasks []kelosv1alpha1.Task, allNamespaces bool) {
+func printTaskTable(w io.Writer, tasks []kelos.Task, allNamespaces bool) {
 	tw := tabwriter.NewWriter(w, 0, 0, 3, ' ', 0)
 	if allNamespaces {
 		fmt.Fprintln(tw, "NAMESPACE\tNAME\tTYPE\tPHASE\tBRANCH\tWORKSPACE\tAGENT CONFIG\tDURATION\tAGE")
@@ -50,8 +49,6 @@ func printTaskTable(w io.Writer, tasks []kelosv1alpha1.Task, allNamespaces bool)
 				names[i] = ref.Name
 			}
 			agentConfig = strings.Join(names, ",")
-		} else if t.Spec.AgentConfigRef != nil {
-			agentConfig = t.Spec.AgentConfigRef.Name
 		}
 		dur := taskDuration(&t.Status)
 		if allNamespaces {
@@ -65,7 +62,7 @@ func printTaskTable(w io.Writer, tasks []kelosv1alpha1.Task, allNamespaces bool)
 	tw.Flush()
 }
 
-func printTaskDetail(w io.Writer, t *kelosv1alpha1.Task) {
+func printTaskDetail(w io.Writer, t *kelos.Task) {
 	printField(w, "Name", t.Name)
 	printField(w, "Namespace", t.Namespace)
 	printField(w, "Type", t.Spec.Type)
@@ -96,8 +93,6 @@ func printTaskDetail(w io.Writer, t *kelosv1alpha1.Task) {
 			names[i] = ref.Name
 		}
 		printField(w, "Agent Configs", strings.Join(names, ", "))
-	} else if t.Spec.AgentConfigRef != nil {
-		printField(w, "Agent Config", t.Spec.AgentConfigRef.Name)
 	}
 	if t.Spec.TTLSecondsAfterFinished != nil {
 		printField(w, "TTL", fmt.Sprintf("%ds", *t.Spec.TTLSecondsAfterFinished))
@@ -147,7 +142,7 @@ func printTaskDetail(w io.Writer, t *kelosv1alpha1.Task) {
 	}
 }
 
-func printTaskSpawnerTable(w io.Writer, spawners []kelosv1alpha1.TaskSpawner, allNamespaces bool) {
+func printTaskSpawnerTable(w io.Writer, spawners []kelos.TaskSpawner, allNamespaces bool) {
 	tw := tabwriter.NewWriter(w, 0, 0, 3, ' ', 0)
 	if allNamespaces {
 		fmt.Fprintln(tw, "NAMESPACE\tNAME\tSOURCE\tPHASE\tDISCOVERED\tTASKS\tAGE")
@@ -192,8 +187,8 @@ func printTaskSpawnerTable(w io.Writer, spawners []kelosv1alpha1.TaskSpawner, al
 
 // effectivePollInterval returns the poll interval that the spawner actually
 // uses, mirroring the resolution in cmd/kelos-spawner: the active source's
-// pollInterval takes precedence over the deprecated spec.pollInterval.
-func effectivePollInterval(ts *kelosv1alpha1.TaskSpawner) string {
+// pollInterval takes precedence over the default interval.
+func effectivePollInterval(ts *kelos.TaskSpawner) string {
 	switch {
 	case ts.Spec.When.GitHubIssues != nil && ts.Spec.When.GitHubIssues.PollInterval != "":
 		return ts.Spec.When.GitHubIssues.PollInterval
@@ -202,10 +197,10 @@ func effectivePollInterval(ts *kelosv1alpha1.TaskSpawner) string {
 	case ts.Spec.When.Jira != nil && ts.Spec.When.Jira.PollInterval != "":
 		return ts.Spec.When.Jira.PollInterval
 	}
-	return ts.Spec.PollInterval
+	return "5m"
 }
 
-func printTaskSpawnerDetail(w io.Writer, ts *kelosv1alpha1.TaskSpawner) {
+func printTaskSpawnerDetail(w io.Writer, ts *kelos.TaskSpawner) {
 	printField(w, "Name", ts.Name)
 	printField(w, "Namespace", ts.Namespace)
 	printField(w, "Phase", string(ts.Status.Phase))
@@ -299,7 +294,7 @@ func printTaskSpawnerDetail(w io.Writer, ts *kelosv1alpha1.TaskSpawner) {
 	}
 }
 
-func printWorkspaceTable(w io.Writer, workspaces []kelosv1alpha1.Workspace, allNamespaces bool) {
+func printWorkspaceTable(w io.Writer, workspaces []kelos.Workspace, allNamespaces bool) {
 	tw := tabwriter.NewWriter(w, 0, 0, 3, ' ', 0)
 	if allNamespaces {
 		fmt.Fprintln(tw, "NAMESPACE\tNAME\tREPO\tREF\tAGE")
@@ -317,7 +312,7 @@ func printWorkspaceTable(w io.Writer, workspaces []kelosv1alpha1.Workspace, allN
 	tw.Flush()
 }
 
-func printWorkspaceDetail(w io.Writer, ws *kelosv1alpha1.Workspace) {
+func printWorkspaceDetail(w io.Writer, ws *kelos.Workspace) {
 	printField(w, "Name", ws.Name)
 	printField(w, "Namespace", ws.Namespace)
 	printField(w, "Repo", ws.Spec.Repo)

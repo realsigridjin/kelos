@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
+	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 )
 
 func newGetCommand(cfg *ClientConfig) *cobra.Command {
@@ -59,12 +59,12 @@ func newGetTaskSpawnerCommand(cfg *ClientConfig, allNamespaces *bool) *cobra.Com
 			ctx := context.Background()
 
 			if len(args) == 1 {
-				ts := &kelosv1alpha1.TaskSpawner{}
+				ts := &kelos.TaskSpawner{}
 				if err := cl.Get(ctx, client.ObjectKey{Name: args[0], Namespace: ns}, ts); err != nil {
 					return fmt.Errorf("getting task spawner: %w", err)
 				}
 
-				ts.SetGroupVersionKind(kelosv1alpha1.GroupVersion.WithKind("TaskSpawner"))
+				ts.SetGroupVersionKind(kelos.GroupVersion.WithKind("TaskSpawner"))
 				switch output {
 				case "yaml":
 					return printYAML(os.Stdout, ts)
@@ -74,13 +74,13 @@ func newGetTaskSpawnerCommand(cfg *ClientConfig, allNamespaces *bool) *cobra.Com
 					if detail {
 						printTaskSpawnerDetail(os.Stdout, ts)
 					} else {
-						printTaskSpawnerTable(os.Stdout, []kelosv1alpha1.TaskSpawner{*ts}, false)
+						printTaskSpawnerTable(os.Stdout, []kelos.TaskSpawner{*ts}, false)
 					}
 					return nil
 				}
 			}
 
-			tsList := &kelosv1alpha1.TaskSpawnerList{}
+			tsList := &kelos.TaskSpawnerList{}
 			var listOpts []client.ListOption
 			if !*allNamespaces {
 				listOpts = append(listOpts, client.InNamespace(ns))
@@ -89,7 +89,7 @@ func newGetTaskSpawnerCommand(cfg *ClientConfig, allNamespaces *bool) *cobra.Com
 				return fmt.Errorf("listing task spawners: %w", err)
 			}
 
-			tsList.SetGroupVersionKind(kelosv1alpha1.GroupVersion.WithKind("TaskSpawnerList"))
+			tsList.SetGroupVersionKind(kelos.GroupVersion.WithKind("TaskSpawnerList"))
 			switch output {
 			case "yaml":
 				return printYAML(os.Stdout, tsList)
@@ -142,12 +142,12 @@ func newGetTaskCommand(cfg *ClientConfig, allNamespaces *bool) *cobra.Command {
 			ctx := context.Background()
 
 			if len(args) == 1 {
-				task := &kelosv1alpha1.Task{}
+				task := &kelos.Task{}
 				if err := cl.Get(ctx, client.ObjectKey{Name: args[0], Namespace: ns}, task); err != nil {
 					return fmt.Errorf("getting task: %w", err)
 				}
 
-				task.SetGroupVersionKind(kelosv1alpha1.GroupVersion.WithKind("Task"))
+				task.SetGroupVersionKind(kelos.GroupVersion.WithKind("Task"))
 				switch output {
 				case "yaml":
 					return printYAML(os.Stdout, task)
@@ -157,13 +157,13 @@ func newGetTaskCommand(cfg *ClientConfig, allNamespaces *bool) *cobra.Command {
 					if detail {
 						printTaskDetail(os.Stdout, task)
 					} else {
-						printTaskTable(os.Stdout, []kelosv1alpha1.Task{*task}, false)
+						printTaskTable(os.Stdout, []kelos.Task{*task}, false)
 					}
 					return nil
 				}
 			}
 
-			taskList := &kelosv1alpha1.TaskList{}
+			taskList := &kelos.TaskList{}
 			var listOpts []client.ListOption
 			if !*allNamespaces {
 				listOpts = append(listOpts, client.InNamespace(ns))
@@ -172,7 +172,7 @@ func newGetTaskCommand(cfg *ClientConfig, allNamespaces *bool) *cobra.Command {
 				return fmt.Errorf("listing tasks: %w", err)
 			}
 
-			taskList.SetGroupVersionKind(kelosv1alpha1.GroupVersion.WithKind("TaskList"))
+			taskList.SetGroupVersionKind(kelos.GroupVersion.WithKind("TaskList"))
 
 			if len(phases) > 0 {
 				taskList.Items = filterTasksByPhase(taskList.Items, phases)
@@ -230,12 +230,12 @@ func newGetWorkspaceCommand(cfg *ClientConfig, allNamespaces *bool) *cobra.Comma
 			ctx := context.Background()
 
 			if len(args) == 1 {
-				ws := &kelosv1alpha1.Workspace{}
+				ws := &kelos.Workspace{}
 				if err := cl.Get(ctx, client.ObjectKey{Name: args[0], Namespace: ns}, ws); err != nil {
 					return fmt.Errorf("getting workspace: %w", err)
 				}
 
-				ws.SetGroupVersionKind(kelosv1alpha1.GroupVersion.WithKind("Workspace"))
+				ws.SetGroupVersionKind(kelos.GroupVersion.WithKind("Workspace"))
 				switch output {
 				case "yaml":
 					return printYAML(os.Stdout, ws)
@@ -245,13 +245,13 @@ func newGetWorkspaceCommand(cfg *ClientConfig, allNamespaces *bool) *cobra.Comma
 					if detail {
 						printWorkspaceDetail(os.Stdout, ws)
 					} else {
-						printWorkspaceTable(os.Stdout, []kelosv1alpha1.Workspace{*ws}, false)
+						printWorkspaceTable(os.Stdout, []kelos.Workspace{*ws}, false)
 					}
 					return nil
 				}
 			}
 
-			wsList := &kelosv1alpha1.WorkspaceList{}
+			wsList := &kelos.WorkspaceList{}
 			var listOpts []client.ListOption
 			if !*allNamespaces {
 				listOpts = append(listOpts, client.InNamespace(ns))
@@ -260,7 +260,7 @@ func newGetWorkspaceCommand(cfg *ClientConfig, allNamespaces *bool) *cobra.Comma
 				return fmt.Errorf("listing workspaces: %w", err)
 			}
 
-			wsList.SetGroupVersionKind(kelosv1alpha1.GroupVersion.WithKind("WorkspaceList"))
+			wsList.SetGroupVersionKind(kelos.GroupVersion.WithKind("WorkspaceList"))
 			switch output {
 			case "yaml":
 				return printYAML(os.Stdout, wsList)
@@ -282,29 +282,29 @@ func newGetWorkspaceCommand(cfg *ClientConfig, allNamespaces *bool) *cobra.Comma
 	return cmd
 }
 
-var validTaskPhases = map[kelosv1alpha1.TaskPhase]bool{
-	kelosv1alpha1.TaskPhasePending:   true,
-	kelosv1alpha1.TaskPhaseRunning:   true,
-	kelosv1alpha1.TaskPhaseWaiting:   true,
-	kelosv1alpha1.TaskPhaseSucceeded: true,
-	kelosv1alpha1.TaskPhaseFailed:    true,
+var validTaskPhases = map[kelos.TaskPhase]bool{
+	kelos.TaskPhasePending:   true,
+	kelos.TaskPhaseRunning:   true,
+	kelos.TaskPhaseWaiting:   true,
+	kelos.TaskPhaseSucceeded: true,
+	kelos.TaskPhaseFailed:    true,
 }
 
 func validatePhases(phases []string) error {
 	for _, p := range phases {
-		if !validTaskPhases[kelosv1alpha1.TaskPhase(p)] {
+		if !validTaskPhases[kelos.TaskPhase(p)] {
 			return fmt.Errorf("unknown phase %q: must be one of Pending, Running, Waiting, Succeeded, Failed", p)
 		}
 	}
 	return nil
 }
 
-func filterTasksByPhase(tasks []kelosv1alpha1.Task, phases []string) []kelosv1alpha1.Task {
-	phaseSet := make(map[kelosv1alpha1.TaskPhase]bool, len(phases))
+func filterTasksByPhase(tasks []kelos.Task, phases []string) []kelos.Task {
+	phaseSet := make(map[kelos.TaskPhase]bool, len(phases))
 	for _, p := range phases {
-		phaseSet[kelosv1alpha1.TaskPhase(p)] = true
+		phaseSet[kelos.TaskPhase(p)] = true
 	}
-	filtered := make([]kelosv1alpha1.Task, 0, len(tasks))
+	filtered := make([]kelos.Task, 0, len(tasks))
 	for _, t := range tasks {
 		if phaseSet[t.Status.Phase] {
 			filtered = append(filtered, t)

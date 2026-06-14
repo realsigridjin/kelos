@@ -22,18 +22,16 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
+	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 	"github.com/kelos-dev/kelos/internal/cli"
 	"github.com/kelos-dev/kelos/internal/codexauth"
 	"github.com/kelos-dev/kelos/internal/controller"
 )
 
 // controllerSettleTimeout bounds Eventually blocks that wait for the in-process
-// controller to reconcile after an install. The controllers read the v1alpha1
-// view of Tasks/TaskSpawners, so every watch event round-trips through the
-// conversion webhook; right after install (which re-applies the CRDs and
-// re-points their conversion config) the informers re-establish their watches,
-// so reconciles need more headroom than a non-converted resource would.
+// controller to reconcile after install re-applies the CRDs and re-points their
+// conversion config. The informers re-establish their watches, so reconciles
+// need more headroom than a stable resource would.
 const controllerSettleTimeout = 60 * time.Second
 
 // kelosCRDNames are the kelos CRDs that serve two versions with a conversion
@@ -383,13 +381,13 @@ func restoreCRDs(kubeconfigPath string) {
 	// Wait for all CRDs to be fully established before subsequent tests
 	// can create custom resources. We verify by attempting to list each type.
 	Eventually(func() error {
-		return k8sClient.List(ctx, &kelosv1alpha1.TaskList{})
+		return k8sClient.List(ctx, &kelos.TaskList{})
 	}, 30*time.Second, 100*time.Millisecond).Should(Succeed())
 	Eventually(func() error {
-		return k8sClient.List(ctx, &kelosv1alpha1.TaskSpawnerList{})
+		return k8sClient.List(ctx, &kelos.TaskSpawnerList{})
 	}, 30*time.Second, 100*time.Millisecond).Should(Succeed())
 	Eventually(func() error {
-		return k8sClient.List(ctx, &kelosv1alpha1.WorkspaceList{})
+		return k8sClient.List(ctx, &kelos.WorkspaceList{})
 	}, 30*time.Second, 100*time.Millisecond).Should(Succeed())
 
 	deleteControllerResources()
@@ -751,17 +749,17 @@ var _ = Describe("Install/Uninstall", Ordered, func() {
 			pointConversionToEnvtest()
 
 			By("Creating a Task with required fields")
-			task := &kelosv1alpha1.Task{
+			task := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-uninstall-task",
 					Namespace: "default",
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   "claude-code",
 					Prompt: "test prompt",
-					Credentials: kelosv1alpha1.Credentials{
-						Type:      kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{Name: "fake-secret"},
+					Credentials: kelos.Credentials{
+						Type:      kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{Name: "fake-secret"},
 					},
 				},
 			}
@@ -769,7 +767,7 @@ var _ = Describe("Install/Uninstall", Ordered, func() {
 
 			By("Waiting for the controller to add the finalizer")
 			Eventually(func() bool {
-				var t kelosv1alpha1.Task
+				var t kelos.Task
 				if err := k8sClient.Get(ctx, types.NamespacedName{
 					Name: "test-uninstall-task", Namespace: "default",
 				}, &t); err != nil {
@@ -790,7 +788,7 @@ var _ = Describe("Install/Uninstall", Ordered, func() {
 
 			By("Verifying custom resources are gone")
 			Eventually(func() bool {
-				var taskList kelosv1alpha1.TaskList
+				var taskList kelos.TaskList
 				err := k8sClient.List(ctx, &taskList)
 				// After CRDs are deleted, listing will fail
 				return err != nil || len(taskList.Items) == 0

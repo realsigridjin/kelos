@@ -194,8 +194,7 @@ func TestRender_TaskSpawnerTemplatePlaceholdersRemainLiteral(t *testing.T) {
 		t.Error("expected branch placeholder example to remain literal in rendered CRD output")
 	}
 	// Each placeholder appears in the Branch and PromptTemplate godoc of
-	// TaskTemplate, which is present in both the v1alpha1 and v1alpha2
-	// TaskSpawner CRD schemas (2 fields x 2 versions = 4).
+	// TaskTemplate across the served TaskSpawner CRD schemas.
 	for _, expected := range []string{
 		"Available variables (all sources): {{.ID}}, {{.Title}}, {{.Kind}}",
 		"GitHub issue/Jira sources: {{.Number}}, {{.Body}}, {{.URL}}, {{.Labels}}, {{.Comments}}",
