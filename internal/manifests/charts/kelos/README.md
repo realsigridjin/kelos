@@ -6,26 +6,58 @@ The Kelos Helm chart is published as an OCI artifact in GHCR:
 oci://ghcr.io/kelos-dev/charts/kelos
 ```
 
+## Requirements
+
+[cert-manager](https://cert-manager.io/) must be installed in the cluster before
+installing Kelos. Kelos serves a CRD conversion webhook, and its serving
+certificate is issued by cert-manager. Installing the Kelos CRDs without
+cert-manager present would leave them pointing at a webhook the API server can
+never reach.
+Follow the [cert-manager installation documentation](https://cert-manager.io/docs/installation/)
+for the current recommended installation method.
+
+`kelos install` checks for cert-manager and fails fast with this guidance if it
+is missing.
+
 ## First-Time Install
 
-For a fresh Helm-managed install:
+For most first-time installs, use `kelos install`; it stages the controller,
+certificate, conversion webhook, and CRDs automatically.
+
+If you want Helm to own CRDs on a fresh cluster, render the CRDs during the
+initial Helm install so the controller can start its Kelos resource watches:
 
 ```bash
 helm upgrade --install kelos oci://ghcr.io/kelos-dev/charts/kelos \
   -n kelos-system \
   --create-namespace \
-  --version <version>
+  --version <version> \
+  --set crds.install=true
 ```
 
-By default, the chart installs and upgrades the Kelos CRDs:
+Do not use a controller-only first pass on a fresh cluster; with no Kelos CRDs
+installed, the controller cannot become ready. The chart default is still
+controller-only for clusters where CRDs are managed by `kelos install` or
+another manifest workflow:
 
 ```yaml
 crds:
-  install: true
+  install: false
   keep: true
 ```
 
-`crds.keep=true` keeps Helm from deleting the CRDs during chart uninstall.
+For existing installations, CRDs use a conversion webhook, so applying upgraded
+conversion-enabled CRDs before the controller Service, certificate, and ready
+webhook exist can make conversion requests fail. `kelos install` handles that
+staging automatically. Helm upgrade and adoption workflows use the two-phase
+controller-first flow below because the CRDs already exist.
+
+When CRDs are rendered, `crds.keep=true` preserves them during chart uninstall.
+This is the safe default because Tasks and TaskSpawners can have finalizers that
+require the controller to run before custom resources can be deleted. If you
+want Helm uninstall to remove CRDs too, delete all Kelos custom resources while
+the controller is still running, upgrade the release with `crds.install=true`
+and `crds.keep=false`, and then uninstall.
 
 ## Migrating Existing CRDs Into Helm Ownership
 
@@ -39,8 +71,7 @@ Use this if you want to continue managing CRDs with `kelos install` or another m
 helm upgrade --install kelos oci://ghcr.io/kelos-dev/charts/kelos \
   -n kelos-system \
   --create-namespace \
-  --version <version> \
-  --set crds.install=false
+  --version <version>
 ```
 
 With `crds.install=false`, Helm manages only the controller resources.
@@ -67,28 +98,47 @@ done
 helm upgrade --install kelos oci://ghcr.io/kelos-dev/charts/kelos \
   -n kelos-system \
   --create-namespace \
-  --version <version>
+  --version <version> \
+  --set crds.install=false
+
+kubectl rollout status deployment/kelos-controller-manager \
+  -n kelos-system --timeout=120s
+
+helm upgrade kelos oci://ghcr.io/kelos-dev/charts/kelos \
+  -n kelos-system \
+  --version <version> \
+  --set crds.install=true
 ```
 
 After adoption, stop managing those CRDs with `kelos install` or `kubectl apply`.
 
 ## Upgrades
 
-For Helm-managed installs where Helm already owns the CRDs, a normal upgrade is:
-
-```bash
-helm upgrade kelos oci://ghcr.io/kelos-dev/charts/kelos \
-  -n kelos-system \
-  --version <version>
-```
-
-If your cluster still manages CRDs outside Helm, keep using:
+For controller-only Helm upgrades, use the chart defaults:
 
 ```bash
 helm upgrade kelos oci://ghcr.io/kelos-dev/charts/kelos \
   -n kelos-system \
   --version <version> \
   --set crds.install=false
+```
+
+If Helm owns the CRDs and the release includes CRD changes, upgrade in two
+phases so the new webhook is ready before Helm applies conversion-backed CRDs:
+
+```bash
+helm upgrade kelos oci://ghcr.io/kelos-dev/charts/kelos \
+  -n kelos-system \
+  --version <version> \
+  --set crds.install=false
+
+kubectl rollout status deployment/kelos-controller-manager \
+  -n kelos-system --timeout=120s
+
+helm upgrade kelos oci://ghcr.io/kelos-dev/charts/kelos \
+  -n kelos-system \
+  --version <version> \
+  --set crds.install=true
 ```
 
 ## Codex OAuth Token Refresh
@@ -122,7 +172,13 @@ To uninstall the Helm release:
 helm uninstall kelos -n kelos-system
 ```
 
-Because `crds.keep=true` by default, uninstalling the chart does not delete the Kelos CRDs.
+By default, Helm preserves the Kelos CRDs and their custom resources during
+uninstall. This avoids deleting conversion-webhook-backed CRDs after Helm has
+already removed the controller that clears custom-resource finalizers.
+
+For a full cleanup, use `kelos uninstall` instead of `helm uninstall`, or delete
+all Kelos custom resources while the controller is still running, upgrade the
+release with `crds.keep=false`, and then uninstall the chart.
 
 ## Webhook Server Configuration
 
@@ -182,10 +238,11 @@ The webhook ingress supports TLS termination for secure HTTPS connections. TLS i
 
 #### Option 1: Use cert-manager for automatic certificate management
 
-```bash
-# Install cert-manager if not already present
-kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.0/cert-manager.yaml
+Install cert-manager first if it is not already present. Follow the
+[cert-manager installation documentation](https://cert-manager.io/docs/installation/)
+for the current recommended installation method.
 
+```bash
 # Configure with cert-manager annotations
 helm upgrade --install kelos oci://ghcr.io/kelos-dev/charts/kelos \
   -n kelos-system \

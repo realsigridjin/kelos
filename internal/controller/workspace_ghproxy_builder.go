@@ -11,7 +11,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
-	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
+	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 )
 
 const (
@@ -64,7 +64,7 @@ func WorkspaceGHProxyServiceURL(namespace, workspaceName string) string {
 	return fmt.Sprintf("http://%s.%s:%d", WorkspaceGHProxyName(workspaceName), namespace, workspaceProxyPort)
 }
 
-func workspaceProxyUpstreamBaseURL(workspace *kelosv1alpha1.Workspace) string {
+func workspaceProxyUpstreamBaseURL(workspace *kelos.Workspace) string {
 	host, _, _ := parseGitHubRepo(workspace.Spec.Repo)
 	if apiBaseURL := gitHubAPIBaseURL(host); apiBaseURL != "" {
 		return apiBaseURL
@@ -73,7 +73,7 @@ func workspaceProxyUpstreamBaseURL(workspace *kelosv1alpha1.Workspace) string {
 }
 
 // BuildService creates a Service for the workspace ghproxy.
-func (b *WorkspaceGHProxyBuilder) BuildService(workspace *kelosv1alpha1.Workspace) *corev1.Service {
+func (b *WorkspaceGHProxyBuilder) BuildService(workspace *kelos.Workspace) *corev1.Service {
 	labels := workspaceProxyLabels(workspace.Name)
 	return &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
@@ -102,7 +102,7 @@ func (b *WorkspaceGHProxyBuilder) BuildService(workspace *kelosv1alpha1.Workspac
 }
 
 // BuildDeployment creates a Deployment for the workspace ghproxy.
-func (b *WorkspaceGHProxyBuilder) BuildDeployment(workspace *kelosv1alpha1.Workspace, isGitHubApp bool) *appsv1.Deployment {
+func (b *WorkspaceGHProxyBuilder) BuildDeployment(workspace *kelos.Workspace, isGitHubApp bool) *appsv1.Deployment {
 	labels := workspaceProxyLabels(workspace.Name)
 	args := []string{
 		"--upstream-base-url=" + workspaceProxyUpstreamBaseURL(workspace),

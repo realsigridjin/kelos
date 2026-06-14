@@ -1,4 +1,4 @@
-apiVersion: kelos.dev/v1alpha1
+apiVersion: kelos.dev/v1alpha2
 kind: TaskSpawner
 metadata:
   name: github-webhook-responder
@@ -126,7 +126,7 @@ spec:
 
 ---
 # Example workspace configuration (referenced above)
-apiVersion: kelos.dev/v1alpha1
+apiVersion: kelos.dev/v1alpha2
 kind: Workspace
 metadata:
   name: my-repo-workspace

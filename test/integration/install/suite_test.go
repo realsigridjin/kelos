@@ -2,7 +2,10 @@ package install
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
+	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -22,9 +25,12 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
+	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 	"github.com/kelos-dev/kelos/internal/controller"
+	"github.com/kelos-dev/kelos/internal/conversion"
 	"github.com/kelos-dev/kelos/internal/githubapp"
 )
 
@@ -36,6 +42,11 @@ var (
 	cancel           context.CancelFunc
 	managerDone      chan error
 	mockGitHubServer *httptest.Server
+
+	webhookHost    string
+	webhookPort    int
+	webhookCA      []byte
+	webhookCertDir string
 )
 
 func TestInstallIntegration(t *testing.T) {
@@ -54,8 +65,14 @@ var _ = BeforeEach(func() {
 
 	By("bootstrapping install test environment")
 	testEnv = &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "..", "internal", "manifests")},
+		CRDDirectoryPaths: []string{
+			filepath.Join("..", "..", "..", "internal", "manifests"),
+			filepath.Join("..", "testdata", "certmanager-crds.yaml"),
+		},
 		ErrorIfCRDPathMissing: true,
+		WebhookInstallOptions: envtest.WebhookInstallOptions{
+			IgnoreSchemeConvertible: true,
+		},
 	}
 
 	var err error
@@ -64,6 +81,8 @@ var _ = BeforeEach(func() {
 	Expect(cfg).NotTo(BeNil())
 
 	err = kelosv1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+	err = kelos.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
@@ -81,14 +100,28 @@ var _ = BeforeEach(func() {
 	// Controller names remain registered in process-wide metrics after each
 	// manager stops, while this suite starts a new manager for every spec.
 	skipNameValidation := true
-	// Integration packages run concurrently, so disable the metrics listener
-	// to avoid multiple test managers contending for the default :8080 port.
+	webhookOpts := testEnv.WebhookInstallOptions
+	webhookHost = webhookOpts.LocalServingHost
+	webhookPort = webhookOpts.LocalServingPort
+	webhookCA = webhookOpts.LocalServingCAData
+	webhookCertDir = webhookOpts.LocalServingCertDir
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme:     scheme.Scheme,
 		Metrics:    metricsserver.Options{BindAddress: "0"},
 		Controller: config.Controller{SkipNameValidation: &skipNameValidation},
+		WebhookServer: webhook.NewServer(webhook.Options{
+			Host:    webhookOpts.LocalServingHost,
+			Port:    webhookOpts.LocalServingPort,
+			CertDir: webhookOpts.LocalServingCertDir,
+		}),
 	})
 	Expect(err).NotTo(HaveOccurred())
+
+	for _, registration := range conversion.WebhookRegistrations() {
+		Expect(ctrl.NewWebhookManagedBy(mgr, registration.Object).
+			WithConverter(registration.Converter).
+			Complete()).To(Succeed())
+	}
 
 	tokenClient := githubapp.NewTokenClient()
 	tokenClient.BaseURL = mockGitHubServer.URL
@@ -128,13 +161,25 @@ var _ = BeforeEach(func() {
 	Expect(mgr.GetCache().WaitForCacheSync(ctx)).To(BeTrue())
 
 	Eventually(func() error {
-		return k8sClient.List(ctx, &kelosv1alpha1.TaskList{})
+		addr := net.JoinHostPort(webhookOpts.LocalServingHost, fmt.Sprintf("%d", webhookOpts.LocalServingPort))
+		conn, derr := tls.DialWithDialer(&net.Dialer{Timeout: time.Second}, "tcp", addr, &tls.Config{InsecureSkipVerify: true})
+		if derr != nil {
+			return derr
+		}
+		return conn.Close()
+	}, 30*time.Second, 100*time.Millisecond).Should(Succeed())
+
+	Eventually(func() error {
+		return k8sClient.List(ctx, &kelos.TaskList{})
 	}, 30*time.Second, 100*time.Millisecond).Should(Succeed())
 	Eventually(func() error {
-		return k8sClient.List(ctx, &kelosv1alpha1.TaskSpawnerList{})
+		return k8sClient.List(ctx, &kelos.TaskSpawnerList{})
 	}, 30*time.Second, 100*time.Millisecond).Should(Succeed())
 	Eventually(func() error {
-		return k8sClient.List(ctx, &kelosv1alpha1.WorkspaceList{})
+		return k8sClient.List(ctx, &kelos.WorkspaceList{})
+	}, 30*time.Second, 100*time.Millisecond).Should(Succeed())
+	Eventually(func() error {
+		return k8sClient.List(ctx, &kelos.AgentConfigList{})
 	}, 30*time.Second, 100*time.Millisecond).Should(Succeed())
 })
 

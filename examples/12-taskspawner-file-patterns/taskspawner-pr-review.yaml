@@ -4,7 +4,7 @@
 # skipping vendor-only and documentation-only PRs.
 # Semantics: files matching exclude are removed first, then at least one
 # remaining file must match an include pattern.
-apiVersion: kelos.dev/v1alpha1
+apiVersion: kelos.dev/v1alpha2
 kind: TaskSpawner
 metadata:
   name: go-code-reviewer
@@ -42,7 +42,7 @@ spec:
 # This TaskSpawner reviews all PRs except those that only change
 # documentation files. With remove-then-match semantics, exclude
 # removes doc files first — if nothing remains, the PR is skipped.
-apiVersion: kelos.dev/v1alpha1
+apiVersion: kelos.dev/v1alpha2
 kind: TaskSpawner
 metadata:
   name: code-reviewer-skip-docs

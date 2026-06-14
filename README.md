@@ -64,6 +64,7 @@ Get running in 5 minutes (most of the time is gathering credentials).
 ### Prerequisites
 
 - Kubernetes cluster (1.28+)
+- cert-manager installed and ready
 
 <details>
 <summary>Don't have a cluster? Create one locally with kind</summary>
@@ -104,6 +105,11 @@ go install github.com/kelos-dev/kelos/cmd/kelos@latest
 
 ### 2. Install Kelos
 
+Kelos uses cert-manager to issue the CRD conversion webhook certificate. Install
+cert-manager first if your cluster does not already have it. Follow the
+[cert-manager installation documentation](https://cert-manager.io/docs/installation/)
+for the current recommended installation method.
+
 ```bash
 kelos install
 ```
@@ -118,6 +124,7 @@ kelos install --set webhookServer.sources.github.enabled=true
 ```
 
 `kelos install` manages CRDs separately, so `crds.install` must be omitted or set to `false`.
+`kelos install --dry-run` prints controller manifests only; CRDs are staged separately during real installs after certificate and conversion webhook readiness.
 For the full values schema and advanced examples, see [the Helm chart README](internal/manifests/charts/kelos/README.md).
 
 Verify the installation:
@@ -137,10 +144,15 @@ To install Kelos with Helm:
 helm upgrade --install kelos oci://ghcr.io/kelos-dev/charts/kelos \
   -n kelos-system \
   --create-namespace \
-  --version <version>
+  --version <version> \
+  --set crds.install=true
 ```
 
-This installs the controller and, by default, the Kelos CRDs.
+This installs the controller resources and Kelos CRDs. The chart default leaves
+CRD rendering disabled for clusters where CRDs are managed by `kelos install`
+or another manifest workflow. Use `kelos install` for the staged
+controller-plus-CRD install, or see the Helm chart README for fresh-install,
+upgrade, and adoption flows.
 
 For CRD migration, adopting existing CRDs into Helm ownership, and advanced chart usage, see [the Helm chart README](internal/manifests/charts/kelos/README.md).
 
@@ -233,7 +245,7 @@ The agent clones your repo, makes changes, and can push a branch or open a PR.
 Create a `Workspace` resource to define a git repository:
 
 ```yaml
-apiVersion: kelos.dev/v1alpha1
+apiVersion: kelos.dev/v1alpha2
 kind: Workspace
 metadata:
   name: my-workspace
@@ -245,7 +257,7 @@ spec:
 Then reference it from a `Task`:
 
 ```yaml
-apiVersion: kelos.dev/v1alpha1
+apiVersion: kelos.dev/v1alpha2
 kind: Task
 metadata:
   name: hello-world
@@ -305,7 +317,7 @@ The agent will generate the correct manifests, apply them, and troubleshoot any 
 Create a TaskSpawner to automatically turn GitHub issues into agent tasks:
 
 ```yaml
-apiVersion: kelos.dev/v1alpha1
+apiVersion: kelos.dev/v1alpha2
 kind: TaskSpawner
 metadata:
   name: fix-bugs
@@ -347,7 +359,7 @@ Tasks sharing the same `branch` are serialized automatically — only one runs a
 <summary>YAML equivalent</summary>
 
 ```yaml
-apiVersion: kelos.dev/v1alpha1
+apiVersion: kelos.dev/v1alpha2
 kind: Task
 metadata:
   name: scaffold
@@ -362,7 +374,7 @@ spec:
     name: my-workspace
   branch: feature/user-service
 ---
-apiVersion: kelos.dev/v1alpha1
+apiVersion: kelos.dev/v1alpha2
 kind: Task
 metadata:
   name: write-tests
@@ -384,7 +396,7 @@ spec:
 Downstream tasks can reference upstream results in their prompt using `{{.Deps}}`:
 
 ```yaml
-apiVersion: kelos.dev/v1alpha1
+apiVersion: kelos.dev/v1alpha2
 kind: Task
 metadata:
   name: open-pr
@@ -426,7 +438,7 @@ The `gh` CLI and `GITHUB_TOKEN` are available inside the agent container, so the
 Use `AgentConfig` to bundle project-wide instructions, plugins, and MCP servers:
 
 ```yaml
-apiVersion: kelos.dev/v1alpha1
+apiVersion: kelos.dev/v1alpha2
 kind: AgentConfig
 metadata:
   name: my-config
@@ -497,7 +509,7 @@ See the [`self-development/` README](self-development/README.md) for the full pi
 | **Task** | `type`, `prompt`, `credentials`, `workspaceRef`, `dependsOn`, `branch` | [Reference](docs/reference.md#task) |
 | **Workspace** | `repo`, `ref`, `secretRef` (PAT or GitHub App), `files`, `setupCommand` | [Reference](docs/reference.md#workspace) |
 | **AgentConfig** | `agentsMD`, `plugins`, `mcpServers` | [Reference](docs/reference.md#agentconfig) |
-| **TaskSpawner** | `when`, `taskTemplate`, `pollInterval`, `maxConcurrency` | [Reference](docs/reference.md#taskspawner) |
+| **TaskSpawner** | `when`, `taskTemplate`, per-source `pollInterval`, `maxConcurrency` | [Reference](docs/reference.md#taskspawner) |
 
 <details>
 <summary><strong>CLI Reference</strong></summary>

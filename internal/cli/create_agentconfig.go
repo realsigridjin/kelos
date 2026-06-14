@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
+	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 )
 
 func newCreateAgentConfigCommand(cfg *ClientConfig) *cobra.Command {
@@ -42,7 +42,7 @@ func newCreateAgentConfigCommand(cfg *ClientConfig) *cobra.Command {
 				return err
 			}
 
-			acSpec := kelosv1alpha1.AgentConfigSpec{}
+			acSpec := kelos.AgentConfigSpec{}
 
 			resolvedMD, err := resolveContent(agentsMD)
 			if err != nil {
@@ -51,14 +51,14 @@ func newCreateAgentConfigCommand(cfg *ClientConfig) *cobra.Command {
 			acSpec.AgentsMD = resolvedMD
 
 			if len(skillFlags) > 0 || len(agentFlags) > 0 {
-				plugin := kelosv1alpha1.PluginSpec{Name: "kelos"}
+				plugin := kelos.PluginSpec{Name: "kelos"}
 
 				for _, s := range skillFlags {
 					sn, sc, err := parseNameContent(s, "skill")
 					if err != nil {
 						return err
 					}
-					plugin.Skills = append(plugin.Skills, kelosv1alpha1.SkillDefinition{
+					plugin.Skills = append(plugin.Skills, kelos.SkillDefinition{
 						Name: sn, Content: sc,
 					})
 				}
@@ -68,12 +68,12 @@ func newCreateAgentConfigCommand(cfg *ClientConfig) *cobra.Command {
 					if err != nil {
 						return err
 					}
-					plugin.Agents = append(plugin.Agents, kelosv1alpha1.AgentDefinition{
+					plugin.Agents = append(plugin.Agents, kelos.AgentDefinition{
 						Name: an, Content: ac,
 					})
 				}
 
-				acSpec.Plugins = []kelosv1alpha1.PluginSpec{plugin}
+				acSpec.Plugins = []kelos.PluginSpec{plugin}
 			}
 
 			mcpSeen := make(map[string]bool, len(mcpFlags))
@@ -103,7 +103,7 @@ func newCreateAgentConfigCommand(cfg *ClientConfig) *cobra.Command {
 				acSpec.Skills = append(acSpec.Skills, spec)
 			}
 
-			acObj := &kelosv1alpha1.AgentConfig{
+			acObj := &kelos.AgentConfig{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      name,
 					Namespace: ns,
@@ -111,13 +111,13 @@ func newCreateAgentConfigCommand(cfg *ClientConfig) *cobra.Command {
 				Spec: acSpec,
 			}
 
-			acObj.SetGroupVersionKind(kelosv1alpha1.GroupVersion.WithKind("AgentConfig"))
+			acObj.SetGroupVersionKind(kelos.GroupVersion.WithKind("AgentConfig"))
 
 			if dryRun {
 				return printYAML(os.Stdout, acObj)
 			}
 
-			if err := cl.Create(context.Background(), acObj); err != nil {
+			if err := createAgentConfig(context.Background(), cl, acObj); err != nil {
 				return fmt.Errorf("creating agentconfig: %w", err)
 			}
 			fmt.Fprintf(os.Stdout, "agentconfig/%s created\n", name)

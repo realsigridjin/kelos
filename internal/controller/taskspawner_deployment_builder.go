@@ -12,7 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
+	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 )
 
 const (
@@ -49,7 +49,7 @@ type spawnerPodParts struct {
 
 // buildPodParts computes the args, env, volumes, and labels that are shared
 // between a Deployment pod and a CronJob pod for the given TaskSpawner.
-func (b *DeploymentBuilder) buildPodParts(ts *kelosv1alpha1.TaskSpawner, workspace *kelosv1alpha1.WorkspaceSpec, isGitHubApp bool) spawnerPodParts {
+func (b *DeploymentBuilder) buildPodParts(ts *kelos.TaskSpawner, workspace *kelos.WorkspaceSpec, isGitHubApp bool) spawnerPodParts {
 	args := []string{
 		"--taskspawner-name=" + ts.Name,
 		"--taskspawner-namespace=" + ts.Namespace,
@@ -198,7 +198,7 @@ func (b *DeploymentBuilder) buildPodParts(ts *kelosv1alpha1.TaskSpawner, workspa
 // for GitHub API authentication. The isGitHubApp parameter indicates whether
 // the workspace secret contains GitHub App credentials, which are injected as
 // env vars for in-process token generation.
-func (b *DeploymentBuilder) Build(ts *kelosv1alpha1.TaskSpawner, workspace *kelosv1alpha1.WorkspaceSpec, isGitHubApp bool) *appsv1.Deployment {
+func (b *DeploymentBuilder) Build(ts *kelos.TaskSpawner, workspace *kelos.WorkspaceSpec, isGitHubApp bool) *appsv1.Deployment {
 	replicas := int32(1)
 	p := b.buildPodParts(ts, workspace, isGitHubApp)
 
@@ -250,7 +250,7 @@ func (b *DeploymentBuilder) Build(ts *kelosv1alpha1.TaskSpawner, workspace *kelo
 // runs the spawner in one-shot mode on the cron schedule itself.
 // The workspace and isGitHubApp parameters are passed through to buildPodParts
 // so that CronJob pods get the same GitHub auth and repo args as Deployments.
-func (b *DeploymentBuilder) BuildCronJob(ts *kelosv1alpha1.TaskSpawner, workspace *kelosv1alpha1.WorkspaceSpec, isGitHubApp bool) *batchv1.CronJob {
+func (b *DeploymentBuilder) BuildCronJob(ts *kelos.TaskSpawner, workspace *kelos.WorkspaceSpec, isGitHubApp bool) *batchv1.CronJob {
 	p := b.buildPodParts(ts, workspace, isGitHubApp)
 
 	// Add --one-shot flag so the spawner runs a single cycle and exits.
@@ -343,7 +343,7 @@ func parseGitHubOwnerRepo(repoURL string) (owner, repo string) {
 	return owner, repo
 }
 
-func githubSourceRepoOverride(ts *kelosv1alpha1.TaskSpawner) string {
+func githubSourceRepoOverride(ts *kelos.TaskSpawner) string {
 	if ts.Spec.When.GitHubIssues != nil && ts.Spec.When.GitHubIssues.Repo != "" {
 		return ts.Spec.When.GitHubIssues.Repo
 	}
@@ -353,7 +353,7 @@ func githubSourceRepoOverride(ts *kelosv1alpha1.TaskSpawner) string {
 	return ""
 }
 
-func taskSpawnerNeedsGitHubToken(ts *kelosv1alpha1.TaskSpawner) bool {
+func taskSpawnerNeedsGitHubToken(ts *kelos.TaskSpawner) bool {
 	if ts.Spec.When.GitHubIssues != nil && ts.Spec.When.GitHubIssues.Reporting != nil && ts.Spec.When.GitHubIssues.Reporting.Enabled {
 		return true
 	}
@@ -363,7 +363,7 @@ func taskSpawnerNeedsGitHubToken(ts *kelosv1alpha1.TaskSpawner) bool {
 	return false
 }
 
-func validateWorkspaceGHProxyRepoOverride(ts *kelosv1alpha1.TaskSpawner, workspace *kelosv1alpha1.WorkspaceSpec) error {
+func validateWorkspaceGHProxyRepoOverride(ts *kelos.TaskSpawner, workspace *kelos.WorkspaceSpec) error {
 	if workspace == nil {
 		return nil
 	}

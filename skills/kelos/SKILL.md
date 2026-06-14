@@ -48,7 +48,7 @@ A Task runs an AI agent with a prompt. Key fields:
 - `spec.prompt` (required): The task prompt
 - `spec.credentials` (required): `type` (`api-key` or `oauth`) and `secretRef.name`
 - `spec.workspaceRef.name`: Reference to a Workspace
-- `spec.agentConfigRef.name`: Reference to an AgentConfig
+- `spec.agentConfigRefs[].name`: Reference to an AgentConfig
 - `spec.branch`: Git branch mutex — only one Task with the same branch runs at a time
 - `spec.dependsOn`: Task names that must succeed first
 - `spec.ttlSecondsAfterFinished`: Auto-delete after completion (seconds)
@@ -101,7 +101,7 @@ A TaskSpawner auto-creates Tasks from external sources:
   - `minimumPermission`: Require at least this repo permission (`read`, `triage`, `write`, `maintain`, `admin`)
 - `spec.taskTemplate`: Template for spawned Tasks (same fields as Task spec)
   - `promptTemplate` and `branch` support Go `text/template` variables: `{{.ID}}`, `{{.Number}}`, `{{.Title}}`, `{{.Body}}`, `{{.URL}}`, `{{.Labels}}`, `{{.Comments}}`, `{{.Kind}}`, `{{.Time}}`, `{{.Schedule}}`
-- `spec.pollInterval`: Polling frequency (default `5m`)
+- `spec.when.githubIssues.pollInterval` / `spec.when.githubPullRequests.pollInterval` / `spec.when.jira.pollInterval`: Per-source polling frequency (default `5m`)
 - `spec.maxConcurrency`: Limit concurrent running Tasks
 - `spec.maxTotalTasks`: Lifetime task creation limit
 - `spec.suspend`: Pause/resume without deleting
@@ -227,7 +227,7 @@ Available result keys: `branch`, `commit`, `base-branch`, `pr`, `input-tokens`, 
 - Check if `suspend: true` is set
 
 ### AgentConfig not taking effect
-- Verify the Task references it: `spec.agentConfigRef.name` must match
+- Verify the Task references it: `spec.agentConfigRefs[].name` must match
 - Check plugin structure: skills become `<plugin>/skills/<skill>/SKILL.md`
 - For skills.sh: ensure the package source is valid `owner/repo` format
 

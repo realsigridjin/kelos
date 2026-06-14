@@ -211,6 +211,66 @@ write_chart_crd_template() {
   } >"${dest}"
 }
 
+# inject_kelos_conversion adds the conversion webhook config and the
+# cert-manager CA-injection annotation to every kelos.dev CRD in place. Each
+# kelos CRD serves two versions (v1alpha1 and v1alpha2) with different schemas,
+# so it needs a webhook conversion strategy. controller-gen does not emit
+# spec.conversion, so it is injected here, before the chart templates are
+# derived from this file.
+inject_kelos_conversion() {
+  local file="$1"
+  local tmp="${file}.conv.tmp"
+
+  awk '
+function flush(  i, isAC) {
+  isAC = 0
+  for (i = 1; i <= n; i++) {
+    if (buf[i] ~ /^  name: [a-z]+\.kelos\.dev[[:space:]]*$/) { isAC = 1; break }
+  }
+  for (i = 1; i <= n; i++) {
+    print buf[i]
+    if (isAC && buf[i] ~ /^  annotations:[[:space:]]*$/) {
+      print "    cert-manager.io/inject-ca-from: kelos-system/kelos-serving-cert"
+    }
+    if (isAC && buf[i] ~ /^  scope: /) {
+      print "  conversion:"
+      print "    strategy: Webhook"
+      print "    webhook:"
+      print "      clientConfig:"
+      print "        service:"
+      print "          name: kelos-webhook"
+      print "          namespace: kelos-system"
+      print "          path: /convert"
+      print "          port: 443"
+      print "      conversionReviewVersions:"
+      print "        - v1"
+    }
+  }
+  n = 0
+}
+/^---$/ { flush(); print; next }
+{ buf[++n] = $0 }
+END { flush() }
+' "${file}" >"${tmp}"
+  mv "${tmp}" "${file}"
+}
+
+# verify_kelos_conversion fails fast if inject_kelos_conversion did not wire
+# every kelos CRD. The CA annotation is injected into an existing annotations:
+# block, so a change in controller-gen output shape could silently drop it;
+# this guard catches that instead of shipping CRDs that fail conversion.
+verify_kelos_conversion() {
+  local file="$1"
+  local want anno conv
+  want="$(grep -cE '^  name: [a-z]+\.kelos\.dev[[:space:]]*$' "${file}")"
+  anno="$(grep -cF 'cert-manager.io/inject-ca-from: kelos-system/kelos-serving-cert' "${file}")"
+  conv="$(grep -cE '^    strategy: Webhook[[:space:]]*$' "${file}")"
+  if [[ "${want}" -lt 1 || "${anno}" -ne "${want}" || "${conv}" -ne "${want}" ]]; then
+    echo "ERROR: kelos CRD conversion wiring incomplete in ${file}: crds=${want} ca-annotations=${anno} conversion-blocks=${conv}" >&2
+    exit 1
+  fi
+}
+
 generate_chart_crd_templates() {
   local source="$1"
 
@@ -237,6 +297,8 @@ trap 'rm -rf "${TMPDIR}"' EXIT
 
 # Regenerate CRDs before syncing manifests.
 "${CONTROLLER_GEN}" crd paths="./..." output:crd:stdout >internal/manifests/install-crd.yaml
+inject_kelos_conversion internal/manifests/install-crd.yaml
+verify_kelos_conversion internal/manifests/install-crd.yaml
 generate_chart_crd_templates "internal/manifests/install-crd.yaml"
 
 RBAC_FILE="${TMPDIR}/rbac.yaml"

@@ -9,11 +9,14 @@ import (
 	"strings"
 	"testing"
 
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	fakediscovery "k8s.io/client-go/discovery/fake"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
+	clienttesting "k8s.io/client-go/testing"
 
 	"github.com/kelos-dev/kelos/internal/helmchart"
 	"github.com/kelos-dev/kelos/internal/manifests"
@@ -468,7 +471,7 @@ func TestInstallCommand_ImagePullPolicyFlag(t *testing.T) {
 	}
 }
 
-func TestInstallCommand_DryRunIncludesEachCRDOnce(t *testing.T) {
+func TestInstallCommand_DryRunOmitsCRDs(t *testing.T) {
 	cmd := NewRootCommand()
 	cmd.SetArgs([]string{"install", "--dry-run"})
 
@@ -483,27 +486,9 @@ func TestInstallCommand_DryRunIncludesEachCRDOnce(t *testing.T) {
 		t.Fatalf("parsing dry-run output: %v", err)
 	}
 
-	crdNames := map[string]int{}
-	crdCount := 0
 	for _, obj := range objs {
-		if obj.GetKind() != "CustomResourceDefinition" {
-			continue
-		}
-		crdCount++
-		crdNames[obj.GetName()]++
-	}
-
-	if crdCount != 4 {
-		t.Fatalf("expected 4 CRDs in dry-run output, got %d", crdCount)
-	}
-	for _, name := range []string{
-		"agentconfigs.kelos.dev",
-		"tasks.kelos.dev",
-		"taskspawners.kelos.dev",
-		"workspaces.kelos.dev",
-	} {
-		if crdNames[name] != 1 {
-			t.Errorf("expected dry-run output to contain %s exactly once, got %d", name, crdNames[name])
+		if obj.GetKind() == "CustomResourceDefinition" {
+			t.Fatalf("expected dry-run output to omit CRDs, got %s", obj.GetName())
 		}
 	}
 }
@@ -859,10 +844,166 @@ func TestVersionCommand(t *testing.T) {
 
 // kelosListKinds maps kelos GVRs to their list kinds for the fake dynamic client.
 var kelosListKinds = map[schema.GroupVersionResource]string{
-	{Group: "kelos.dev", Version: "v1alpha1", Resource: "tasks"}:        "TaskList",
-	{Group: "kelos.dev", Version: "v1alpha1", Resource: "taskspawners"}: "TaskSpawnerList",
-	{Group: "kelos.dev", Version: "v1alpha1", Resource: "workspaces"}:   "WorkspaceList",
-	{Group: "kelos.dev", Version: "v1alpha1", Resource: "agentconfigs"}: "AgentConfigList",
+	{Group: "kelos.dev", Version: "v1alpha2", Resource: "tasks"}:        "TaskList",
+	{Group: "kelos.dev", Version: "v1alpha2", Resource: "taskspawners"}: "TaskSpawnerList",
+	{Group: "kelos.dev", Version: "v1alpha2", Resource: "workspaces"}:   "WorkspaceList",
+	{Group: "kelos.dev", Version: "v1alpha2", Resource: "agentconfigs"}: "AgentConfigList",
+}
+
+func TestRequireCertManager(t *testing.T) {
+	tests := []struct {
+		name      string
+		resources []*metav1.APIResourceList
+		wantErr   bool
+	}{
+		{
+			name: "present",
+			resources: []*metav1.APIResourceList{{
+				GroupVersion: "cert-manager.io/v1",
+				APIResources: []metav1.APIResource{
+					{Name: "issuers", Kind: "Issuer"},
+					{Name: "certificates", Kind: "Certificate"},
+				},
+			}},
+			wantErr: false,
+		},
+		{
+			name:      "absent",
+			resources: nil,
+			wantErr:   true,
+		},
+		{
+			name: "partial without Certificate",
+			resources: []*metav1.APIResourceList{{
+				GroupVersion: "cert-manager.io/v1",
+				APIResources: []metav1.APIResource{{Name: "issuers", Kind: "Issuer"}},
+			}},
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dc := &fakediscovery.FakeDiscovery{Fake: &clienttesting.Fake{Resources: tc.resources}}
+			err := requireCertManager(dc)
+			if tc.wantErr && err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestInstallReadinessPredicates(t *testing.T) {
+	secret := &unstructured.Unstructured{Object: map[string]interface{}{
+		"data": map[string]interface{}{"tls.crt": "crt", "tls.key": "key", "ca.crt": "current-ca"},
+	}}
+	if !secretHasTLSData(secret) {
+		t.Fatal("expected TLS secret data to be ready")
+	}
+	caBundle, ok := webhookCertificateCABundle(secret)
+	if !ok || caBundle != "current-ca" {
+		t.Fatalf("expected current certificate CA bundle, got %q, %t", caBundle, ok)
+	}
+
+	deploy := &unstructured.Unstructured{Object: map[string]interface{}{}}
+	_ = unstructured.SetNestedSlice(deploy.Object, []interface{}{
+		map[string]interface{}{"type": "Available", "status": "True"},
+	}, "status", "conditions")
+	if !deploymentAvailable(deploy) {
+		t.Fatal("expected deployment to be available")
+	}
+
+	endpoints := &unstructured.Unstructured{Object: map[string]interface{}{}}
+	_ = unstructured.SetNestedSlice(endpoints.Object, []interface{}{
+		map[string]interface{}{
+			"addresses": []interface{}{map[string]interface{}{"ip": "127.0.0.1"}},
+			"ports":     []interface{}{map[string]interface{}{"port": int64(9443)}},
+		},
+	}, "subsets")
+	if !endpointsReady(endpoints) {
+		t.Fatal("expected endpoints to be ready")
+	}
+
+	crd := &unstructured.Unstructured{Object: map[string]interface{}{}}
+	_ = unstructured.SetNestedField(crd.Object, "Webhook", "spec", "conversion", "strategy")
+	_ = unstructured.SetNestedField(crd.Object, "current-ca", "spec", "conversion", "webhook", "clientConfig", "caBundle")
+	if !crdConversionCABundleMatches(crd, caBundle) {
+		t.Fatal("expected CRD conversion CA bundle to match current certificate CA")
+	}
+	_ = unstructured.SetNestedField(crd.Object, "stale-ca", "spec", "conversion", "webhook", "clientConfig", "caBundle")
+	if crdConversionCABundleMatches(crd, caBundle) {
+		t.Fatal("expected stale CRD conversion CA bundle to be rejected")
+	}
+}
+
+func TestKelosCRDsExist(t *testing.T) {
+	scheme := runtime.NewScheme()
+	emptyClient := dynamicfake.NewSimpleDynamicClient(scheme)
+	exists, err := kelosCRDsExist(context.Background(), emptyClient)
+	if err != nil {
+		t.Fatalf("kelosCRDsExist() error = %v", err)
+	}
+	if exists {
+		t.Fatal("expected no Kelos CRDs in empty client")
+	}
+	missing, err := missingKelosCRDNames(context.Background(), emptyClient)
+	if err != nil {
+		t.Fatalf("missingKelosCRDNames() empty error = %v", err)
+	}
+	if len(missing) != len(kelosCRDNames) {
+		t.Fatalf("expected all Kelos CRDs to be missing, got %v", missing)
+	}
+
+	partialClient := dynamicfake.NewSimpleDynamicClient(scheme, kelosCRD("tasks.kelos.dev"))
+	exists, err = kelosCRDsExist(context.Background(), partialClient)
+	if err != nil {
+		t.Fatalf("kelosCRDsExist() partial error = %v", err)
+	}
+	if !exists {
+		t.Fatal("expected partial Kelos CRD set to be treated as an upgrade")
+	}
+	missing, err = missingKelosCRDNames(context.Background(), partialClient)
+	if err != nil {
+		t.Fatalf("missingKelosCRDNames() partial error = %v", err)
+	}
+	if len(missing) != len(kelosCRDNames)-1 {
+		t.Fatalf("expected all but one Kelos CRD to be missing, got %v", missing)
+	}
+	for _, name := range missing {
+		if name == "tasks.kelos.dev" {
+			t.Fatalf("existing CRD %q should not be reported missing", name)
+		}
+	}
+
+	var crds []runtime.Object
+	for _, name := range kelosCRDNames {
+		crds = append(crds, kelosCRD(name))
+	}
+	client := dynamicfake.NewSimpleDynamicClient(scheme, crds...)
+	exists, err = kelosCRDsExist(context.Background(), client)
+	if err != nil {
+		t.Fatalf("kelosCRDsExist() error = %v", err)
+	}
+	if !exists {
+		t.Fatal("expected complete Kelos CRD set to be detected")
+	}
+	missing, err = missingKelosCRDNames(context.Background(), client)
+	if err != nil {
+		t.Fatalf("missingKelosCRDNames() complete error = %v", err)
+	}
+	if len(missing) != 0 {
+		t.Fatalf("expected no missing Kelos CRDs, got %v", missing)
+	}
+}
+
+func kelosCRD(name string) *unstructured.Unstructured {
+	crd := &unstructured.Unstructured{}
+	crd.SetGroupVersionKind(schema.GroupVersionKind{Group: "apiextensions.k8s.io", Version: "v1", Kind: "CustomResourceDefinition"})
+	crd.SetName(name)
+	return crd
 }
 
 func TestDeleteAllCustomResources_NoResources(t *testing.T) {
@@ -878,14 +1019,14 @@ func TestDeleteAllCustomResources_DeletesExistingResources(t *testing.T) {
 
 	task := &unstructured.Unstructured{}
 	task.SetGroupVersionKind(schema.GroupVersionKind{
-		Group: "kelos.dev", Version: "v1alpha1", Kind: "Task",
+		Group: "kelos.dev", Version: "v1alpha2", Kind: "Task",
 	})
 	task.SetName("my-task")
 	task.SetNamespace("default")
 
 	workspace := &unstructured.Unstructured{}
 	workspace.SetGroupVersionKind(schema.GroupVersionKind{
-		Group: "kelos.dev", Version: "v1alpha1", Kind: "Workspace",
+		Group: "kelos.dev", Version: "v1alpha2", Kind: "Workspace",
 	})
 	workspace.SetName("my-workspace")
 	workspace.SetNamespace("default")
@@ -896,7 +1037,7 @@ func TestDeleteAllCustomResources_DeletesExistingResources(t *testing.T) {
 	}
 
 	// Verify resources were deleted
-	taskGVR := schema.GroupVersionResource{Group: "kelos.dev", Version: "v1alpha1", Resource: "tasks"}
+	taskGVR := schema.GroupVersionResource{Group: "kelos.dev", Version: "v1alpha2", Resource: "tasks"}
 	list, err := client.Resource(taskGVR).Namespace("default").List(context.Background(), metav1.ListOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error listing tasks: %v", err)
@@ -905,7 +1046,7 @@ func TestDeleteAllCustomResources_DeletesExistingResources(t *testing.T) {
 		t.Errorf("expected 0 tasks, got %d", len(list.Items))
 	}
 
-	wsGVR := schema.GroupVersionResource{Group: "kelos.dev", Version: "v1alpha1", Resource: "workspaces"}
+	wsGVR := schema.GroupVersionResource{Group: "kelos.dev", Version: "v1alpha2", Resource: "workspaces"}
 	list, err = client.Resource(wsGVR).Namespace("default").List(context.Background(), metav1.ListOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error listing workspaces: %v", err)
@@ -921,7 +1062,7 @@ func TestDeleteAllCustomResources_SkipsAlreadyDeletingResources(t *testing.T) {
 	now := metav1.Now()
 	task := &unstructured.Unstructured{}
 	task.SetGroupVersionKind(schema.GroupVersionKind{
-		Group: "kelos.dev", Version: "v1alpha1", Kind: "Task",
+		Group: "kelos.dev", Version: "v1alpha2", Kind: "Task",
 	})
 	task.SetName("deleting-task")
 	task.SetNamespace("default")
@@ -936,13 +1077,50 @@ func TestDeleteAllCustomResources_SkipsAlreadyDeletingResources(t *testing.T) {
 
 	// Resource should still exist because it was already deleting (has deletionTimestamp)
 	// and we skip those
-	taskGVR := schema.GroupVersionResource{Group: "kelos.dev", Version: "v1alpha1", Resource: "tasks"}
+	taskGVR := schema.GroupVersionResource{Group: "kelos.dev", Version: "v1alpha2", Resource: "tasks"}
 	list, err := client.Resource(taskGVR).Namespace("default").List(context.Background(), metav1.ListOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error listing tasks: %v", err)
 	}
 	if len(list.Items) != 1 {
 		t.Errorf("expected 1 task (still deleting), got %d", len(list.Items))
+	}
+}
+
+func TestListKelosResource_FallsBackToV1alpha1(t *testing.T) {
+	scheme := runtime.NewScheme()
+	// Both list kinds must be registered or the fake client panics before any
+	// reactor runs; the reactor below makes v1alpha2 behave as if unserved.
+	listKinds := map[schema.GroupVersionResource]string{
+		{Group: "kelos.dev", Version: "v1alpha1", Resource: "tasks"}: "TaskList",
+		{Group: "kelos.dev", Version: "v1alpha2", Resource: "tasks"}: "TaskList",
+	}
+	task := &unstructured.Unstructured{}
+	task.SetGroupVersionKind(schema.GroupVersionKind{Group: "kelos.dev", Version: "v1alpha1", Kind: "Task"})
+	task.SetName("legacy-task")
+	task.SetNamespace("default")
+	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, listKinds, task)
+	// Simulate a cluster whose CRDs predate v1alpha2: listing the v1alpha2
+	// version returns NoMatch, so listKelosResource must fall back to v1alpha1.
+	client.PrependReactor("list", "tasks", func(action clienttesting.Action) (bool, runtime.Object, error) {
+		if action.GetResource().Version == "v1alpha2" {
+			return true, nil, &meta.NoResourceMatchError{PartialResource: action.GetResource()}
+		}
+		return false, nil, nil
+	})
+
+	gvr, list, ok, err := listKelosResource(context.Background(), client, "tasks", 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected ok=true when only v1alpha1 is served")
+	}
+	if gvr.Version != "v1alpha1" {
+		t.Errorf("resolved version = %q, want v1alpha1", gvr.Version)
+	}
+	if list == nil || len(list.Items) != 1 {
+		t.Fatalf("expected 1 item listed via v1alpha1, got %v", list)
 	}
 }
 
@@ -960,7 +1138,7 @@ func TestWaitForCustomResourceDeletion_RespectsContextCancellation(t *testing.T)
 
 	task := &unstructured.Unstructured{}
 	task.SetGroupVersionKind(schema.GroupVersionKind{
-		Group: "kelos.dev", Version: "v1alpha1", Kind: "Task",
+		Group: "kelos.dev", Version: "v1alpha2", Kind: "Task",
 	})
 	task.SetName("stuck-task")
 	task.SetNamespace("default")

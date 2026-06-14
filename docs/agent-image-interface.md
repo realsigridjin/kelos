@@ -43,8 +43,8 @@ Kelos sets the following reserved environment variables on agent containers:
 | `GH_HOST` | Hostname for GitHub Enterprise | When repo is on a GitHub Enterprise host |
 | `KELOS_AGENT_TYPE` | The agent type (`claude-code`, `codex`, `gemini`, `opencode`, `cursor`) | Always |
 | `KELOS_BASE_BRANCH` | The base branch (workspace `ref`) for the task | When workspace has a non-empty `ref` |
-| `KELOS_AGENTS_MD` | User-level instructions from AgentConfig | When `agentConfigRef` is set and `agentsMD` is non-empty |
-| `KELOS_PLUGIN_DIR` | Path to plugin directory containing skills and agents. Each subdirectory is one plugin in the `<plugin>/skills/<skill>/SKILL.md` layout; skills.sh packages from `spec.skills` appear under the `skills-sh` plugin | When `agentConfigRef` is set and `plugins` or `skills` is non-empty |
+| `KELOS_AGENTS_MD` | User-level instructions from AgentConfig | When `agentConfigRefs` is set and `agentsMD` is non-empty |
+| `KELOS_PLUGIN_DIR` | Path to plugin directory containing skills and agents. Each subdirectory is one plugin in the `<plugin>/skills/<skill>/SKILL.md` layout; skills.sh packages from `spec.skills` appear under the `skills-sh` plugin | When `agentConfigRefs` is set and `plugins` or `skills` is non-empty |
 | `KELOS_SETUP_COMMAND` | JSON-encoded exec-form array from `Workspace.spec.setupCommand`, executed by the entrypoint before the agent starts | When the workspace defines `setupCommand` |
 
 > The names listed in this table are reserved for Kelos behavior. When Kelos

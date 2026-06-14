@@ -18,28 +18,28 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
+	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 )
 
 func newWorkspaceControllerTestScheme() *runtime.Scheme {
 	scheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(appsv1.AddToScheme(scheme))
-	utilruntime.Must(kelosv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(kelos.AddToScheme(scheme))
 	return scheme
 }
 
 func TestWorkspaceReconciler_CreatesGitHubAppProxyResources(t *testing.T) {
 	scheme := newWorkspaceControllerTestScheme()
 
-	workspace := &kelosv1alpha1.Workspace{
+	workspace := &kelos.Workspace{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "example-workspace",
 			Namespace: "default",
 		},
-		Spec: kelosv1alpha1.WorkspaceSpec{
+		Spec: kelos.WorkspaceSpec{
 			Repo: "https://github.example.com/my-org/my-repo.git",
-			SecretRef: &kelosv1alpha1.SecretReference{
+			SecretRef: &kelos.SecretReference{
 				Name: "github-app-creds",
 			},
 		},
@@ -158,9 +158,9 @@ func TestContainersEqual_UsesSemanticResourceComparison(t *testing.T) {
 }
 
 func TestWorkspaceGHProxyBuilder_CacheTTL(t *testing.T) {
-	workspace := &kelosv1alpha1.Workspace{
+	workspace := &kelos.Workspace{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-ws", Namespace: "default"},
-		Spec:       kelosv1alpha1.WorkspaceSpec{Repo: "https://github.com/org/repo.git"},
+		Spec:       kelos.WorkspaceSpec{Repo: "https://github.com/org/repo.git"},
 	}
 
 	t.Run("includes cache-ttl arg when set", func(t *testing.T) {
