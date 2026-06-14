@@ -8,18 +8,17 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
 	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 )
 
 func TestPrintWorkspaceTable(t *testing.T) {
-	workspaces := []kelosv1alpha1.Workspace{
+	workspaces := []kelos.Workspace{
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:              "ws-one",
 				CreationTimestamp: metav1.NewTime(time.Now().Add(-1 * time.Hour)),
 			},
-			Spec: kelosv1alpha1.WorkspaceSpec{
+			Spec: kelos.WorkspaceSpec{
 				Repo: "https://github.com/org/repo.git",
 				Ref:  "main",
 			},
@@ -29,7 +28,7 @@ func TestPrintWorkspaceTable(t *testing.T) {
 				Name:              "ws-two",
 				CreationTimestamp: metav1.NewTime(time.Now().Add(-24 * time.Hour)),
 			},
-			Spec: kelosv1alpha1.WorkspaceSpec{
+			Spec: kelos.WorkspaceSpec{
 				Repo: "https://github.com/org/other.git",
 			},
 		},
@@ -60,14 +59,14 @@ func TestPrintWorkspaceTable(t *testing.T) {
 }
 
 func TestPrintWorkspaceTableAllNamespaces(t *testing.T) {
-	workspaces := []kelosv1alpha1.Workspace{
+	workspaces := []kelos.Workspace{
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:              "ws-one",
 				Namespace:         "ns-a",
 				CreationTimestamp: metav1.NewTime(time.Now().Add(-1 * time.Hour)),
 			},
-			Spec: kelosv1alpha1.WorkspaceSpec{
+			Spec: kelos.WorkspaceSpec{
 				Repo: "https://github.com/org/repo.git",
 				Ref:  "main",
 			},
@@ -78,7 +77,7 @@ func TestPrintWorkspaceTableAllNamespaces(t *testing.T) {
 				Namespace:         "ns-b",
 				CreationTimestamp: metav1.NewTime(time.Now().Add(-24 * time.Hour)),
 			},
-			Spec: kelosv1alpha1.WorkspaceSpec{
+			Spec: kelos.WorkspaceSpec{
 				Repo: "https://github.com/org/other.git",
 			},
 		},
@@ -102,25 +101,23 @@ func TestPrintWorkspaceTableAllNamespaces(t *testing.T) {
 func TestPrintTaskTable(t *testing.T) {
 	now := time.Now()
 	startTime := metav1.NewTime(now.Add(-30 * time.Minute))
-	tasks := []kelosv1alpha1.Task{
+	tasks := []kelos.Task{
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:              "task-one",
 				CreationTimestamp: metav1.NewTime(now.Add(-1 * time.Hour)),
 			},
-			Spec: kelosv1alpha1.TaskSpec{
+			Spec: kelos.TaskSpec{
 				Type:   "claude-code",
 				Model:  "claude-sonnet-4-20250514",
 				Branch: "feature/test",
-				WorkspaceRef: &kelosv1alpha1.WorkspaceReference{
+				WorkspaceRef: &kelos.WorkspaceReference{
 					Name: "my-ws",
 				},
-				AgentConfigRef: &kelosv1alpha1.AgentConfigReference{
-					Name: "my-config",
-				},
+				AgentConfigRefs: []kelos.AgentConfigReference{{Name: "my-config"}},
 			},
-			Status: kelosv1alpha1.TaskStatus{
-				Phase:     kelosv1alpha1.TaskPhaseRunning,
+			Status: kelos.TaskStatus{
+				Phase:     kelos.TaskPhaseRunning,
 				StartTime: &startTime,
 			},
 		},
@@ -149,19 +146,19 @@ func TestPrintTaskTableAllNamespaces(t *testing.T) {
 	now := time.Now()
 	startTime := metav1.NewTime(now.Add(-90 * time.Minute))
 	completionTime := metav1.NewTime(now.Add(-60 * time.Minute))
-	tasks := []kelosv1alpha1.Task{
+	tasks := []kelos.Task{
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:              "task-one",
 				Namespace:         "ns-a",
 				CreationTimestamp: metav1.NewTime(now.Add(-1 * time.Hour)),
 			},
-			Spec: kelosv1alpha1.TaskSpec{
+			Spec: kelos.TaskSpec{
 				Type:   "claude-code",
 				Branch: "feat/one",
 			},
-			Status: kelosv1alpha1.TaskStatus{
-				Phase: kelosv1alpha1.TaskPhaseRunning,
+			Status: kelos.TaskStatus{
+				Phase: kelos.TaskPhaseRunning,
 			},
 		},
 		{
@@ -170,11 +167,11 @@ func TestPrintTaskTableAllNamespaces(t *testing.T) {
 				Namespace:         "ns-b",
 				CreationTimestamp: metav1.NewTime(now.Add(-2 * time.Hour)),
 			},
-			Spec: kelosv1alpha1.TaskSpec{
+			Spec: kelos.TaskSpec{
 				Type: "codex",
 			},
-			Status: kelosv1alpha1.TaskStatus{
-				Phase:          kelosv1alpha1.TaskPhaseSucceeded,
+			Status: kelos.TaskStatus{
+				Phase:          kelos.TaskPhaseSucceeded,
 				StartTime:      &startTime,
 				CompletionTime: &completionTime,
 			},
@@ -198,21 +195,21 @@ func TestPrintTaskTableAllNamespaces(t *testing.T) {
 }
 
 func TestPrintTaskSpawnerTable(t *testing.T) {
-	spawners := []kelosv1alpha1.TaskSpawner{
+	spawners := []kelos.TaskSpawner{
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:              "spawner-one",
 				CreationTimestamp: metav1.NewTime(time.Now().Add(-1 * time.Hour)),
 			},
-			Spec: kelosv1alpha1.TaskSpawnerSpec{
-				When: kelosv1alpha1.When{
-					Cron: &kelosv1alpha1.Cron{
+			Spec: kelos.TaskSpawnerSpec{
+				When: kelos.When{
+					Cron: &kelos.Cron{
 						Schedule: "*/5 * * * *",
 					},
 				},
 			},
-			Status: kelosv1alpha1.TaskSpawnerStatus{
-				Phase: kelosv1alpha1.TaskSpawnerPhaseRunning,
+			Status: kelos.TaskSpawnerStatus{
+				Phase: kelos.TaskSpawnerPhaseRunning,
 			},
 		},
 	}
@@ -233,22 +230,22 @@ func TestPrintTaskSpawnerTable(t *testing.T) {
 }
 
 func TestPrintTaskSpawnerTableAllNamespaces(t *testing.T) {
-	spawners := []kelosv1alpha1.TaskSpawner{
+	spawners := []kelos.TaskSpawner{
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:              "spawner-one",
 				Namespace:         "ns-a",
 				CreationTimestamp: metav1.NewTime(time.Now().Add(-1 * time.Hour)),
 			},
-			Spec: kelosv1alpha1.TaskSpawnerSpec{
-				When: kelosv1alpha1.When{
-					Cron: &kelosv1alpha1.Cron{
+			Spec: kelos.TaskSpawnerSpec{
+				When: kelos.When{
+					Cron: &kelos.Cron{
 						Schedule: "*/5 * * * *",
 					},
 				},
 			},
-			Status: kelosv1alpha1.TaskSpawnerStatus{
-				Phase: kelosv1alpha1.TaskSpawnerPhaseRunning,
+			Status: kelos.TaskSpawnerStatus{
+				Phase: kelos.TaskSpawnerPhaseRunning,
 			},
 		},
 		{
@@ -257,18 +254,18 @@ func TestPrintTaskSpawnerTableAllNamespaces(t *testing.T) {
 				Namespace:         "ns-b",
 				CreationTimestamp: metav1.NewTime(time.Now().Add(-2 * time.Hour)),
 			},
-			Spec: kelosv1alpha1.TaskSpawnerSpec{
-				When: kelosv1alpha1.When{
-					GitHubIssues: &kelosv1alpha1.GitHubIssues{},
+			Spec: kelos.TaskSpawnerSpec{
+				When: kelos.When{
+					GitHubIssues: &kelos.GitHubIssues{},
 				},
-				TaskTemplate: kelosv1alpha1.TaskTemplate{
-					WorkspaceRef: &kelosv1alpha1.WorkspaceReference{
+				TaskTemplate: kelos.TaskTemplate{
+					WorkspaceRef: &kelos.WorkspaceReference{
 						Name: "my-ws",
 					},
 				},
 			},
-			Status: kelosv1alpha1.TaskSpawnerStatus{
-				Phase: kelosv1alpha1.TaskSpawnerPhaseRunning,
+			Status: kelos.TaskSpawnerStatus{
+				Phase: kelos.TaskSpawnerPhaseRunning,
 			},
 		},
 	}
@@ -289,24 +286,24 @@ func TestPrintTaskSpawnerTableAllNamespaces(t *testing.T) {
 }
 
 func TestPrintTaskSpawnerTableGitHubPullRequests(t *testing.T) {
-	spawners := []kelosv1alpha1.TaskSpawner{
+	spawners := []kelos.TaskSpawner{
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:              "pr-spawner",
 				CreationTimestamp: metav1.NewTime(time.Now().Add(-1 * time.Hour)),
 			},
-			Spec: kelosv1alpha1.TaskSpawnerSpec{
-				When: kelosv1alpha1.When{
-					GitHubPullRequests: &kelosv1alpha1.GitHubPullRequests{},
+			Spec: kelos.TaskSpawnerSpec{
+				When: kelos.When{
+					GitHubPullRequests: &kelos.GitHubPullRequests{},
 				},
-				TaskTemplate: kelosv1alpha1.TaskTemplate{
-					WorkspaceRef: &kelosv1alpha1.WorkspaceReference{
+				TaskTemplate: kelos.TaskTemplate{
+					WorkspaceRef: &kelos.WorkspaceReference{
 						Name: "my-ws",
 					},
 				},
 			},
-			Status: kelosv1alpha1.TaskSpawnerStatus{
-				Phase: kelosv1alpha1.TaskSpawnerPhaseRunning,
+			Status: kelos.TaskSpawnerStatus{
+				Phase: kelos.TaskSpawnerPhaseRunning,
 			},
 		},
 	}
@@ -324,24 +321,24 @@ func TestPrintTaskSpawnerTableGitHubPullRequests(t *testing.T) {
 }
 
 func TestPrintTaskSpawnerTableGitHubIssuesWithWorkspace(t *testing.T) {
-	spawners := []kelosv1alpha1.TaskSpawner{
+	spawners := []kelos.TaskSpawner{
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:              "issue-spawner",
 				CreationTimestamp: metav1.NewTime(time.Now().Add(-1 * time.Hour)),
 			},
-			Spec: kelosv1alpha1.TaskSpawnerSpec{
-				When: kelosv1alpha1.When{
-					GitHubIssues: &kelosv1alpha1.GitHubIssues{},
+			Spec: kelos.TaskSpawnerSpec{
+				When: kelos.When{
+					GitHubIssues: &kelos.GitHubIssues{},
 				},
-				TaskTemplate: kelosv1alpha1.TaskTemplate{
-					WorkspaceRef: &kelosv1alpha1.WorkspaceReference{
+				TaskTemplate: kelos.TaskTemplate{
+					WorkspaceRef: &kelos.WorkspaceReference{
 						Name: "my-ws",
 					},
 				},
 			},
-			Status: kelosv1alpha1.TaskSpawnerStatus{
-				Phase: kelosv1alpha1.TaskSpawnerPhaseRunning,
+			Status: kelos.TaskSpawnerStatus{
+				Phase: kelos.TaskSpawnerPhaseRunning,
 			},
 		},
 	}
@@ -359,21 +356,21 @@ func TestPrintTaskSpawnerTableGitHubIssuesWithWorkspace(t *testing.T) {
 }
 
 func TestPrintTaskSpawnerTableSlack(t *testing.T) {
-	spawners := []kelosv1alpha1.TaskSpawner{
+	spawners := []kelos.TaskSpawner{
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:              "chat-trigger",
 				CreationTimestamp: metav1.NewTime(time.Now().Add(-1 * time.Hour)),
 			},
-			Spec: kelosv1alpha1.TaskSpawnerSpec{
-				When: kelosv1alpha1.When{
-					Slack: &kelosv1alpha1.Slack{
+			Spec: kelos.TaskSpawnerSpec{
+				When: kelos.When{
+					Slack: &kelos.Slack{
 						Channels: []string{"C0123456789"},
 					},
 				},
 			},
-			Status: kelosv1alpha1.TaskSpawnerStatus{
-				Phase: kelosv1alpha1.TaskSpawnerPhaseRunning,
+			Status: kelos.TaskSpawnerStatus{
+				Phase: kelos.TaskSpawnerPhaseRunning,
 			},
 		},
 	}
@@ -388,29 +385,28 @@ func TestPrintTaskSpawnerTableSlack(t *testing.T) {
 }
 
 func TestPrintTaskSpawnerDetailSlack(t *testing.T) {
-	spawner := &kelosv1alpha1.TaskSpawner{
+	spawner := &kelos.TaskSpawner{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "slack-spawner",
 			Namespace: "default",
 		},
-		Spec: kelosv1alpha1.TaskSpawnerSpec{
-			When: kelosv1alpha1.When{
-				Slack: &kelosv1alpha1.Slack{
+		Spec: kelos.TaskSpawnerSpec{
+			When: kelos.When{
+				Slack: &kelos.Slack{
 					Channels: []string{"C0123456789", "C9876543210"},
-					Triggers: []kelosv1alpha1.SlackTrigger{
+					Triggers: []kelos.SlackTrigger{
 						{Pattern: "deploy"},
 						{Pattern: "rollback"},
 					},
 					ExcludePatterns: []string{"^ignore"},
 				},
 			},
-			TaskTemplate: kelosv1alpha1.TaskTemplate{
+			TaskTemplate: kelos.TaskTemplate{
 				Type: "claude-code",
 			},
-			PollInterval: "5m",
 		},
-		Status: kelosv1alpha1.TaskSpawnerStatus{
-			Phase:             kelosv1alpha1.TaskSpawnerPhaseRunning,
+		Status: kelos.TaskSpawnerStatus{
+			Phase:             kelos.TaskSpawnerPhaseRunning,
 			TotalDiscovered:   1,
 			TotalTasksCreated: 1,
 		},
@@ -433,19 +429,19 @@ func TestPrintTaskSpawnerDetailSlack(t *testing.T) {
 }
 
 func TestPrintTaskSpawnerTableGitHubPullRequestsNoWorkspace(t *testing.T) {
-	spawners := []kelosv1alpha1.TaskSpawner{
+	spawners := []kelos.TaskSpawner{
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:              "pr-spawner",
 				CreationTimestamp: metav1.NewTime(time.Now().Add(-1 * time.Hour)),
 			},
-			Spec: kelosv1alpha1.TaskSpawnerSpec{
-				When: kelosv1alpha1.When{
-					GitHubPullRequests: &kelosv1alpha1.GitHubPullRequests{},
+			Spec: kelos.TaskSpawnerSpec{
+				When: kelos.When{
+					GitHubPullRequests: &kelos.GitHubPullRequests{},
 				},
 			},
-			Status: kelosv1alpha1.TaskSpawnerStatus{
-				Phase: kelosv1alpha1.TaskSpawnerPhaseRunning,
+			Status: kelos.TaskSpawnerStatus{
+				Phase: kelos.TaskSpawnerPhaseRunning,
 			},
 		},
 	}
@@ -460,25 +456,25 @@ func TestPrintTaskSpawnerTableGitHubPullRequestsNoWorkspace(t *testing.T) {
 }
 
 func TestPrintTaskSpawnerTableJira(t *testing.T) {
-	spawners := []kelosv1alpha1.TaskSpawner{
+	spawners := []kelos.TaskSpawner{
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:              "jira-spawner",
 				CreationTimestamp: metav1.NewTime(time.Now().Add(-1 * time.Hour)),
 			},
-			Spec: kelosv1alpha1.TaskSpawnerSpec{
-				When: kelosv1alpha1.When{
-					Jira: &kelosv1alpha1.Jira{
+			Spec: kelos.TaskSpawnerSpec{
+				When: kelos.When{
+					Jira: &kelos.Jira{
 						BaseURL: "https://mycompany.atlassian.net",
 						Project: "PROJ",
-						SecretRef: kelosv1alpha1.SecretReference{
+						SecretRef: kelos.SecretReference{
 							Name: "jira-secret",
 						},
 					},
 				},
 			},
-			Status: kelosv1alpha1.TaskSpawnerStatus{
-				Phase: kelosv1alpha1.TaskSpawnerPhaseRunning,
+			Status: kelos.TaskSpawnerStatus{
+				Phase: kelos.TaskSpawnerPhaseRunning,
 			},
 		},
 	}
@@ -493,22 +489,22 @@ func TestPrintTaskSpawnerTableJira(t *testing.T) {
 }
 
 func TestPrintTaskSpawnerTableGitHubWebhook(t *testing.T) {
-	spawners := []kelosv1alpha1.TaskSpawner{
+	spawners := []kelos.TaskSpawner{
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:              "webhook-spawner",
 				CreationTimestamp: metav1.NewTime(time.Now().Add(-1 * time.Hour)),
 			},
-			Spec: kelosv1alpha1.TaskSpawnerSpec{
-				When: kelosv1alpha1.When{
-					GitHubWebhook: &kelosv1alpha1.GitHubWebhook{
+			Spec: kelos.TaskSpawnerSpec{
+				When: kelos.When{
+					GitHubWebhook: &kelos.GitHubWebhook{
 						Events:     []string{"issue_comment", "push"},
 						Repository: "org/repo",
 					},
 				},
 			},
-			Status: kelosv1alpha1.TaskSpawnerStatus{
-				Phase: kelosv1alpha1.TaskSpawnerPhaseRunning,
+			Status: kelos.TaskSpawnerStatus{
+				Phase: kelos.TaskSpawnerPhaseRunning,
 			},
 		},
 	}
@@ -523,21 +519,21 @@ func TestPrintTaskSpawnerTableGitHubWebhook(t *testing.T) {
 }
 
 func TestPrintTaskSpawnerTableGitHubWebhookNoRepo(t *testing.T) {
-	spawners := []kelosv1alpha1.TaskSpawner{
+	spawners := []kelos.TaskSpawner{
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:              "webhook-spawner",
 				CreationTimestamp: metav1.NewTime(time.Now().Add(-1 * time.Hour)),
 			},
-			Spec: kelosv1alpha1.TaskSpawnerSpec{
-				When: kelosv1alpha1.When{
-					GitHubWebhook: &kelosv1alpha1.GitHubWebhook{
+			Spec: kelos.TaskSpawnerSpec{
+				When: kelos.When{
+					GitHubWebhook: &kelos.GitHubWebhook{
 						Events: []string{"push"},
 					},
 				},
 			},
-			Status: kelosv1alpha1.TaskSpawnerStatus{
-				Phase: kelosv1alpha1.TaskSpawnerPhaseRunning,
+			Status: kelos.TaskSpawnerStatus{
+				Phase: kelos.TaskSpawnerPhaseRunning,
 			},
 		},
 	}
@@ -555,21 +551,21 @@ func TestPrintTaskSpawnerTableGitHubWebhookNoRepo(t *testing.T) {
 }
 
 func TestPrintTaskSpawnerTableLinearWebhook(t *testing.T) {
-	spawners := []kelosv1alpha1.TaskSpawner{
+	spawners := []kelos.TaskSpawner{
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:              "linear-spawner",
 				CreationTimestamp: metav1.NewTime(time.Now().Add(-1 * time.Hour)),
 			},
-			Spec: kelosv1alpha1.TaskSpawnerSpec{
-				When: kelosv1alpha1.When{
-					LinearWebhook: &kelosv1alpha1.LinearWebhook{
+			Spec: kelos.TaskSpawnerSpec{
+				When: kelos.When{
+					LinearWebhook: &kelos.LinearWebhook{
 						Types: []string{"Issue", "Comment"},
 					},
 				},
 			},
-			Status: kelosv1alpha1.TaskSpawnerStatus{
-				Phase: kelosv1alpha1.TaskSpawnerPhaseRunning,
+			Status: kelos.TaskSpawnerStatus{
+				Phase: kelos.TaskSpawnerPhaseRunning,
 			},
 		},
 	}
@@ -584,26 +580,25 @@ func TestPrintTaskSpawnerTableLinearWebhook(t *testing.T) {
 }
 
 func TestPrintTaskSpawnerDetailGitHubWebhook(t *testing.T) {
-	spawner := &kelosv1alpha1.TaskSpawner{
+	spawner := &kelos.TaskSpawner{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "webhook-spawner",
 			Namespace: "default",
 		},
-		Spec: kelosv1alpha1.TaskSpawnerSpec{
-			When: kelosv1alpha1.When{
-				GitHubWebhook: &kelosv1alpha1.GitHubWebhook{
+		Spec: kelos.TaskSpawnerSpec{
+			When: kelos.When{
+				GitHubWebhook: &kelos.GitHubWebhook{
 					Events:         []string{"issue_comment", "push"},
 					Repository:     "org/repo",
 					ExcludeAuthors: []string{"bot-user"},
 				},
 			},
-			TaskTemplate: kelosv1alpha1.TaskTemplate{
+			TaskTemplate: kelos.TaskTemplate{
 				Type: "claude-code",
 			},
-			PollInterval: "5m",
 		},
-		Status: kelosv1alpha1.TaskSpawnerStatus{
-			Phase:             kelosv1alpha1.TaskSpawnerPhaseRunning,
+		Status: kelos.TaskSpawnerStatus{
+			Phase:             kelos.TaskSpawnerPhaseRunning,
 			TotalDiscovered:   3,
 			TotalTasksCreated: 2,
 		},
@@ -626,24 +621,23 @@ func TestPrintTaskSpawnerDetailGitHubWebhook(t *testing.T) {
 }
 
 func TestPrintTaskSpawnerDetailLinearWebhook(t *testing.T) {
-	spawner := &kelosv1alpha1.TaskSpawner{
+	spawner := &kelos.TaskSpawner{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "linear-spawner",
 			Namespace: "default",
 		},
-		Spec: kelosv1alpha1.TaskSpawnerSpec{
-			When: kelosv1alpha1.When{
-				LinearWebhook: &kelosv1alpha1.LinearWebhook{
+		Spec: kelos.TaskSpawnerSpec{
+			When: kelos.When{
+				LinearWebhook: &kelos.LinearWebhook{
 					Types: []string{"Issue", "Comment"},
 				},
 			},
-			TaskTemplate: kelosv1alpha1.TaskTemplate{
+			TaskTemplate: kelos.TaskTemplate{
 				Type: "claude-code",
 			},
-			PollInterval: "5m",
 		},
-		Status: kelosv1alpha1.TaskSpawnerStatus{
-			Phase:             kelosv1alpha1.TaskSpawnerPhaseRunning,
+		Status: kelos.TaskSpawnerStatus{
+			Phase:             kelos.TaskSpawnerPhaseRunning,
 			TotalDiscovered:   1,
 			TotalTasksCreated: 1,
 		},
@@ -664,22 +658,22 @@ func TestPrintTaskSpawnerDetailLinearWebhook(t *testing.T) {
 }
 
 func TestPrintTaskSpawnerTableGenericWebhook(t *testing.T) {
-	spawners := []kelosv1alpha1.TaskSpawner{
+	spawners := []kelos.TaskSpawner{
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:              "sentry-fixer",
 				CreationTimestamp: metav1.NewTime(time.Now().Add(-1 * time.Hour)),
 			},
-			Spec: kelosv1alpha1.TaskSpawnerSpec{
-				When: kelosv1alpha1.When{
-					GenericWebhook: &kelosv1alpha1.GenericWebhook{
+			Spec: kelos.TaskSpawnerSpec{
+				When: kelos.When{
+					GenericWebhook: &kelos.GenericWebhook{
 						Source:       "sentry",
 						FieldMapping: map[string]string{"id": "$.id"},
 					},
 				},
 			},
-			Status: kelosv1alpha1.TaskSpawnerStatus{
-				Phase: kelosv1alpha1.TaskSpawnerPhaseRunning,
+			Status: kelos.TaskSpawnerStatus{
+				Phase: kelos.TaskSpawnerPhaseRunning,
 			},
 		},
 	}
@@ -694,25 +688,24 @@ func TestPrintTaskSpawnerTableGenericWebhook(t *testing.T) {
 }
 
 func TestPrintTaskSpawnerDetailGenericWebhook(t *testing.T) {
-	spawner := &kelosv1alpha1.TaskSpawner{
+	spawner := &kelos.TaskSpawner{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "sentry-fixer",
 			Namespace: "default",
 		},
-		Spec: kelosv1alpha1.TaskSpawnerSpec{
-			When: kelosv1alpha1.When{
-				GenericWebhook: &kelosv1alpha1.GenericWebhook{
+		Spec: kelos.TaskSpawnerSpec{
+			When: kelos.When{
+				GenericWebhook: &kelos.GenericWebhook{
 					Source:       "sentry",
 					FieldMapping: map[string]string{"id": "$.id"},
 				},
 			},
-			TaskTemplate: kelosv1alpha1.TaskTemplate{
+			TaskTemplate: kelos.TaskTemplate{
 				Type: "claude-code",
 			},
-			PollInterval: "5m",
 		},
-		Status: kelosv1alpha1.TaskSpawnerStatus{
-			Phase:             kelosv1alpha1.TaskSpawnerPhaseRunning,
+		Status: kelos.TaskSpawnerStatus{
+			Phase:             kelos.TaskSpawnerPhaseRunning,
 			TotalDiscovered:   1,
 			TotalTasksCreated: 1,
 		},
@@ -733,29 +726,28 @@ func TestPrintTaskSpawnerDetailGenericWebhook(t *testing.T) {
 }
 
 func TestPrintTaskSpawnerDetailGitHubPullRequests(t *testing.T) {
-	spawner := &kelosv1alpha1.TaskSpawner{
+	spawner := &kelos.TaskSpawner{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "pr-spawner",
 			Namespace: "default",
 		},
-		Spec: kelosv1alpha1.TaskSpawnerSpec{
-			When: kelosv1alpha1.When{
-				GitHubPullRequests: &kelosv1alpha1.GitHubPullRequests{
+		Spec: kelos.TaskSpawnerSpec{
+			When: kelos.When{
+				GitHubPullRequests: &kelos.GitHubPullRequests{
 					State:       "open",
 					Labels:      []string{"bug", "help-wanted"},
 					ReviewState: "changes_requested",
 				},
 			},
-			TaskTemplate: kelosv1alpha1.TaskTemplate{
+			TaskTemplate: kelos.TaskTemplate{
 				Type: "claude-code",
-				WorkspaceRef: &kelosv1alpha1.WorkspaceReference{
+				WorkspaceRef: &kelos.WorkspaceReference{
 					Name: "my-ws",
 				},
 			},
-			PollInterval: "5m",
 		},
-		Status: kelosv1alpha1.TaskSpawnerStatus{
-			Phase:             kelosv1alpha1.TaskSpawnerPhaseRunning,
+		Status: kelos.TaskSpawnerStatus{
+			Phase:             kelos.TaskSpawnerPhaseRunning,
 			TotalDiscovered:   3,
 			TotalTasksCreated: 2,
 		},
@@ -778,29 +770,28 @@ func TestPrintTaskSpawnerDetailGitHubPullRequests(t *testing.T) {
 }
 
 func TestPrintTaskSpawnerDetailJira(t *testing.T) {
-	spawner := &kelosv1alpha1.TaskSpawner{
+	spawner := &kelos.TaskSpawner{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "jira-spawner",
 			Namespace: "default",
 		},
-		Spec: kelosv1alpha1.TaskSpawnerSpec{
-			When: kelosv1alpha1.When{
-				Jira: &kelosv1alpha1.Jira{
+		Spec: kelos.TaskSpawnerSpec{
+			When: kelos.When{
+				Jira: &kelos.Jira{
 					BaseURL: "https://mycompany.atlassian.net",
 					Project: "PROJ",
 					JQL:     "status = Open",
-					SecretRef: kelosv1alpha1.SecretReference{
+					SecretRef: kelos.SecretReference{
 						Name: "jira-secret",
 					},
 				},
 			},
-			TaskTemplate: kelosv1alpha1.TaskTemplate{
+			TaskTemplate: kelos.TaskTemplate{
 				Type: "claude-code",
 			},
-			PollInterval: "10m",
 		},
-		Status: kelosv1alpha1.TaskSpawnerStatus{
-			Phase:             kelosv1alpha1.TaskSpawnerPhaseRunning,
+		Status: kelos.TaskSpawnerStatus{
+			Phase:             kelos.TaskSpawnerPhaseRunning,
 			TotalDiscovered:   5,
 			TotalTasksCreated: 3,
 		},
@@ -822,15 +813,15 @@ func TestPrintTaskSpawnerDetailJira(t *testing.T) {
 }
 
 func TestPrintWorkspaceDetail(t *testing.T) {
-	ws := &kelosv1alpha1.Workspace{
+	ws := &kelos.Workspace{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "my-workspace",
 			Namespace: "default",
 		},
-		Spec: kelosv1alpha1.WorkspaceSpec{
+		Spec: kelos.WorkspaceSpec{
 			Repo: "https://github.com/org/repo.git",
 			Ref:  "main",
-			SecretRef: &kelosv1alpha1.SecretReference{
+			SecretRef: &kelos.SecretReference{
 				Name: "gh-token",
 			},
 		},
@@ -855,21 +846,21 @@ func TestPrintWorkspaceDetail(t *testing.T) {
 }
 
 func TestPrintTaskTableSingleItem(t *testing.T) {
-	task := kelosv1alpha1.Task{
+	task := kelos.Task{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:              "my-task",
 			CreationTimestamp: metav1.NewTime(time.Now().Add(-30 * time.Minute)),
 		},
-		Spec: kelosv1alpha1.TaskSpec{
+		Spec: kelos.TaskSpec{
 			Type: "claude-code",
 		},
-		Status: kelosv1alpha1.TaskStatus{
-			Phase: kelosv1alpha1.TaskPhaseSucceeded,
+		Status: kelos.TaskStatus{
+			Phase: kelos.TaskPhaseSucceeded,
 		},
 	}
 
 	var buf bytes.Buffer
-	printTaskTable(&buf, []kelosv1alpha1.Task{task}, false)
+	printTaskTable(&buf, []kelos.Task{task}, false)
 	output := buf.String()
 
 	if !strings.Contains(output, "NAME") {
@@ -881,7 +872,7 @@ func TestPrintTaskTableSingleItem(t *testing.T) {
 	if !strings.Contains(output, "claude-code") {
 		t.Errorf("expected type claude-code in output, got %q", output)
 	}
-	if !strings.Contains(output, string(kelosv1alpha1.TaskPhaseSucceeded)) {
+	if !strings.Contains(output, string(kelos.TaskPhaseSucceeded)) {
 		t.Errorf("expected phase Succeeded in output, got %q", output)
 	}
 	if strings.Contains(output, "Prompt:") {
@@ -890,27 +881,27 @@ func TestPrintTaskTableSingleItem(t *testing.T) {
 }
 
 func TestPrintTaskSpawnerTableSingleItem(t *testing.T) {
-	spawner := kelosv1alpha1.TaskSpawner{
+	spawner := kelos.TaskSpawner{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:              "my-spawner",
 			CreationTimestamp: metav1.NewTime(time.Now().Add(-1 * time.Hour)),
 		},
-		Spec: kelosv1alpha1.TaskSpawnerSpec{
-			When: kelosv1alpha1.When{
-				Cron: &kelosv1alpha1.Cron{
+		Spec: kelos.TaskSpawnerSpec{
+			When: kelos.When{
+				Cron: &kelos.Cron{
 					Schedule: "0 * * * *",
 				},
 			},
 		},
-		Status: kelosv1alpha1.TaskSpawnerStatus{
-			Phase:             kelosv1alpha1.TaskSpawnerPhaseRunning,
+		Status: kelos.TaskSpawnerStatus{
+			Phase:             kelos.TaskSpawnerPhaseRunning,
 			TotalDiscovered:   5,
 			TotalTasksCreated: 3,
 		},
 	}
 
 	var buf bytes.Buffer
-	printTaskSpawnerTable(&buf, []kelosv1alpha1.TaskSpawner{spawner}, false)
+	printTaskSpawnerTable(&buf, []kelos.TaskSpawner{spawner}, false)
 	output := buf.String()
 
 	if !strings.Contains(output, "NAME") {
@@ -928,19 +919,19 @@ func TestPrintTaskSpawnerTableSingleItem(t *testing.T) {
 }
 
 func TestPrintWorkspaceTableSingleItem(t *testing.T) {
-	ws := kelosv1alpha1.Workspace{
+	ws := kelos.Workspace{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:              "my-workspace",
 			CreationTimestamp: metav1.NewTime(time.Now().Add(-2 * time.Hour)),
 		},
-		Spec: kelosv1alpha1.WorkspaceSpec{
+		Spec: kelos.WorkspaceSpec{
 			Repo: "https://github.com/org/repo.git",
 			Ref:  "main",
 		},
 	}
 
 	var buf bytes.Buffer
-	printWorkspaceTable(&buf, []kelosv1alpha1.Workspace{ws}, false)
+	printWorkspaceTable(&buf, []kelos.Workspace{ws}, false)
 	output := buf.String()
 
 	if !strings.Contains(output, "NAME") {
@@ -959,25 +950,24 @@ func TestPrintWorkspaceTableSingleItem(t *testing.T) {
 
 func TestPrintTaskSpawnerDetail(t *testing.T) {
 	lastDiscovery := metav1.NewTime(time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC))
-	spawner := &kelosv1alpha1.TaskSpawner{
+	spawner := &kelos.TaskSpawner{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "my-spawner",
 			Namespace: "default",
 		},
-		Spec: kelosv1alpha1.TaskSpawnerSpec{
-			When: kelosv1alpha1.When{
-				Cron: &kelosv1alpha1.Cron{
+		Spec: kelos.TaskSpawnerSpec{
+			When: kelos.When{
+				Cron: &kelos.Cron{
 					Schedule: "0 * * * *",
 				},
 			},
-			TaskTemplate: kelosv1alpha1.TaskTemplate{
+			TaskTemplate: kelos.TaskTemplate{
 				Type:  "claude-code",
 				Model: "claude-sonnet-4-20250514",
 			},
-			PollInterval: "5m",
 		},
-		Status: kelosv1alpha1.TaskSpawnerStatus{
-			Phase:             kelosv1alpha1.TaskSpawnerPhaseRunning,
+		Status: kelos.TaskSpawnerStatus{
+			Phase:             kelos.TaskSpawnerPhaseRunning,
 			DeploymentName:    "my-spawner-deploy",
 			TotalDiscovered:   10,
 			TotalTasksCreated: 7,
@@ -1008,12 +998,12 @@ func TestPrintTaskSpawnerDetail(t *testing.T) {
 }
 
 func TestPrintWorkspaceDetailWithoutOptionalFields(t *testing.T) {
-	ws := &kelosv1alpha1.Workspace{
+	ws := &kelos.Workspace{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "minimal-ws",
 			Namespace: "default",
 		},
-		Spec: kelosv1alpha1.WorkspaceSpec{
+		Spec: kelos.WorkspaceSpec{
 			Repo: "https://github.com/org/repo.git",
 		},
 	}
@@ -1040,17 +1030,17 @@ func TestTaskDuration(t *testing.T) {
 
 	tests := []struct {
 		name   string
-		status kelosv1alpha1.TaskStatus
+		status kelos.TaskStatus
 		want   string
 	}{
 		{
 			name:   "no start time",
-			status: kelosv1alpha1.TaskStatus{},
+			status: kelos.TaskStatus{},
 			want:   "-",
 		},
 		{
 			name: "completed task",
-			status: kelosv1alpha1.TaskStatus{
+			status: kelos.TaskStatus{
 				StartTime:      &startTime,
 				CompletionTime: &completionTime,
 			},
@@ -1058,7 +1048,7 @@ func TestTaskDuration(t *testing.T) {
 		},
 		{
 			name: "running task",
-			status: kelosv1alpha1.TaskStatus{
+			status: kelos.TaskStatus{
 				StartTime: &startTime,
 			},
 			want: "30m",
@@ -1082,35 +1072,33 @@ func TestPrintTaskDetail(t *testing.T) {
 	ttl := int32(3600)
 	timeout := int64(7200)
 
-	task := &kelosv1alpha1.Task{
+	task := &kelos.Task{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "full-task",
 			Namespace: "default",
 		},
-		Spec: kelosv1alpha1.TaskSpec{
+		Spec: kelos.TaskSpec{
 			Type:   "claude-code",
 			Prompt: "Fix the bug",
-			Credentials: kelosv1alpha1.Credentials{
-				Type:      kelosv1alpha1.CredentialTypeAPIKey,
-				SecretRef: &kelosv1alpha1.SecretReference{Name: "my-secret"},
+			Credentials: kelos.Credentials{
+				Type:      kelos.CredentialTypeAPIKey,
+				SecretRef: &kelos.SecretReference{Name: "my-secret"},
 			},
 			Model:     "claude-sonnet-4-20250514",
 			Image:     "custom-image:latest",
 			Branch:    "feature/fix",
 			DependsOn: []string{"task-a", "task-b"},
-			WorkspaceRef: &kelosv1alpha1.WorkspaceReference{
+			WorkspaceRef: &kelos.WorkspaceReference{
 				Name: "my-ws",
 			},
-			AgentConfigRef: &kelosv1alpha1.AgentConfigReference{
-				Name: "my-config",
-			},
+			AgentConfigRefs:         []kelos.AgentConfigReference{{Name: "my-config"}},
 			TTLSecondsAfterFinished: &ttl,
-			PodOverrides: &kelosv1alpha1.PodOverrides{
+			PodOverrides: &kelos.PodOverrides{
 				ActiveDeadlineSeconds: &timeout,
 			},
 		},
-		Status: kelosv1alpha1.TaskStatus{
-			Phase:          kelosv1alpha1.TaskPhaseSucceeded,
+		Status: kelos.TaskStatus{
+			Phase:          kelos.TaskPhaseSucceeded,
 			JobName:        "full-task-job",
 			PodName:        "full-task-pod",
 			StartTime:      &startTime,
@@ -1336,21 +1324,21 @@ func TestPrintAgentConfigDetailMinimal(t *testing.T) {
 }
 
 func TestPrintTaskDetailMinimal(t *testing.T) {
-	task := &kelosv1alpha1.Task{
+	task := &kelos.Task{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "minimal-task",
 			Namespace: "default",
 		},
-		Spec: kelosv1alpha1.TaskSpec{
+		Spec: kelos.TaskSpec{
 			Type:   "claude-code",
 			Prompt: "Do something",
-			Credentials: kelosv1alpha1.Credentials{
-				Type:      kelosv1alpha1.CredentialTypeAPIKey,
-				SecretRef: &kelosv1alpha1.SecretReference{Name: "secret"},
+			Credentials: kelos.Credentials{
+				Type:      kelos.CredentialTypeAPIKey,
+				SecretRef: &kelos.SecretReference{Name: "secret"},
 			},
 		},
-		Status: kelosv1alpha1.TaskStatus{
-			Phase: kelosv1alpha1.TaskPhasePending,
+		Status: kelos.TaskStatus{
+			Phase: kelos.TaskPhasePending,
 		},
 	}
 
@@ -1368,7 +1356,7 @@ func TestPrintTaskDetailMinimal(t *testing.T) {
 		"Branch:",
 		"Depends On:",
 		"Workspace:",
-		"Agent Config:",
+		"Agent Configs:",
 		"TTL:",
 		"Timeout:",
 		"Job:",
@@ -1389,68 +1377,63 @@ func TestPrintTaskDetailMinimal(t *testing.T) {
 func TestEffectivePollInterval(t *testing.T) {
 	tests := []struct {
 		name string
-		ts   *kelosv1alpha1.TaskSpawner
+		ts   *kelos.TaskSpawner
 		want string
 	}{
 		{
-			name: "github issues source override wins over top-level",
-			ts: &kelosv1alpha1.TaskSpawner{
-				Spec: kelosv1alpha1.TaskSpawnerSpec{
-					When: kelosv1alpha1.When{
-						GitHubIssues: &kelosv1alpha1.GitHubIssues{PollInterval: "2m"},
+			name: "github issues source override wins over default",
+			ts: &kelos.TaskSpawner{
+				Spec: kelos.TaskSpawnerSpec{
+					When: kelos.When{
+						GitHubIssues: &kelos.GitHubIssues{PollInterval: "2m"},
 					},
-					PollInterval: "5m",
 				},
 			},
 			want: "2m",
 		},
 		{
-			name: "github issues falls back to top-level when source empty",
-			ts: &kelosv1alpha1.TaskSpawner{
-				Spec: kelosv1alpha1.TaskSpawnerSpec{
-					When: kelosv1alpha1.When{
-						GitHubIssues: &kelosv1alpha1.GitHubIssues{},
+			name: "github issues falls back to default when source empty",
+			ts: &kelos.TaskSpawner{
+				Spec: kelos.TaskSpawnerSpec{
+					When: kelos.When{
+						GitHubIssues: &kelos.GitHubIssues{},
 					},
-					PollInterval: "5m",
 				},
 			},
 			want: "5m",
 		},
 		{
-			name: "github pull requests source override wins over top-level",
-			ts: &kelosv1alpha1.TaskSpawner{
-				Spec: kelosv1alpha1.TaskSpawnerSpec{
-					When: kelosv1alpha1.When{
-						GitHubPullRequests: &kelosv1alpha1.GitHubPullRequests{PollInterval: "45s"},
+			name: "github pull requests source override wins over default",
+			ts: &kelos.TaskSpawner{
+				Spec: kelos.TaskSpawnerSpec{
+					When: kelos.When{
+						GitHubPullRequests: &kelos.GitHubPullRequests{PollInterval: "45s"},
 					},
-					PollInterval: "5m",
 				},
 			},
 			want: "45s",
 		},
 		{
-			name: "jira source override wins over top-level",
-			ts: &kelosv1alpha1.TaskSpawner{
-				Spec: kelosv1alpha1.TaskSpawnerSpec{
-					When: kelosv1alpha1.When{
-						Jira: &kelosv1alpha1.Jira{PollInterval: "1m"},
+			name: "jira source override wins over default",
+			ts: &kelos.TaskSpawner{
+				Spec: kelos.TaskSpawnerSpec{
+					When: kelos.When{
+						Jira: &kelos.Jira{PollInterval: "1m"},
 					},
-					PollInterval: "10m",
 				},
 			},
 			want: "1m",
 		},
 		{
-			name: "cron source uses top-level since it has no per-source override",
-			ts: &kelosv1alpha1.TaskSpawner{
-				Spec: kelosv1alpha1.TaskSpawnerSpec{
-					When: kelosv1alpha1.When{
-						Cron: &kelosv1alpha1.Cron{Schedule: "*/5 * * * *"},
+			name: "cron source uses default since it has no per-source override",
+			ts: &kelos.TaskSpawner{
+				Spec: kelos.TaskSpawnerSpec{
+					When: kelos.When{
+						Cron: &kelos.Cron{Schedule: "*/5 * * * *"},
 					},
-					PollInterval: "3m",
 				},
 			},
-			want: "3m",
+			want: "5m",
 		},
 	}
 
@@ -1464,25 +1447,24 @@ func TestEffectivePollInterval(t *testing.T) {
 }
 
 func TestPrintTaskSpawnerDetailShowsPerSourcePollInterval(t *testing.T) {
-	spawner := &kelosv1alpha1.TaskSpawner{
+	spawner := &kelos.TaskSpawner{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "my-spawner",
 			Namespace: "default",
 		},
-		Spec: kelosv1alpha1.TaskSpawnerSpec{
-			When: kelosv1alpha1.When{
-				GitHubIssues: &kelosv1alpha1.GitHubIssues{
+		Spec: kelos.TaskSpawnerSpec{
+			When: kelos.When{
+				GitHubIssues: &kelos.GitHubIssues{
 					PollInterval: "2m",
 					Labels:       []string{"bug"},
 				},
 			},
-			TaskTemplate: kelosv1alpha1.TaskTemplate{
+			TaskTemplate: kelos.TaskTemplate{
 				Type: "claude-code",
 			},
-			PollInterval: "5m",
 		},
-		Status: kelosv1alpha1.TaskSpawnerStatus{
-			Phase: kelosv1alpha1.TaskSpawnerPhaseRunning,
+		Status: kelos.TaskSpawnerStatus{
+			Phase: kelos.TaskSpawnerPhaseRunning,
 		},
 	}
 

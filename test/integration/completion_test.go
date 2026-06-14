@@ -10,7 +10,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 
-	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
+	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 	"github.com/kelos-dev/kelos/internal/cli"
 )
 
@@ -58,17 +58,17 @@ var _ = Describe("Completion", func() {
 
 			By("Creating Tasks")
 			for _, name := range []string{"task-alpha", "task-beta"} {
-				task := &kelosv1alpha1.Task{
+				task := &kelos.Task{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      name,
 						Namespace: ns.Name,
 					},
-					Spec: kelosv1alpha1.TaskSpec{
+					Spec: kelos.TaskSpec{
 						Type:   "claude-code",
 						Prompt: "test",
-						Credentials: kelosv1alpha1.Credentials{
-							Type: kelosv1alpha1.CredentialTypeAPIKey,
-							SecretRef: &kelosv1alpha1.SecretReference{
+						Credentials: kelos.Credentials{
+							Type: kelos.CredentialTypeAPIKey,
+							SecretRef: &kelos.SecretReference{
 								Name: "test-secret",
 							},
 						},
@@ -96,17 +96,17 @@ var _ = Describe("Completion", func() {
 			Expect(k8sClient.Create(ctx, ns)).Should(Succeed())
 
 			By("Creating a TaskSpawner")
-			ts := &kelosv1alpha1.TaskSpawner{
+			ts := &kelos.TaskSpawner{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "spawner-one",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpawnerSpec{
-					TaskTemplate: kelosv1alpha1.TaskTemplate{
+				Spec: kelos.TaskSpawnerSpec{
+					TaskTemplate: kelos.TaskTemplate{
 						Type: "claude-code",
-						Credentials: kelosv1alpha1.Credentials{
-							Type: kelosv1alpha1.CredentialTypeAPIKey,
-							SecretRef: &kelosv1alpha1.SecretReference{
+						Credentials: kelos.Credentials{
+							Type: kelos.CredentialTypeAPIKey,
+							SecretRef: &kelos.SecretReference{
 								Name: "test-secret",
 							},
 						},
@@ -133,17 +133,17 @@ var _ = Describe("Completion", func() {
 			Expect(k8sClient.Create(ctx, ns)).Should(Succeed())
 
 			By("Creating a Task")
-			task := &kelosv1alpha1.Task{
+			task := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "task-gamma",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   "claude-code",
 					Prompt: "test",
-					Credentials: kelosv1alpha1.Credentials{
-						Type: kelosv1alpha1.CredentialTypeAPIKey,
-						SecretRef: &kelosv1alpha1.SecretReference{
+					Credentials: kelos.Credentials{
+						Type: kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{
 							Name: "test-secret",
 						},
 					},

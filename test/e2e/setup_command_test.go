@@ -7,7 +7,7 @@ import (
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
+	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 	"github.com/kelos-dev/kelos/test/e2e/framework"
 )
 
@@ -26,11 +26,11 @@ var _ = Describe("Workspace setupCommand", func() {
 			"CLAUDE_CODE_OAUTH_TOKEN="+oauthToken)
 
 		By("creating a Workspace with a setupCommand that writes a sentinel file")
-		f.CreateWorkspace(&kelosv1alpha1.Workspace{
+		f.CreateWorkspace(&kelos.Workspace{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "e2e-setup-workspace",
 			},
-			Spec: kelosv1alpha1.WorkspaceSpec{
+			Spec: kelos.WorkspaceSpec{
 				Repo: "https://github.com/kelos-dev/kelos.git",
 				Ref:  "main",
 				SetupCommand: []string{
@@ -41,19 +41,19 @@ var _ = Describe("Workspace setupCommand", func() {
 		})
 
 		By("creating a Task that asks the agent to read the sentinel file")
-		f.CreateTask(&kelosv1alpha1.Task{
+		f.CreateTask(&kelos.Task{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "setup-task",
 			},
-			Spec: kelosv1alpha1.TaskSpec{
+			Spec: kelos.TaskSpec{
 				Type:   "claude-code",
 				Model:  claudeCodeModel,
 				Prompt: "Print the contents of .kelos-setup-sentinel verbatim, then print 'done'",
-				Credentials: kelosv1alpha1.Credentials{
-					Type:      kelosv1alpha1.CredentialTypeOAuth,
-					SecretRef: &kelosv1alpha1.SecretReference{Name: "claude-credentials"},
+				Credentials: kelos.Credentials{
+					Type:      kelos.CredentialTypeOAuth,
+					SecretRef: &kelos.SecretReference{Name: "claude-credentials"},
 				},
-				WorkspaceRef: &kelosv1alpha1.WorkspaceReference{Name: "e2e-setup-workspace"},
+				WorkspaceRef: &kelos.WorkspaceReference{Name: "e2e-setup-workspace"},
 			},
 		})
 
@@ -83,11 +83,11 @@ var _ = Describe("Workspace setupCommand", func() {
 			"CLAUDE_CODE_OAUTH_TOKEN="+oauthToken)
 
 		By("creating a Workspace whose setupCommand drops an executable into $HOME/.local/bin")
-		f.CreateWorkspace(&kelosv1alpha1.Workspace{
+		f.CreateWorkspace(&kelos.Workspace{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "e2e-setup-path-workspace",
 			},
-			Spec: kelosv1alpha1.WorkspaceSpec{
+			Spec: kelos.WorkspaceSpec{
 				Repo: "https://github.com/kelos-dev/kelos.git",
 				Ref:  "main",
 				SetupCommand: []string{
@@ -104,19 +104,19 @@ chmod +x "$HOME/.local/bin/kelos-setup-probe"`,
 		})
 
 		By("creating a Task that invokes the installed binary by name")
-		f.CreateTask(&kelosv1alpha1.Task{
+		f.CreateTask(&kelos.Task{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "setup-path-task",
 			},
-			Spec: kelosv1alpha1.TaskSpec{
+			Spec: kelos.TaskSpec{
 				Type:   "claude-code",
 				Model:  claudeCodeModel,
 				Prompt: "Run the command 'kelos-setup-probe' and print its output verbatim.",
-				Credentials: kelosv1alpha1.Credentials{
-					Type:      kelosv1alpha1.CredentialTypeOAuth,
-					SecretRef: &kelosv1alpha1.SecretReference{Name: "claude-credentials"},
+				Credentials: kelos.Credentials{
+					Type:      kelos.CredentialTypeOAuth,
+					SecretRef: &kelos.SecretReference{Name: "claude-credentials"},
 				},
-				WorkspaceRef: &kelosv1alpha1.WorkspaceReference{Name: "e2e-setup-path-workspace"},
+				WorkspaceRef: &kelos.WorkspaceReference{Name: "e2e-setup-path-workspace"},
 			},
 		})
 
@@ -142,11 +142,11 @@ chmod +x "$HOME/.local/bin/kelos-setup-probe"`,
 			"CLAUDE_CODE_OAUTH_TOKEN="+oauthToken)
 
 		By("creating a Workspace whose setupCommand always fails")
-		f.CreateWorkspace(&kelosv1alpha1.Workspace{
+		f.CreateWorkspace(&kelos.Workspace{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "e2e-setup-failing-workspace",
 			},
-			Spec: kelosv1alpha1.WorkspaceSpec{
+			Spec: kelos.WorkspaceSpec{
 				Repo: "https://github.com/kelos-dev/kelos.git",
 				Ref:  "main",
 				SetupCommand: []string{
@@ -156,19 +156,19 @@ chmod +x "$HOME/.local/bin/kelos-setup-probe"`,
 		})
 
 		By("creating a Task referencing the failing workspace")
-		f.CreateTask(&kelosv1alpha1.Task{
+		f.CreateTask(&kelos.Task{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "setup-fail-task",
 			},
-			Spec: kelosv1alpha1.TaskSpec{
+			Spec: kelos.TaskSpec{
 				Type:   "claude-code",
 				Model:  claudeCodeModel,
 				Prompt: "Print 'agent should never run'",
-				Credentials: kelosv1alpha1.Credentials{
-					Type:      kelosv1alpha1.CredentialTypeOAuth,
-					SecretRef: &kelosv1alpha1.SecretReference{Name: "claude-credentials"},
+				Credentials: kelos.Credentials{
+					Type:      kelos.CredentialTypeOAuth,
+					SecretRef: &kelos.SecretReference{Name: "claude-credentials"},
 				},
-				WorkspaceRef: &kelosv1alpha1.WorkspaceReference{Name: "e2e-setup-failing-workspace"},
+				WorkspaceRef: &kelos.WorkspaceReference{Name: "e2e-setup-failing-workspace"},
 			},
 		})
 

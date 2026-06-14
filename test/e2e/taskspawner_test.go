@@ -7,7 +7,7 @@ import (
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
+	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 	"github.com/kelos-dev/kelos/test/e2e/framework"
 )
 
@@ -32,42 +32,42 @@ var _ = Describe("TaskSpawner", func() {
 			"CLAUDE_CODE_OAUTH_TOKEN="+oauthToken)
 
 		By("creating a Workspace resource with secretRef")
-		f.CreateWorkspace(&kelosv1alpha1.Workspace{
+		f.CreateWorkspace(&kelos.Workspace{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "e2e-spawner-workspace",
 			},
-			Spec: kelosv1alpha1.WorkspaceSpec{
+			Spec: kelos.WorkspaceSpec{
 				Repo:      "https://github.com/kelos-dev/kelos.git",
 				Ref:       "main",
-				SecretRef: &kelosv1alpha1.SecretReference{Name: "github-token"},
+				SecretRef: &kelos.SecretReference{Name: "github-token"},
 			},
 		})
 
 		By("creating a TaskSpawner")
-		f.CreateTaskSpawner(&kelosv1alpha1.TaskSpawner{
+		f.CreateTaskSpawner(&kelos.TaskSpawner{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "spawner",
 			},
-			Spec: kelosv1alpha1.TaskSpawnerSpec{
-				When: kelosv1alpha1.When{
-					GitHubIssues: &kelosv1alpha1.GitHubIssues{
+			Spec: kelos.TaskSpawnerSpec{
+				When: kelos.When{
+					GitHubIssues: &kelos.GitHubIssues{
 						Labels:        []string{"do-not-remove/e2e-anchor"},
 						ExcludeLabels: []string{"e2e-exclude-placeholder"},
 						State:         "open",
+						PollInterval:  "1m",
 					},
 				},
-				TaskTemplate: kelosv1alpha1.TaskTemplate{
+				TaskTemplate: kelos.TaskTemplate{
 					Type: "claude-code",
-					WorkspaceRef: &kelosv1alpha1.WorkspaceReference{
+					WorkspaceRef: &kelos.WorkspaceReference{
 						Name: "e2e-spawner-workspace",
 					},
-					Credentials: kelosv1alpha1.Credentials{
-						Type:      kelosv1alpha1.CredentialTypeOAuth,
-						SecretRef: &kelosv1alpha1.SecretReference{Name: "claude-credentials"},
+					Credentials: kelos.Credentials{
+						Type:      kelos.CredentialTypeOAuth,
+						SecretRef: &kelos.SecretReference{Name: "claude-credentials"},
 					},
 					PromptTemplate: "Fix: {{.Title}}\n{{.Body}}",
 				},
-				PollInterval: "1m",
 			},
 		})
 
@@ -87,35 +87,36 @@ var _ = Describe("TaskSpawner", func() {
 
 	It("should be accessible via CLI", func() {
 		By("creating a Workspace resource")
-		f.CreateWorkspace(&kelosv1alpha1.Workspace{
+		f.CreateWorkspace(&kelos.Workspace{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "e2e-spawner-workspace",
 			},
-			Spec: kelosv1alpha1.WorkspaceSpec{
+			Spec: kelos.WorkspaceSpec{
 				Repo: "https://github.com/kelos-dev/kelos.git",
 			},
 		})
 
 		By("creating a TaskSpawner")
-		f.CreateTaskSpawner(&kelosv1alpha1.TaskSpawner{
+		f.CreateTaskSpawner(&kelos.TaskSpawner{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "spawner",
 			},
-			Spec: kelosv1alpha1.TaskSpawnerSpec{
-				When: kelosv1alpha1.When{
-					GitHubIssues: &kelosv1alpha1.GitHubIssues{},
+			Spec: kelos.TaskSpawnerSpec{
+				When: kelos.When{
+					GitHubIssues: &kelos.GitHubIssues{
+						PollInterval: "5m",
+					},
 				},
-				TaskTemplate: kelosv1alpha1.TaskTemplate{
+				TaskTemplate: kelos.TaskTemplate{
 					Type: "claude-code",
-					WorkspaceRef: &kelosv1alpha1.WorkspaceReference{
+					WorkspaceRef: &kelos.WorkspaceReference{
 						Name: "e2e-spawner-workspace",
 					},
-					Credentials: kelosv1alpha1.Credentials{
-						Type:      kelosv1alpha1.CredentialTypeOAuth,
-						SecretRef: &kelosv1alpha1.SecretReference{Name: "claude-credentials"},
+					Credentials: kelos.Credentials{
+						Type:      kelos.CredentialTypeOAuth,
+						SecretRef: &kelos.SecretReference{Name: "claude-credentials"},
 					},
 				},
-				PollInterval: "5m",
 			},
 		})
 
@@ -130,13 +131,13 @@ var _ = Describe("TaskSpawner", func() {
 
 		By("verifying YAML output for a single taskspawner")
 		output = framework.KelosOutput("get", "taskspawner", "spawner", "-n", f.Namespace, "-o", "yaml")
-		Expect(output).To(ContainSubstring("apiVersion: kelos.dev/v1alpha1"))
+		Expect(output).To(ContainSubstring("apiVersion: kelos.dev/v1alpha2"))
 		Expect(output).To(ContainSubstring("kind: TaskSpawner"))
 		Expect(output).To(ContainSubstring("name: spawner"))
 
 		By("verifying JSON output for a single taskspawner")
 		output = framework.KelosOutput("get", "taskspawner", "spawner", "-n", f.Namespace, "-o", "json")
-		Expect(output).To(ContainSubstring(`"apiVersion": "kelos.dev/v1alpha1"`))
+		Expect(output).To(ContainSubstring(`"apiVersion": "kelos.dev/v1alpha2"`))
 		Expect(output).To(ContainSubstring(`"kind": "TaskSpawner"`))
 		Expect(output).To(ContainSubstring(`"name": "spawner"`))
 
@@ -159,26 +160,25 @@ var _ = Describe("Cron TaskSpawner", func() {
 			"CLAUDE_CODE_OAUTH_TOKEN="+oauthToken)
 
 		By("creating a cron TaskSpawner with every-minute schedule")
-		f.CreateTaskSpawner(&kelosv1alpha1.TaskSpawner{
+		f.CreateTaskSpawner(&kelos.TaskSpawner{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "cron-spawner",
 			},
-			Spec: kelosv1alpha1.TaskSpawnerSpec{
-				When: kelosv1alpha1.When{
-					Cron: &kelosv1alpha1.Cron{
+			Spec: kelos.TaskSpawnerSpec{
+				When: kelos.When{
+					Cron: &kelos.Cron{
 						Schedule: "* * * * *",
 					},
 				},
-				TaskTemplate: kelosv1alpha1.TaskTemplate{
+				TaskTemplate: kelos.TaskTemplate{
 					Type:  "claude-code",
 					Model: claudeCodeModel,
-					Credentials: kelosv1alpha1.Credentials{
-						Type:      kelosv1alpha1.CredentialTypeOAuth,
-						SecretRef: &kelosv1alpha1.SecretReference{Name: "claude-credentials"},
+					Credentials: kelos.Credentials{
+						Type:      kelos.CredentialTypeOAuth,
+						SecretRef: &kelos.SecretReference{Name: "claude-credentials"},
 					},
 					PromptTemplate: "Cron triggered at {{.Time}} (schedule: {{.Schedule}}). Print 'Hello from cron'",
 				},
-				PollInterval: "1m",
 			},
 		})
 
@@ -198,24 +198,23 @@ var _ = Describe("Cron TaskSpawner", func() {
 
 	It("should be accessible via CLI with cron source info", func() {
 		By("creating a cron TaskSpawner")
-		f.CreateTaskSpawner(&kelosv1alpha1.TaskSpawner{
+		f.CreateTaskSpawner(&kelos.TaskSpawner{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "cron-spawner",
 			},
-			Spec: kelosv1alpha1.TaskSpawnerSpec{
-				When: kelosv1alpha1.When{
-					Cron: &kelosv1alpha1.Cron{
+			Spec: kelos.TaskSpawnerSpec{
+				When: kelos.When{
+					Cron: &kelos.Cron{
 						Schedule: "0 9 * * 1",
 					},
 				},
-				TaskTemplate: kelosv1alpha1.TaskTemplate{
+				TaskTemplate: kelos.TaskTemplate{
 					Type: "claude-code",
-					Credentials: kelosv1alpha1.Credentials{
-						Type:      kelosv1alpha1.CredentialTypeOAuth,
-						SecretRef: &kelosv1alpha1.SecretReference{Name: "claude-credentials"},
+					Credentials: kelos.Credentials{
+						Type:      kelos.CredentialTypeOAuth,
+						SecretRef: &kelos.SecretReference{Name: "claude-credentials"},
 					},
 				},
-				PollInterval: "5m",
 			},
 		})
 
@@ -258,13 +257,13 @@ var _ = Describe("get taskspawner", func() {
 
 	It("should output taskspawner list in YAML format", func() {
 		output := framework.KelosOutput("get", "taskspawners", "-o", "yaml")
-		Expect(output).To(ContainSubstring("apiVersion: kelos.dev/v1alpha1"))
+		Expect(output).To(ContainSubstring("apiVersion: kelos.dev/v1alpha2"))
 		Expect(output).To(ContainSubstring("kind: TaskSpawnerList"))
 	})
 
 	It("should output taskspawner list in JSON format", func() {
 		output := framework.KelosOutput("get", "taskspawners", "-o", "json")
-		Expect(output).To(ContainSubstring(`"apiVersion": "kelos.dev/v1alpha1"`))
+		Expect(output).To(ContainSubstring(`"apiVersion": "kelos.dev/v1alpha2"`))
 		Expect(output).To(ContainSubstring(`"kind": "TaskSpawnerList"`))
 	})
 

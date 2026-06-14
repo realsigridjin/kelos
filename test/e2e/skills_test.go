@@ -9,7 +9,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
+	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 	"github.com/kelos-dev/kelos/test/e2e/framework"
 )
 
@@ -25,7 +25,7 @@ var _ = Describe("AgentConfig with skills.sh", func() {
 		)
 
 		By("verifying agentconfig exists via typed client")
-		ac, err := f.KelosClientset.ApiV1alpha1().AgentConfigs(f.Namespace).Get(
+		ac, err := f.KelosClientset.ApiV1alpha2().AgentConfigs(f.Namespace).Get(
 			context.TODO(), "skills-ac", metav1.GetOptions{},
 		)
 		Expect(err).NotTo(HaveOccurred())
@@ -76,22 +76,20 @@ var _ = Describe("Task with skills.sh AgentConfig", func() {
 		)
 
 		By("creating a Task referencing the AgentConfig")
-		f.CreateTask(&kelosv1alpha1.Task{
+		f.CreateTask(&kelos.Task{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "skills-task",
 			},
-			Spec: kelosv1alpha1.TaskSpec{
+			Spec: kelos.TaskSpec{
 				Type:   "claude-code",
 				Model:  claudeCodeModel,
 				Prompt: "Use the kelos-e2e skill and show its output.",
-				Credentials: kelosv1alpha1.Credentials{
-					Type:      kelosv1alpha1.CredentialTypeOAuth,
-					SecretRef: &kelosv1alpha1.SecretReference{Name: "claude-credentials"},
+				Credentials: kelos.Credentials{
+					Type:      kelos.CredentialTypeOAuth,
+					SecretRef: &kelos.SecretReference{Name: "claude-credentials"},
 				},
-				AgentConfigRef: &kelosv1alpha1.AgentConfigReference{
-					Name: "skills-ac",
-				},
-				PodOverrides: &kelosv1alpha1.PodOverrides{
+				AgentConfigRefs: []kelos.AgentConfigReference{{Name: "skills-ac"}},
+				PodOverrides: &kelos.PodOverrides{
 					// Deterministic install check: this runs after the
 					// built-in skills-install init container and fails the
 					// Job when the skill is not in the plugin layout,
@@ -151,21 +149,19 @@ func describePluginTaskTests(cfg agentTestConfig) {
 			)
 
 			By("creating a Task referencing the AgentConfig")
-			f.CreateTask(&kelosv1alpha1.Task{
+			f.CreateTask(&kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: taskName,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   cfg.AgentType,
 					Model:  cfg.Model,
 					Prompt: "Print 'Hello from plugin e2e test' to stdout",
-					Credentials: kelosv1alpha1.Credentials{
+					Credentials: kelos.Credentials{
 						Type:      cfg.CredentialType,
-						SecretRef: &kelosv1alpha1.SecretReference{Name: cfg.SecretName},
+						SecretRef: &kelos.SecretReference{Name: cfg.SecretName},
 					},
-					AgentConfigRef: &kelosv1alpha1.AgentConfigReference{
-						Name: "plugin-ac",
-					},
+					AgentConfigRefs: []kelos.AgentConfigReference{{Name: "plugin-ac"}},
 				},
 			})
 

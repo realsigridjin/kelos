@@ -15,7 +15,6 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
 	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 )
 
@@ -48,9 +47,6 @@ func newScheme(t *testing.T) *runtime.Scheme {
 	if err := clientgoscheme.AddToScheme(s); err != nil {
 		t.Fatal(err)
 	}
-	if err := kelosv1alpha1.AddToScheme(s); err != nil {
-		t.Fatal(err)
-	}
 	if err := kelos.AddToScheme(s); err != nil {
 		t.Fatalf("failed to add v1alpha2 scheme: %v", err)
 	}
@@ -60,12 +56,12 @@ func newScheme(t *testing.T) *runtime.Scheme {
 func TestCollect(t *testing.T) {
 	s := newScheme(t)
 
-	tasks := []kelosv1alpha1.Task{
+	tasks := []kelos.Task{
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "task-1", Namespace: "ns-a"},
-			Spec:       kelosv1alpha1.TaskSpec{Type: "claude-code"},
-			Status: kelosv1alpha1.TaskStatus{
-				Phase: kelosv1alpha1.TaskPhaseSucceeded,
+			Spec:       kelos.TaskSpec{Type: "claude-code"},
+			Status: kelos.TaskStatus{
+				Phase: kelos.TaskPhaseSucceeded,
 				Results: map[string]string{
 					"cost_usd":      "1.50",
 					"input_tokens":  "1000",
@@ -75,9 +71,9 @@ func TestCollect(t *testing.T) {
 		},
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "task-2", Namespace: "ns-a"},
-			Spec:       kelosv1alpha1.TaskSpec{Type: "claude-code"},
-			Status: kelosv1alpha1.TaskStatus{
-				Phase: kelosv1alpha1.TaskPhaseFailed,
+			Spec:       kelos.TaskSpec{Type: "claude-code"},
+			Status: kelos.TaskStatus{
+				Phase: kelos.TaskPhaseFailed,
 				Results: map[string]string{
 					"cost_usd":      "0.50",
 					"input_tokens":  "200",
@@ -87,22 +83,22 @@ func TestCollect(t *testing.T) {
 		},
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "task-3", Namespace: "ns-b"},
-			Spec:       kelosv1alpha1.TaskSpec{Type: "codex"},
-			Status:     kelosv1alpha1.TaskStatus{Phase: kelosv1alpha1.TaskPhaseRunning},
+			Spec:       kelos.TaskSpec{Type: "codex"},
+			Status:     kelos.TaskStatus{Phase: kelos.TaskPhaseRunning},
 		},
 	}
 
-	spawners := []kelosv1alpha1.TaskSpawner{
+	spawners := []kelos.TaskSpawner{
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "spawner-1", Namespace: "ns-a"},
-			Spec: kelosv1alpha1.TaskSpawnerSpec{
-				When: kelosv1alpha1.When{GitHubIssues: &kelosv1alpha1.GitHubIssues{}},
+			Spec: kelos.TaskSpawnerSpec{
+				When: kelos.When{GitHubIssues: &kelos.GitHubIssues{}},
 			},
 		},
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "spawner-2", Namespace: "ns-b"},
-			Spec: kelosv1alpha1.TaskSpawnerSpec{
-				When: kelosv1alpha1.When{Cron: &kelosv1alpha1.Cron{Schedule: "0 * * * *"}},
+			Spec: kelos.TaskSpawnerSpec{
+				When: kelos.When{Cron: &kelos.Cron{Schedule: "0 * * * *"}},
 			},
 		},
 	}
@@ -111,7 +107,7 @@ func TestCollect(t *testing.T) {
 		{ObjectMeta: metav1.ObjectMeta{Name: "config-1", Namespace: "ns-a"}},
 	}
 
-	workspaces := []kelosv1alpha1.Workspace{
+	workspaces := []kelos.Workspace{
 		{ObjectMeta: metav1.ObjectMeta{Name: "ws-1", Namespace: "ns-a"}},
 		{ObjectMeta: metav1.ObjectMeta{Name: "ws-2", Namespace: "ns-c"}},
 	}
@@ -374,34 +370,34 @@ func TestGetOrCreateInstallationIDExistingEmptyConfigMap(t *testing.T) {
 func TestSourceTypeExtraction(t *testing.T) {
 	s := newScheme(t)
 
-	spawners := []kelosv1alpha1.TaskSpawner{
+	spawners := []kelos.TaskSpawner{
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "s1", Namespace: "ns"},
-			Spec: kelosv1alpha1.TaskSpawnerSpec{
-				When: kelosv1alpha1.When{GitHubIssues: &kelosv1alpha1.GitHubIssues{}},
+			Spec: kelos.TaskSpawnerSpec{
+				When: kelos.When{GitHubIssues: &kelos.GitHubIssues{}},
 			},
 		},
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "s2", Namespace: "ns"},
-			Spec: kelosv1alpha1.TaskSpawnerSpec{
-				When: kelosv1alpha1.When{Cron: &kelosv1alpha1.Cron{Schedule: "0 * * * *"}},
+			Spec: kelos.TaskSpawnerSpec{
+				When: kelos.When{Cron: &kelos.Cron{Schedule: "0 * * * *"}},
 			},
 		},
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "s3", Namespace: "ns"},
-			Spec: kelosv1alpha1.TaskSpawnerSpec{
-				When: kelosv1alpha1.When{Jira: &kelosv1alpha1.Jira{
+			Spec: kelos.TaskSpawnerSpec{
+				When: kelos.When{Jira: &kelos.Jira{
 					BaseURL:   "https://jira.example.com",
 					Project:   "PROJ",
-					SecretRef: kelosv1alpha1.SecretReference{Name: "jira-secret"},
+					SecretRef: kelos.SecretReference{Name: "jira-secret"},
 				}},
 			},
 		},
 		// Duplicate GitHub source type — should only appear once.
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "s4", Namespace: "ns"},
-			Spec: kelosv1alpha1.TaskSpawnerSpec{
-				When: kelosv1alpha1.When{GitHubIssues: &kelosv1alpha1.GitHubIssues{}},
+			Spec: kelos.TaskSpawnerSpec{
+				When: kelos.When{GitHubIssues: &kelos.GitHubIssues{}},
 			},
 		},
 	}
@@ -443,10 +439,10 @@ func TestRun(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: configMapName, Namespace: systemNamespace},
 			Data:       map[string]string{installationIDKey: "run-test-id"},
 		},
-		&kelosv1alpha1.Task{
+		&kelos.Task{
 			ObjectMeta: metav1.ObjectMeta{Name: "t1", Namespace: "default"},
-			Spec:       kelosv1alpha1.TaskSpec{Type: "claude-code"},
-			Status:     kelosv1alpha1.TaskStatus{Phase: kelosv1alpha1.TaskPhaseSucceeded},
+			Spec:       kelos.TaskSpec{Type: "claude-code"},
+			Status:     kelos.TaskStatus{Phase: kelos.TaskPhaseSucceeded},
 		},
 	).Build()
 

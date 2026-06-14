@@ -10,7 +10,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
+	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 )
 
 func TestSuspendCommand_MissingName(t *testing.T) {
@@ -93,13 +93,12 @@ func TestResumeCommand_NoResourceType(t *testing.T) {
 
 func TestSuspendTaskSpawner_PatchPreservesFields(t *testing.T) {
 	maxConc := int32(5)
-	ts := &kelosv1alpha1.TaskSpawner{
+	ts := &kelos.TaskSpawner{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "my-spawner",
 			Namespace: "default",
 		},
-		Spec: kelosv1alpha1.TaskSpawnerSpec{
-			PollInterval:   "10m",
+		Spec: kelos.TaskSpawnerSpec{
 			MaxConcurrency: &maxConc,
 			Suspend:        ptr.To(false),
 		},
@@ -110,7 +109,7 @@ func TestSuspendTaskSpawner_PatchPreservesFields(t *testing.T) {
 	key := client.ObjectKey{Name: "my-spawner", Namespace: "default"}
 
 	// Get, patch suspend=true (same logic as the CLI command)
-	fetched := &kelosv1alpha1.TaskSpawner{}
+	fetched := &kelos.TaskSpawner{}
 	if err := cl.Get(ctx, key, fetched); err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -121,15 +120,12 @@ func TestSuspendTaskSpawner_PatchPreservesFields(t *testing.T) {
 	}
 
 	// Verify suspend changed and other fields preserved
-	updated := &kelosv1alpha1.TaskSpawner{}
+	updated := &kelos.TaskSpawner{}
 	if err := cl.Get(ctx, key, updated); err != nil {
 		t.Fatalf("Get after patch: %v", err)
 	}
 	if updated.Spec.Suspend == nil || !*updated.Spec.Suspend {
 		t.Error("Expected TaskSpawner to be suspended")
-	}
-	if updated.Spec.PollInterval != "10m" {
-		t.Errorf("PollInterval = %q, want %q", updated.Spec.PollInterval, "10m")
 	}
 	if updated.Spec.MaxConcurrency == nil || *updated.Spec.MaxConcurrency != 5 {
 		t.Error("MaxConcurrency was not preserved")
@@ -138,13 +134,12 @@ func TestSuspendTaskSpawner_PatchPreservesFields(t *testing.T) {
 
 func TestResumeTaskSpawner_PatchPreservesFields(t *testing.T) {
 	maxConc := int32(3)
-	ts := &kelosv1alpha1.TaskSpawner{
+	ts := &kelos.TaskSpawner{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "my-spawner",
 			Namespace: "default",
 		},
-		Spec: kelosv1alpha1.TaskSpawnerSpec{
-			PollInterval:   "2m",
+		Spec: kelos.TaskSpawnerSpec{
 			MaxConcurrency: &maxConc,
 			Suspend:        ptr.To(true),
 		},
@@ -155,7 +150,7 @@ func TestResumeTaskSpawner_PatchPreservesFields(t *testing.T) {
 	key := client.ObjectKey{Name: "my-spawner", Namespace: "default"}
 
 	// Get, patch suspend=false (same logic as the CLI command)
-	fetched := &kelosv1alpha1.TaskSpawner{}
+	fetched := &kelos.TaskSpawner{}
 	if err := cl.Get(ctx, key, fetched); err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -166,15 +161,12 @@ func TestResumeTaskSpawner_PatchPreservesFields(t *testing.T) {
 	}
 
 	// Verify suspend changed and other fields preserved
-	updated := &kelosv1alpha1.TaskSpawner{}
+	updated := &kelos.TaskSpawner{}
 	if err := cl.Get(ctx, key, updated); err != nil {
 		t.Fatalf("Get after patch: %v", err)
 	}
 	if updated.Spec.Suspend == nil || *updated.Spec.Suspend {
 		t.Error("Expected TaskSpawner to not be suspended")
-	}
-	if updated.Spec.PollInterval != "2m" {
-		t.Errorf("PollInterval = %q, want %q", updated.Spec.PollInterval, "2m")
 	}
 	if updated.Spec.MaxConcurrency == nil || *updated.Spec.MaxConcurrency != 3 {
 		t.Error("MaxConcurrency was not preserved")

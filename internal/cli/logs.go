@@ -14,7 +14,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
+	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 )
 
 func newLogsCommand(cfg *ClientConfig) *cobra.Command {
@@ -44,7 +44,7 @@ func newLogsCommand(cfg *ClientConfig) *cobra.Command {
 			}
 
 			ctx := context.Background()
-			task := &kelosv1alpha1.Task{}
+			task := &kelos.Task{}
 			if err := cl.Get(ctx, client.ObjectKey{Name: args[0], Namespace: ns}, task); err != nil {
 				return fmt.Errorf("getting task: %w", err)
 			}
@@ -76,7 +76,7 @@ func newLogsCommand(cfg *ClientConfig) *cobra.Command {
 				}
 			}
 
-			containerName := kelosv1alpha1.AgentContainerName
+			containerName := kelos.AgentContainerName
 
 			if follow && task.Spec.WorkspaceRef != nil {
 				fmt.Fprintf(os.Stderr, "Streaming init container (git-clone) logs...\n")
@@ -99,10 +99,10 @@ func newLogsCommand(cfg *ClientConfig) *cobra.Command {
 	return cmd
 }
 
-func waitForPod(ctx context.Context, cl client.Client, name, namespace string) (*kelosv1alpha1.Task, error) {
-	var lastPhase kelosv1alpha1.TaskPhase
+func waitForPod(ctx context.Context, cl client.Client, name, namespace string) (*kelos.Task, error) {
+	var lastPhase kelos.TaskPhase
 	for {
-		task := &kelosv1alpha1.Task{}
+		task := &kelos.Task{}
 		if err := cl.Get(ctx, client.ObjectKey{Name: name, Namespace: namespace}, task); err != nil {
 			return nil, fmt.Errorf("getting task: %w", err)
 		}
@@ -112,7 +112,7 @@ func waitForPod(ctx context.Context, cl client.Client, name, namespace string) (
 			lastPhase = task.Status.Phase
 		}
 
-		if task.Status.Phase == kelosv1alpha1.TaskPhaseFailed {
+		if task.Status.Phase == kelos.TaskPhaseFailed {
 			msg := "unknown error"
 			if task.Status.Message != "" {
 				msg = task.Status.Message
@@ -128,7 +128,7 @@ func waitForPod(ctx context.Context, cl client.Client, name, namespace string) (
 	}
 }
 
-func resolveTaskPodName(ctx context.Context, cl client.Client, namespace string, task *kelosv1alpha1.Task) (string, error) {
+func resolveTaskPodName(ctx context.Context, cl client.Client, namespace string, task *kelos.Task) (string, error) {
 	var pods corev1.PodList
 	if err := cl.List(ctx, &pods, client.InNamespace(namespace), client.MatchingLabels{
 		"kelos.dev/task": task.Name,
@@ -155,8 +155,8 @@ func resolveTaskPodName(ctx context.Context, cl client.Client, namespace string,
 	return pods.Items[len(pods.Items)-1].Name, nil
 }
 
-func isTerminalTaskPhase(phase kelosv1alpha1.TaskPhase) bool {
-	return phase == kelosv1alpha1.TaskPhaseSucceeded || phase == kelosv1alpha1.TaskPhaseFailed
+func isTerminalTaskPhase(phase kelos.TaskPhase) bool {
+	return phase == kelos.TaskPhaseSucceeded || phase == kelos.TaskPhaseFailed
 }
 
 func streamLogs(ctx context.Context, cs *kubernetes.Clientset, namespace, podName, container string, follow bool) error {

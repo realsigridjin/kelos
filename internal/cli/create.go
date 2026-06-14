@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
+	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 )
 
 func newCreateCommand(cfg *ClientConfig) *cobra.Command {
@@ -62,12 +62,12 @@ func newCreateWorkspaceCommand(cfg *ClientConfig) *cobra.Command {
 				return err
 			}
 
-			ws := &kelosv1alpha1.Workspace{
+			ws := &kelos.Workspace{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      name,
 					Namespace: ns,
 				},
-				Spec: kelosv1alpha1.WorkspaceSpec{
+				Spec: kelos.WorkspaceSpec{
 					Repo: repo,
 					Ref:  ref,
 				},
@@ -80,16 +80,16 @@ func newCreateWorkspaceCommand(cfg *ClientConfig) *cobra.Command {
 						return err
 					}
 				}
-				ws.Spec.SecretRef = &kelosv1alpha1.SecretReference{
+				ws.Spec.SecretRef = &kelos.SecretReference{
 					Name: secretName,
 				}
 			} else if secret != "" {
-				ws.Spec.SecretRef = &kelosv1alpha1.SecretReference{
+				ws.Spec.SecretRef = &kelos.SecretReference{
 					Name: secret,
 				}
 			}
 
-			ws.SetGroupVersionKind(kelosv1alpha1.GroupVersion.WithKind("Workspace"))
+			ws.SetGroupVersionKind(kelos.GroupVersion.WithKind("Workspace"))
 
 			if dryRun {
 				return printYAML(os.Stdout, ws)
