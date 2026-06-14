@@ -1886,7 +1886,7 @@ func TestReconcileCronJob_DeletesStaleDeployment(t *testing.T) {
 			Namespace: "default",
 			OwnerReferences: []metav1.OwnerReference{
 				{
-					APIVersion: "kelos.dev/v1alpha1",
+					APIVersion: "kelos.dev/v1alpha2",
 					Kind:       "TaskSpawner",
 					Name:       "my-spawner",
 					Controller: func() *bool { b := true; return &b }(),
@@ -1965,7 +1965,7 @@ func TestReconcileDeployment_DeletesStaleCronJob(t *testing.T) {
 			Namespace: "default",
 			OwnerReferences: []metav1.OwnerReference{
 				{
-					APIVersion: "kelos.dev/v1alpha1",
+					APIVersion: "kelos.dev/v1alpha2",
 					Kind:       "TaskSpawner",
 					Name:       "my-spawner",
 					Controller: func() *bool { b := true; return &b }(),

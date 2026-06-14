@@ -8,7 +8,7 @@ import (
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
+	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 	"github.com/kelos-dev/kelos/test/e2e/framework"
 )
 
@@ -39,20 +39,20 @@ var _ = Describe("CLI", func() {
 		Expect(output).To(ContainSubstring("Succeeded"))
 
 		By("verifying task effort was persisted")
-		task, err := f.KelosClientset.ApiV1alpha1().Tasks(f.Namespace).Get(context.TODO(), "cli-task", metav1.GetOptions{})
+		task, err := f.KelosClientset.ApiV1alpha2().Tasks(f.Namespace).Get(context.TODO(), "cli-task", metav1.GetOptions{})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(task.Spec.Effort).To(Equal("high"))
 
 		By("verifying YAML output for a single task")
 		output = framework.KelosOutput("get", "task", "cli-task", "-n", f.Namespace, "-o", "yaml")
-		Expect(output).To(ContainSubstring("apiVersion: kelos.dev/v1alpha1"))
+		Expect(output).To(ContainSubstring("apiVersion: kelos.dev/v1alpha2"))
 		Expect(output).To(ContainSubstring("kind: Task"))
 		Expect(output).To(ContainSubstring("name: cli-task"))
 		Expect(output).To(ContainSubstring("effort: high"))
 
 		By("verifying JSON output for a single task")
 		output = framework.KelosOutput("get", "task", "cli-task", "-n", f.Namespace, "-o", "json")
-		Expect(output).To(ContainSubstring(`"apiVersion": "kelos.dev/v1alpha1"`))
+		Expect(output).To(ContainSubstring(`"apiVersion": "kelos.dev/v1alpha2"`))
 		Expect(output).To(ContainSubstring(`"kind": "Task"`))
 		Expect(output).To(ContainSubstring(`"name": "cli-task"`))
 		Expect(output).To(ContainSubstring(`"effort": "high"`))
@@ -99,11 +99,11 @@ var _ = Describe("CLI", func() {
 			"CLAUDE_CODE_OAUTH_TOKEN="+oauthToken)
 
 		By("creating a Workspace resource")
-		f.CreateWorkspace(&kelosv1alpha1.Workspace{
+		f.CreateWorkspace(&kelos.Workspace{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "e2e-cli-workspace",
 			},
-			Spec: kelosv1alpha1.WorkspaceSpec{
+			Spec: kelos.WorkspaceSpec{
 				Repo: "https://github.com/kelos-dev/kelos.git",
 				Ref:  "main",
 			},
@@ -197,25 +197,25 @@ var _ = Describe("get", func() {
 
 	It("should output task list in YAML format", func() {
 		output := framework.KelosOutput("get", "tasks", "-o", "yaml")
-		Expect(output).To(ContainSubstring("apiVersion: kelos.dev/v1alpha1"))
+		Expect(output).To(ContainSubstring("apiVersion: kelos.dev/v1alpha2"))
 		Expect(output).To(ContainSubstring("kind: TaskList"))
 	})
 
 	It("should output task list in JSON format", func() {
 		output := framework.KelosOutput("get", "tasks", "-o", "json")
-		Expect(output).To(ContainSubstring(`"apiVersion": "kelos.dev/v1alpha1"`))
+		Expect(output).To(ContainSubstring(`"apiVersion": "kelos.dev/v1alpha2"`))
 		Expect(output).To(ContainSubstring(`"kind": "TaskList"`))
 	})
 
 	It("should output workspace list in YAML format", func() {
 		output := framework.KelosOutput("get", "workspaces", "-o", "yaml")
-		Expect(output).To(ContainSubstring("apiVersion: kelos.dev/v1alpha1"))
+		Expect(output).To(ContainSubstring("apiVersion: kelos.dev/v1alpha2"))
 		Expect(output).To(ContainSubstring("kind: WorkspaceList"))
 	})
 
 	It("should output workspace list in JSON format", func() {
 		output := framework.KelosOutput("get", "workspaces", "-o", "json")
-		Expect(output).To(ContainSubstring(`"apiVersion": "kelos.dev/v1alpha1"`))
+		Expect(output).To(ContainSubstring(`"apiVersion": "kelos.dev/v1alpha2"`))
 		Expect(output).To(ContainSubstring(`"kind": "WorkspaceList"`))
 	})
 
@@ -246,13 +246,13 @@ var _ = Describe("workspace CRUD", func() {
 
 		By("verifying YAML output")
 		output = framework.KelosOutput("get", "workspace", "test-ws", "-n", f.Namespace, "-o", "yaml")
-		Expect(output).To(ContainSubstring("apiVersion: kelos.dev/v1alpha1"))
+		Expect(output).To(ContainSubstring("apiVersion: kelos.dev/v1alpha2"))
 		Expect(output).To(ContainSubstring("kind: Workspace"))
 		Expect(output).To(ContainSubstring("name: test-ws"))
 
 		By("verifying JSON output")
 		output = framework.KelosOutput("get", "workspace", "test-ws", "-n", f.Namespace, "-o", "json")
-		Expect(output).To(ContainSubstring(`"apiVersion": "kelos.dev/v1alpha1"`))
+		Expect(output).To(ContainSubstring(`"apiVersion": "kelos.dev/v1alpha2"`))
 		Expect(output).To(ContainSubstring(`"kind": "Workspace"`))
 
 		By("deleting workspace via CLI")
@@ -274,7 +274,7 @@ var _ = Describe("agentconfig CRUD", func() {
 		)
 
 		By("verifying agentconfig exists via typed client")
-		ac, err := f.KelosClientset.ApiV1alpha1().AgentConfigs(f.Namespace).Get(
+		ac, err := f.KelosClientset.ApiV1alpha2().AgentConfigs(f.Namespace).Get(
 			context.TODO(), "test-ac", metav1.GetOptions{},
 		)
 		Expect(err).NotTo(HaveOccurred())

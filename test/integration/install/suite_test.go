@@ -27,7 +27,6 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
 	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 	"github.com/kelos-dev/kelos/internal/controller"
 	"github.com/kelos-dev/kelos/internal/conversion"
@@ -80,8 +79,6 @@ var _ = BeforeEach(func() {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cfg).NotTo(BeNil())
 
-	err = kelosv1alpha1.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
 	err = kelos.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 

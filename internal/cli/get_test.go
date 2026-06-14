@@ -3,7 +3,7 @@ package cli
 import (
 	"testing"
 
-	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
+	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 )
 
 func TestDetailFlagRegistered(t *testing.T) {
@@ -74,43 +74,43 @@ func TestValidatePhases(t *testing.T) {
 }
 
 func TestFilterTasksByPhase(t *testing.T) {
-	tasks := []kelosv1alpha1.Task{
-		{Status: kelosv1alpha1.TaskStatus{Phase: kelosv1alpha1.TaskPhasePending}},
-		{Status: kelosv1alpha1.TaskStatus{Phase: kelosv1alpha1.TaskPhaseRunning}},
-		{Status: kelosv1alpha1.TaskStatus{Phase: kelosv1alpha1.TaskPhaseSucceeded}},
-		{Status: kelosv1alpha1.TaskStatus{Phase: kelosv1alpha1.TaskPhaseFailed}},
-		{Status: kelosv1alpha1.TaskStatus{Phase: kelosv1alpha1.TaskPhaseWaiting}},
+	tasks := []kelos.Task{
+		{Status: kelos.TaskStatus{Phase: kelos.TaskPhasePending}},
+		{Status: kelos.TaskStatus{Phase: kelos.TaskPhaseRunning}},
+		{Status: kelos.TaskStatus{Phase: kelos.TaskPhaseSucceeded}},
+		{Status: kelos.TaskStatus{Phase: kelos.TaskPhaseFailed}},
+		{Status: kelos.TaskStatus{Phase: kelos.TaskPhaseWaiting}},
 	}
 
 	tests := []struct {
 		name       string
 		phases     []string
 		wantCount  int
-		wantPhases []kelosv1alpha1.TaskPhase
+		wantPhases []kelos.TaskPhase
 	}{
 		{
 			name:       "filter Running only",
 			phases:     []string{"Running"},
 			wantCount:  1,
-			wantPhases: []kelosv1alpha1.TaskPhase{kelosv1alpha1.TaskPhaseRunning},
+			wantPhases: []kelos.TaskPhase{kelos.TaskPhaseRunning},
 		},
 		{
 			name:      "filter non-completed",
 			phases:    []string{"Pending", "Running", "Waiting"},
 			wantCount: 3,
-			wantPhases: []kelosv1alpha1.TaskPhase{
-				kelosv1alpha1.TaskPhasePending,
-				kelosv1alpha1.TaskPhaseRunning,
-				kelosv1alpha1.TaskPhaseWaiting,
+			wantPhases: []kelos.TaskPhase{
+				kelos.TaskPhasePending,
+				kelos.TaskPhaseRunning,
+				kelos.TaskPhaseWaiting,
 			},
 		},
 		{
 			name:      "filter completed",
 			phases:    []string{"Succeeded", "Failed"},
 			wantCount: 2,
-			wantPhases: []kelosv1alpha1.TaskPhase{
-				kelosv1alpha1.TaskPhaseSucceeded,
-				kelosv1alpha1.TaskPhaseFailed,
+			wantPhases: []kelos.TaskPhase{
+				kelos.TaskPhaseSucceeded,
+				kelos.TaskPhaseFailed,
 			},
 		},
 		{

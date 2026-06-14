@@ -17,7 +17,6 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
 	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 	"github.com/kelos-dev/kelos/internal/version"
 )
@@ -144,7 +143,7 @@ func collect(ctx context.Context, c client.Client, clientset kubernetes.Interfac
 	// Collect task data.
 	namespaces := make(map[string]struct{})
 
-	var tasks kelosv1alpha1.TaskList
+	var tasks kelos.TaskList
 	if err := c.List(ctx, &tasks); err != nil {
 		return nil, fmt.Errorf("listing tasks: %w", err)
 	}
@@ -177,7 +176,7 @@ func collect(ctx context.Context, c client.Client, clientset kubernetes.Interfac
 	}
 
 	// Collect TaskSpawner data.
-	var spawners kelosv1alpha1.TaskSpawnerList
+	var spawners kelos.TaskSpawnerList
 	if err := c.List(ctx, &spawners); err != nil {
 		return nil, fmt.Errorf("listing task spawners: %w", err)
 	}
@@ -211,7 +210,7 @@ func collect(ctx context.Context, c client.Client, clientset kubernetes.Interfac
 	}
 
 	// Collect Workspace data.
-	var workspaces kelosv1alpha1.WorkspaceList
+	var workspaces kelos.WorkspaceList
 	if err := c.List(ctx, &workspaces); err != nil {
 		return nil, fmt.Errorf("listing workspaces: %w", err)
 	}

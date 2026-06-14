@@ -16,7 +16,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/rand"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
+	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 )
 
 // credentialNone is a reserved value for apiKey or oauthToken in the config
@@ -170,12 +170,12 @@ func newRunCommand(cfg *ClientConfig) *cobra.Command {
 					}
 
 					wsName := "kelos-workspace"
-					ws := &kelosv1alpha1.Workspace{
+					ws := &kelos.Workspace{
 						ObjectMeta: metav1.ObjectMeta{
 							Name:      wsName,
 							Namespace: ns,
 						},
-						Spec: kelosv1alpha1.WorkspaceSpec{
+						Spec: kelos.WorkspaceSpec{
 							Repo: wsCfg.Repo,
 							Ref:  wsCfg.Ref,
 						},
@@ -184,14 +184,14 @@ func newRunCommand(cfg *ClientConfig) *cobra.Command {
 						if err := ensureCredentialSecret(cfg, "kelos-workspace-credentials", "GITHUB_TOKEN", wsCfg.Token, yes); err != nil {
 							return err
 						}
-						ws.Spec.SecretRef = &kelosv1alpha1.SecretReference{
+						ws.Spec.SecretRef = &kelos.SecretReference{
 							Name: "kelos-workspace-credentials",
 						}
 					} else if wsCfg.GitHubApp != nil {
 						if err := ensureGitHubAppSecret(cfg, "kelos-workspace-credentials", wsCfg.GitHubApp, yes); err != nil {
 							return err
 						}
-						ws.Spec.SecretRef = &kelosv1alpha1.SecretReference{
+						ws.Spec.SecretRef = &kelos.SecretReference{
 							Name: "kelos-workspace-credentials",
 						}
 					}
@@ -200,7 +200,7 @@ func newRunCommand(cfg *ClientConfig) *cobra.Command {
 						if !apierrors.IsAlreadyExists(err) {
 							return fmt.Errorf("creating workspace: %w", err)
 						}
-						existing := &kelosv1alpha1.Workspace{}
+						existing := &kelos.Workspace{}
 						if err := cl.Get(ctx, client.ObjectKey{Name: wsName, Namespace: ns}, existing); err != nil {
 							return fmt.Errorf("fetching existing workspace: %w", err)
 						}
@@ -228,19 +228,19 @@ func newRunCommand(cfg *ClientConfig) *cobra.Command {
 				name = "task-" + rand.String(5)
 			}
 
-			creds := kelosv1alpha1.Credentials{
-				Type: kelosv1alpha1.CredentialType(credentialType),
+			creds := kelos.Credentials{
+				Type: kelos.CredentialType(credentialType),
 			}
 			if secret != "" {
-				creds.SecretRef = &kelosv1alpha1.SecretReference{Name: secret}
+				creds.SecretRef = &kelos.SecretReference{Name: secret}
 			}
 
-			task := &kelosv1alpha1.Task{
+			task := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      name,
 					Namespace: ns,
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:        agentType,
 					Prompt:      prompt,
 					Credentials: creds,
@@ -258,25 +258,21 @@ func newRunCommand(cfg *ClientConfig) *cobra.Command {
 			}
 
 			if workspace != "" {
-				task.Spec.WorkspaceRef = &kelosv1alpha1.WorkspaceReference{
+				task.Spec.WorkspaceRef = &kelos.WorkspaceReference{
 					Name: workspace,
 				}
 			}
 
-			if len(agentConfigRefs) == 1 {
-				task.Spec.AgentConfigRef = &kelosv1alpha1.AgentConfigReference{
-					Name: agentConfigRefs[0],
-				}
-			} else if len(agentConfigRefs) > 1 {
+			if len(agentConfigRefs) > 0 {
 				for _, name := range agentConfigRefs {
-					task.Spec.AgentConfigRefs = append(task.Spec.AgentConfigRefs, kelosv1alpha1.AgentConfigReference{
+					task.Spec.AgentConfigRefs = append(task.Spec.AgentConfigRefs, kelos.AgentConfigReference{
 						Name: name,
 					})
 				}
 			}
 
 			// Build PodOverrides from --timeout and --env flags.
-			var po *kelosv1alpha1.PodOverrides
+			var po *kelos.PodOverrides
 			if timeout != "" {
 				d, err := time.ParseDuration(timeout)
 				if err != nil {
@@ -287,13 +283,13 @@ func newRunCommand(cfg *ClientConfig) *cobra.Command {
 					return fmt.Errorf("--timeout must be at least 1s")
 				}
 				if po == nil {
-					po = &kelosv1alpha1.PodOverrides{}
+					po = &kelos.PodOverrides{}
 				}
 				po.ActiveDeadlineSeconds = &secs
 			}
 			if len(envFlags) > 0 {
 				if po == nil {
-					po = &kelosv1alpha1.PodOverrides{}
+					po = &kelos.PodOverrides{}
 				}
 				for _, e := range envFlags {
 					parts := strings.SplitN(e, "=", 2)
@@ -310,7 +306,7 @@ func newRunCommand(cfg *ClientConfig) *cobra.Command {
 				task.Spec.PodOverrides = po
 			}
 
-			task.SetGroupVersionKind(kelosv1alpha1.GroupVersion.WithKind("Task"))
+			task.SetGroupVersionKind(kelos.GroupVersion.WithKind("Task"))
 
 			if dryRun {
 				return printYAML(os.Stdout, task)
@@ -357,9 +353,9 @@ func newRunCommand(cfg *ClientConfig) *cobra.Command {
 }
 
 func watchTask(ctx context.Context, cl client.Client, name, namespace string, out, errOut io.Writer) error {
-	var lastPhase kelosv1alpha1.TaskPhase
+	var lastPhase kelos.TaskPhase
 	for {
-		task := &kelosv1alpha1.Task{}
+		task := &kelos.Task{}
 		if err := cl.Get(ctx, client.ObjectKey{Name: name, Namespace: namespace}, task); err != nil {
 			return fmt.Errorf("getting task: %w", err)
 		}
@@ -370,9 +366,9 @@ func watchTask(ctx context.Context, cl client.Client, name, namespace string, ou
 		}
 
 		switch task.Status.Phase {
-		case kelosv1alpha1.TaskPhaseSucceeded:
+		case kelos.TaskPhaseSucceeded:
 			return nil
-		case kelosv1alpha1.TaskPhaseFailed:
+		case kelos.TaskPhaseFailed:
 			fmt.Fprintf(errOut, "Run 'kelos logs %s' to view agent output, or 'kelos get tasks %s -d' for details.\n", name, name)
 			return fmt.Errorf("task %s failed", name)
 		}

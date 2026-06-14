@@ -21,7 +21,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 
-	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
+	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 	kelosclientset "github.com/kelos-dev/kelos/pkg/generated/clientset/versioned"
 )
 
@@ -128,7 +128,7 @@ func (f *Framework) collectDebugInfo() {
 	ctx := context.TODO()
 
 	// List tasks
-	tasks, err := f.KelosClientset.ApiV1alpha1().Tasks(f.Namespace).List(ctx, metav1.ListOptions{})
+	tasks, err := f.KelosClientset.ApiV1alpha2().Tasks(f.Namespace).List(ctx, metav1.ListOptions{})
 	if err == nil {
 		for _, t := range tasks.Items {
 			fmt.Fprintf(GinkgoWriter, "Task %s: phase=%s\n", t.Name, t.Status.Phase)
@@ -136,7 +136,7 @@ func (f *Framework) collectDebugInfo() {
 	}
 
 	// List taskspawners
-	spawners, err := f.KelosClientset.ApiV1alpha1().TaskSpawners(f.Namespace).List(ctx, metav1.ListOptions{})
+	spawners, err := f.KelosClientset.ApiV1alpha2().TaskSpawners(f.Namespace).List(ctx, metav1.ListOptions{})
 	if err == nil {
 		for _, s := range spawners.Items {
 			fmt.Fprintf(GinkgoWriter, "TaskSpawner %s: phase=%s\n", s.Name, s.Status.Phase)
@@ -218,47 +218,47 @@ func (f *Framework) CreateSecret(name string, literals ...string) {
 }
 
 // CreateTask creates a Task in the test namespace using the kelos clientset.
-func (f *Framework) CreateTask(task *kelosv1alpha1.Task) {
+func (f *Framework) CreateTask(task *kelos.Task) {
 	if task.Namespace == "" {
 		task.Namespace = f.Namespace
 	}
-	_, err := f.KelosClientset.ApiV1alpha1().Tasks(task.Namespace).Create(context.TODO(), task, metav1.CreateOptions{})
+	_, err := f.KelosClientset.ApiV1alpha2().Tasks(task.Namespace).Create(context.TODO(), task, metav1.CreateOptions{})
 	Expect(err).NotTo(HaveOccurred(), "Failed to create task %s", task.Name)
 }
 
 // CreateWorkspace creates a Workspace in the test namespace using the kelos clientset.
-func (f *Framework) CreateWorkspace(ws *kelosv1alpha1.Workspace) {
+func (f *Framework) CreateWorkspace(ws *kelos.Workspace) {
 	if ws.Namespace == "" {
 		ws.Namespace = f.Namespace
 	}
-	_, err := f.KelosClientset.ApiV1alpha1().Workspaces(ws.Namespace).Create(context.TODO(), ws, metav1.CreateOptions{})
+	_, err := f.KelosClientset.ApiV1alpha2().Workspaces(ws.Namespace).Create(context.TODO(), ws, metav1.CreateOptions{})
 	Expect(err).NotTo(HaveOccurred(), "Failed to create workspace %s", ws.Name)
 }
 
 // CreateTaskSpawner creates a TaskSpawner in the test namespace using the kelos clientset.
-func (f *Framework) CreateTaskSpawner(ts *kelosv1alpha1.TaskSpawner) {
+func (f *Framework) CreateTaskSpawner(ts *kelos.TaskSpawner) {
 	if ts.Namespace == "" {
 		ts.Namespace = f.Namespace
 	}
-	_, err := f.KelosClientset.ApiV1alpha1().TaskSpawners(ts.Namespace).Create(context.TODO(), ts, metav1.CreateOptions{})
+	_, err := f.KelosClientset.ApiV1alpha2().TaskSpawners(ts.Namespace).Create(context.TODO(), ts, metav1.CreateOptions{})
 	Expect(err).NotTo(HaveOccurred(), "Failed to create taskspawner %s", ts.Name)
 }
 
 // DeleteTask deletes a Task by name from the test namespace using the kelos clientset.
 func (f *Framework) DeleteTask(name string) {
-	err := f.KelosClientset.ApiV1alpha1().Tasks(f.Namespace).Delete(context.TODO(), name, metav1.DeleteOptions{})
+	err := f.KelosClientset.ApiV1alpha2().Tasks(f.Namespace).Delete(context.TODO(), name, metav1.DeleteOptions{})
 	Expect(err).NotTo(HaveOccurred(), "Failed to delete task %s", name)
 }
 
 // DeleteWorkspace deletes a Workspace by name from the test namespace using the kelos clientset.
 func (f *Framework) DeleteWorkspace(name string) {
-	err := f.KelosClientset.ApiV1alpha1().Workspaces(f.Namespace).Delete(context.TODO(), name, metav1.DeleteOptions{})
+	err := f.KelosClientset.ApiV1alpha2().Workspaces(f.Namespace).Delete(context.TODO(), name, metav1.DeleteOptions{})
 	Expect(err).NotTo(HaveOccurred(), "Failed to delete workspace %s", name)
 }
 
 // DeleteTaskSpawner deletes a TaskSpawner by name from the test namespace using the kelos clientset.
 func (f *Framework) DeleteTaskSpawner(name string) {
-	err := f.KelosClientset.ApiV1alpha1().TaskSpawners(f.Namespace).Delete(context.TODO(), name, metav1.DeleteOptions{})
+	err := f.KelosClientset.ApiV1alpha2().TaskSpawners(f.Namespace).Delete(context.TODO(), name, metav1.DeleteOptions{})
 	Expect(err).NotTo(HaveOccurred(), "Failed to delete taskspawner %s", name)
 }
 
@@ -343,7 +343,7 @@ func cloneStringMap(in map[string]string) map[string]string {
 
 // GetTaskPhase returns the phase of a Task.
 func (f *Framework) GetTaskPhase(name string) string {
-	task, err := f.KelosClientset.ApiV1alpha1().Tasks(f.Namespace).Get(context.TODO(), name, metav1.GetOptions{})
+	task, err := f.KelosClientset.ApiV1alpha2().Tasks(f.Namespace).Get(context.TODO(), name, metav1.GetOptions{})
 	Expect(err).NotTo(HaveOccurred(), "Failed to get task %s", name)
 	return string(task.Status.Phase)
 }
@@ -353,7 +353,7 @@ func (f *Framework) GetTaskPhase(name string) string {
 // transitions, so callers must poll rather than read once.
 func (f *Framework) WaitForTaskPhase(name, phase string) {
 	Eventually(func() string {
-		task, err := f.KelosClientset.ApiV1alpha1().Tasks(f.Namespace).Get(context.TODO(), name, metav1.GetOptions{})
+		task, err := f.KelosClientset.ApiV1alpha2().Tasks(f.Namespace).Get(context.TODO(), name, metav1.GetOptions{})
 		if err != nil {
 			return ""
 		}
@@ -363,28 +363,28 @@ func (f *Framework) WaitForTaskPhase(name, phase string) {
 
 // GetTaskOutputs returns the outputs of a Task as a joined string.
 func (f *Framework) GetTaskOutputs(name string) string {
-	task, err := f.KelosClientset.ApiV1alpha1().Tasks(f.Namespace).Get(context.TODO(), name, metav1.GetOptions{})
+	task, err := f.KelosClientset.ApiV1alpha2().Tasks(f.Namespace).Get(context.TODO(), name, metav1.GetOptions{})
 	Expect(err).NotTo(HaveOccurred(), "Failed to get task %s", name)
 	return strings.Join(task.Status.Outputs, "\n")
 }
 
 // GetTaskResults returns the Results map of a Task.
 func (f *Framework) GetTaskResults(name string) map[string]string {
-	task, err := f.KelosClientset.ApiV1alpha1().Tasks(f.Namespace).Get(context.TODO(), name, metav1.GetOptions{})
+	task, err := f.KelosClientset.ApiV1alpha2().Tasks(f.Namespace).Get(context.TODO(), name, metav1.GetOptions{})
 	Expect(err).NotTo(HaveOccurred(), "Failed to get task %s", name)
 	return task.Status.Results
 }
 
 // GetTaskSpawnerPhase returns the phase of a TaskSpawner.
 func (f *Framework) GetTaskSpawnerPhase(name string) string {
-	ts, err := f.KelosClientset.ApiV1alpha1().TaskSpawners(f.Namespace).Get(context.TODO(), name, metav1.GetOptions{})
+	ts, err := f.KelosClientset.ApiV1alpha2().TaskSpawners(f.Namespace).Get(context.TODO(), name, metav1.GetOptions{})
 	Expect(err).NotTo(HaveOccurred(), "Failed to get taskspawner %s", name)
 	return string(ts.Status.Phase)
 }
 
 // ListTaskNames returns the names of all Tasks matching the given label selector.
 func (f *Framework) ListTaskNames(labelSelector string) []string {
-	tasks, err := f.KelosClientset.ApiV1alpha1().Tasks(f.Namespace).List(context.TODO(), metav1.ListOptions{
+	tasks, err := f.KelosClientset.ApiV1alpha2().Tasks(f.Namespace).List(context.TODO(), metav1.ListOptions{
 		LabelSelector: labelSelector,
 	})
 	Expect(err).NotTo(HaveOccurred(), "Failed to list tasks")

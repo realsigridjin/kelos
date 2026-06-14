@@ -11,7 +11,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
+	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 )
 
 func TestResolveTaskPodName(t *testing.T) {
@@ -19,16 +19,16 @@ func TestResolveTaskPodName(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		task    *kelosv1alpha1.Task
+		task    *kelos.Task
 		objects []client.Object
 		want    string
 		wantErr bool
 	}{
 		{
 			name: "uses newest live pod",
-			task: &kelosv1alpha1.Task{
+			task: &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{Name: "task-1", Namespace: "default"},
-				Status: kelosv1alpha1.TaskStatus{
+				Status: kelos.TaskStatus{
 					PodName: "task-pod-old",
 				},
 			},
@@ -58,11 +58,11 @@ func TestResolveTaskPodName(t *testing.T) {
 		},
 		{
 			name: "returns empty when no live pod remains",
-			task: &kelosv1alpha1.Task{
+			task: &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{Name: "task-1", Namespace: "default"},
-				Status: kelosv1alpha1.TaskStatus{
+				Status: kelos.TaskStatus{
 					PodName: "task-pod-old",
-					Phase:   kelosv1alpha1.TaskPhaseFailed,
+					Phase:   kelos.TaskPhaseFailed,
 				},
 			},
 			want: "",
@@ -90,13 +90,13 @@ func TestResolveTaskPodName(t *testing.T) {
 
 func TestIsTerminalTaskPhase(t *testing.T) {
 	tests := []struct {
-		phase kelosv1alpha1.TaskPhase
+		phase kelos.TaskPhase
 		want  bool
 	}{
-		{phase: kelosv1alpha1.TaskPhasePending, want: false},
-		{phase: kelosv1alpha1.TaskPhaseRunning, want: false},
-		{phase: kelosv1alpha1.TaskPhaseSucceeded, want: true},
-		{phase: kelosv1alpha1.TaskPhaseFailed, want: true},
+		{phase: kelos.TaskPhasePending, want: false},
+		{phase: kelos.TaskPhaseRunning, want: false},
+		{phase: kelos.TaskPhaseSucceeded, want: true},
+		{phase: kelos.TaskPhaseFailed, want: true},
 	}
 
 	for _, tt := range tests {
@@ -107,10 +107,10 @@ func TestIsTerminalTaskPhase(t *testing.T) {
 }
 
 func TestResolveTaskPodNameAfterWait(t *testing.T) {
-	task := &kelosv1alpha1.Task{
+	task := &kelos.Task{
 		ObjectMeta: metav1.ObjectMeta{Name: "task-1", Namespace: "default"},
-		Status: kelosv1alpha1.TaskStatus{
-			Phase:   kelosv1alpha1.TaskPhaseRunning,
+		Status: kelos.TaskStatus{
+			Phase:   kelos.TaskPhaseRunning,
 			PodName: "task-pod-old",
 		},
 	}

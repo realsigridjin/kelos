@@ -8,7 +8,7 @@ import (
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
+	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 	"github.com/kelos-dev/kelos/test/e2e/framework"
 )
 
@@ -27,17 +27,17 @@ func describeAgentTests(cfg agentTestConfig) {
 			f.CreateSecret(cfg.SecretName, cfg.SecretKey+"="+*cfg.SecretValue)
 
 			By("creating a Task")
-			f.CreateTask(&kelosv1alpha1.Task{
+			f.CreateTask(&kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "basic-task",
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   cfg.AgentType,
 					Model:  cfg.Model,
 					Prompt: "Print 'Hello from Kelos e2e test' to stdout",
-					Credentials: kelosv1alpha1.Credentials{
+					Credentials: kelos.Credentials{
 						Type:      cfg.CredentialType,
-						SecretRef: &kelosv1alpha1.SecretReference{Name: cfg.SecretName},
+						SecretRef: &kelos.SecretReference{Name: cfg.SecretName},
 					},
 				},
 			})
@@ -71,30 +71,30 @@ func describeAgentTests(cfg agentTestConfig) {
 			f.CreateSecret(cfg.SecretName, cfg.SecretKey+"="+*cfg.SecretValue)
 
 			By("creating a Workspace resource")
-			f.CreateWorkspace(&kelosv1alpha1.Workspace{
+			f.CreateWorkspace(&kelos.Workspace{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "e2e-workspace",
 				},
-				Spec: kelosv1alpha1.WorkspaceSpec{
+				Spec: kelos.WorkspaceSpec{
 					Repo: "https://github.com/kelos-dev/kelos.git",
 					Ref:  "main",
 				},
 			})
 
 			By("creating a Task with workspace ref")
-			f.CreateTask(&kelosv1alpha1.Task{
+			f.CreateTask(&kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "ws-task",
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   cfg.AgentType,
 					Model:  cfg.Model,
 					Prompt: "Create a file called 'test.txt' with the content 'hello' in the current directory and print 'done'",
-					Credentials: kelosv1alpha1.Credentials{
+					Credentials: kelos.Credentials{
 						Type:      cfg.CredentialType,
-						SecretRef: &kelosv1alpha1.SecretReference{Name: cfg.SecretName},
+						SecretRef: &kelos.SecretReference{Name: cfg.SecretName},
 					},
-					WorkspaceRef: &kelosv1alpha1.WorkspaceReference{Name: "e2e-workspace"},
+					WorkspaceRef: &kelos.WorkspaceReference{Name: "e2e-workspace"},
 				},
 			})
 
@@ -132,30 +132,30 @@ func describeAgentTests(cfg agentTestConfig) {
 			f.CreateSecret(cfg.SecretName, cfg.SecretKey+"="+*cfg.SecretValue)
 
 			By("creating a Workspace resource")
-			f.CreateWorkspace(&kelosv1alpha1.Workspace{
+			f.CreateWorkspace(&kelos.Workspace{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "e2e-outputs-workspace",
 				},
-				Spec: kelosv1alpha1.WorkspaceSpec{
+				Spec: kelos.WorkspaceSpec{
 					Repo: "https://github.com/kelos-dev/kelos.git",
 					Ref:  "main",
 				},
 			})
 
 			By("creating a Task with workspace ref")
-			f.CreateTask(&kelosv1alpha1.Task{
+			f.CreateTask(&kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "outputs-task",
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   cfg.AgentType,
 					Model:  cfg.Model,
 					Prompt: "Print 'hello' to stdout",
-					Credentials: kelosv1alpha1.Credentials{
+					Credentials: kelos.Credentials{
 						Type:      cfg.CredentialType,
-						SecretRef: &kelosv1alpha1.SecretReference{Name: cfg.SecretName},
+						SecretRef: &kelos.SecretReference{Name: cfg.SecretName},
 					},
-					WorkspaceRef: &kelosv1alpha1.WorkspaceReference{Name: "e2e-outputs-workspace"},
+					WorkspaceRef: &kelos.WorkspaceReference{Name: "e2e-outputs-workspace"},
 				},
 			})
 
@@ -226,34 +226,34 @@ func describeAgentTests(cfg agentTestConfig) {
 			f.CreateSecret(cfg.SecretName, cfg.SecretKey+"="+*cfg.SecretValue)
 
 			By("creating Task A")
-			f.CreateTask(&kelosv1alpha1.Task{
+			f.CreateTask(&kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "dep-chain-a",
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   cfg.AgentType,
 					Model:  cfg.Model,
 					Prompt: "Print 'Task A done' to stdout",
-					Credentials: kelosv1alpha1.Credentials{
+					Credentials: kelos.Credentials{
 						Type:      cfg.CredentialType,
-						SecretRef: &kelosv1alpha1.SecretReference{Name: cfg.SecretName},
+						SecretRef: &kelos.SecretReference{Name: cfg.SecretName},
 					},
 				},
 			})
 
 			By("creating Task B that depends on Task A")
-			f.CreateTask(&kelosv1alpha1.Task{
+			f.CreateTask(&kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "dep-chain-b",
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:      cfg.AgentType,
 					Model:     cfg.Model,
 					Prompt:    "Print 'Task B done' to stdout",
 					DependsOn: []string{"dep-chain-a"},
-					Credentials: kelosv1alpha1.Credentials{
+					Credentials: kelos.Credentials{
 						Type:      cfg.CredentialType,
-						SecretRef: &kelosv1alpha1.SecretReference{Name: cfg.SecretName},
+						SecretRef: &kelos.SecretReference{Name: cfg.SecretName},
 					},
 				},
 			})
@@ -287,17 +287,17 @@ func describeAgentTests(cfg agentTestConfig) {
 			f.CreateSecret(cfg.SecretName, cfg.SecretKey+"="+*cfg.SecretValue)
 
 			By("creating a Task")
-			f.CreateTask(&kelosv1alpha1.Task{
+			f.CreateTask(&kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "cleanup-task",
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:   cfg.AgentType,
 					Model:  cfg.Model,
 					Prompt: "Print 'Hello' to stdout",
-					Credentials: kelosv1alpha1.Credentials{
+					Credentials: kelos.Credentials{
 						Type:      cfg.CredentialType,
-						SecretRef: &kelosv1alpha1.SecretReference{Name: cfg.SecretName},
+						SecretRef: &kelos.SecretReference{Name: cfg.SecretName},
 					},
 				},
 			})
@@ -335,17 +335,17 @@ var _ = Describe("Task with make available", func() {
 			"CLAUDE_CODE_OAUTH_TOKEN="+oauthToken)
 
 		By("creating a Task that uses make")
-		f.CreateTask(&kelosv1alpha1.Task{
+		f.CreateTask(&kelos.Task{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "make-task",
 			},
-			Spec: kelosv1alpha1.TaskSpec{
+			Spec: kelos.TaskSpec{
 				Type:   "claude-code",
 				Model:  claudeCodeModel,
 				Prompt: "Run 'make --version' and print the output",
-				Credentials: kelosv1alpha1.Credentials{
-					Type:      kelosv1alpha1.CredentialTypeOAuth,
-					SecretRef: &kelosv1alpha1.SecretReference{Name: "claude-credentials"},
+				Credentials: kelos.Credentials{
+					Type:      kelos.CredentialTypeOAuth,
+					SecretRef: &kelos.SecretReference{Name: "claude-credentials"},
 				},
 			},
 		})
@@ -387,31 +387,31 @@ var _ = Describe("Task with workspace and secretRef", func() {
 			"GITHUB_TOKEN="+githubToken)
 
 		By("creating a Workspace resource with secretRef")
-		f.CreateWorkspace(&kelosv1alpha1.Workspace{
+		f.CreateWorkspace(&kelos.Workspace{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "e2e-github-workspace",
 			},
-			Spec: kelosv1alpha1.WorkspaceSpec{
+			Spec: kelos.WorkspaceSpec{
 				Repo:      "https://github.com/kelos-dev/kelos.git",
 				Ref:       "main",
-				SecretRef: &kelosv1alpha1.SecretReference{Name: "workspace-credentials"},
+				SecretRef: &kelos.SecretReference{Name: "workspace-credentials"},
 			},
 		})
 
 		By("creating a Task with workspace ref")
-		f.CreateTask(&kelosv1alpha1.Task{
+		f.CreateTask(&kelos.Task{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "github-task",
 			},
-			Spec: kelosv1alpha1.TaskSpec{
+			Spec: kelos.TaskSpec{
 				Type:   "claude-code",
 				Model:  claudeCodeModel,
 				Prompt: "Run 'gh auth status' and print the output",
-				Credentials: kelosv1alpha1.Credentials{
-					Type:      kelosv1alpha1.CredentialTypeOAuth,
-					SecretRef: &kelosv1alpha1.SecretReference{Name: "claude-credentials"},
+				Credentials: kelos.Credentials{
+					Type:      kelos.CredentialTypeOAuth,
+					SecretRef: &kelos.SecretReference{Name: "claude-credentials"},
 				},
-				WorkspaceRef: &kelosv1alpha1.WorkspaceReference{Name: "e2e-github-workspace"},
+				WorkspaceRef: &kelos.WorkspaceReference{Name: "e2e-github-workspace"},
 			},
 		})
 

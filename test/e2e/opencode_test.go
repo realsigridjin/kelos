@@ -4,7 +4,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
+	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 	"github.com/kelos-dev/kelos/test/e2e/framework"
 )
 
@@ -20,17 +20,17 @@ var _ = Describe("OpenCode Task", func() {
 			"OPENCODE_API_KEY=")
 
 		By("creating an OpenCode Task")
-		f.CreateTask(&kelosv1alpha1.Task{
+		f.CreateTask(&kelos.Task{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "opencode-task",
 			},
-			Spec: kelosv1alpha1.TaskSpec{
+			Spec: kelos.TaskSpec{
 				Type:   "opencode",
 				Model:  openCodeTestModel,
 				Prompt: "Print 'Hello from OpenCode e2e test' to stdout",
-				Credentials: kelosv1alpha1.Credentials{
-					Type:      kelosv1alpha1.CredentialTypeAPIKey,
-					SecretRef: &kelosv1alpha1.SecretReference{Name: "opencode-credentials"},
+				Credentials: kelos.Credentials{
+					Type:      kelos.CredentialTypeAPIKey,
+					SecretRef: &kelos.SecretReference{Name: "opencode-credentials"},
 				},
 			},
 		})

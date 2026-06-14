@@ -11,7 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
+	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 	"github.com/kelos-dev/kelos/internal/cli"
 )
 
@@ -44,7 +44,7 @@ var _ = Describe("CLI Workspace Commands", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying the workspace exists in the cluster")
-			ws := &kelosv1alpha1.Workspace{}
+			ws := &kelos.Workspace{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "my-ws", Namespace: ns.Name}, ws)).To(Succeed())
 			Expect(ws.Spec.Repo).To(Equal("https://github.com/org/repo.git"))
 			Expect(ws.Spec.Ref).To(Equal("main"))
@@ -96,7 +96,7 @@ var _ = Describe("CLI Workspace Commands", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying the workspace has secretRef")
-			ws := &kelosv1alpha1.Workspace{}
+			ws := &kelos.Workspace{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "secret-ws", Namespace: ns.Name}, ws)).To(Succeed())
 			Expect(ws.Spec.SecretRef).NotTo(BeNil())
 			Expect(ws.Spec.SecretRef.Name).To(Equal("my-gh-secret"))
@@ -123,7 +123,7 @@ var _ = Describe("CLI Workspace Commands", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying workspace exists")
-			ws := &kelosv1alpha1.Workspace{}
+			ws := &kelos.Workspace{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "alias-ws", Namespace: ns.Name}, ws)).To(Succeed())
 
 			By("Getting workspace using 'ws' alias succeeds")
@@ -152,12 +152,12 @@ var _ = Describe("CLI Workspace Commands", func() {
 
 			By("Creating workspaces")
 			for _, name := range []string{"ws-alpha", "ws-beta"} {
-				ws := &kelosv1alpha1.Workspace{
+				ws := &kelos.Workspace{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      name,
 						Namespace: ns.Name,
 					},
-					Spec: kelosv1alpha1.WorkspaceSpec{
+					Spec: kelos.WorkspaceSpec{
 						Repo: "https://github.com/org/repo.git",
 					},
 				}
@@ -188,17 +188,17 @@ var _ = Describe("CLI Delete All Commands", func() {
 
 			By("Creating multiple tasks directly")
 			for _, name := range []string{"task-a", "task-b", "task-c"} {
-				task := &kelosv1alpha1.Task{
+				task := &kelos.Task{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      name,
 						Namespace: ns.Name,
 					},
-					Spec: kelosv1alpha1.TaskSpec{
+					Spec: kelos.TaskSpec{
 						Type:   "claude-code",
 						Prompt: "test",
-						Credentials: kelosv1alpha1.Credentials{
-							Type: kelosv1alpha1.CredentialTypeAPIKey,
-							SecretRef: &kelosv1alpha1.SecretReference{
+						Credentials: kelos.Credentials{
+							Type: kelos.CredentialTypeAPIKey,
+							SecretRef: &kelos.SecretReference{
 								Name: "test-secret",
 							},
 						},
@@ -213,7 +213,7 @@ var _ = Describe("CLI Delete All Commands", func() {
 
 			By("Verifying all tasks are deleted")
 			Eventually(func() int {
-				taskList := &kelosv1alpha1.TaskList{}
+				taskList := &kelos.TaskList{}
 				Expect(k8sClient.List(ctx, taskList, client.InNamespace(ns.Name))).To(Succeed())
 				count := 0
 				for _, t := range taskList.Items {
@@ -240,12 +240,12 @@ var _ = Describe("CLI Delete All Commands", func() {
 
 			By("Creating multiple workspaces directly")
 			for _, name := range []string{"ws-a", "ws-b"} {
-				ws := &kelosv1alpha1.Workspace{
+				ws := &kelos.Workspace{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      name,
 						Namespace: ns.Name,
 					},
-					Spec: kelosv1alpha1.WorkspaceSpec{
+					Spec: kelos.WorkspaceSpec{
 						Repo: "https://github.com/org/repo.git",
 					},
 				}
@@ -258,7 +258,7 @@ var _ = Describe("CLI Delete All Commands", func() {
 
 			By("Verifying all workspaces are deleted")
 			Eventually(func() int {
-				wsList := &kelosv1alpha1.WorkspaceList{}
+				wsList := &kelos.WorkspaceList{}
 				Expect(k8sClient.List(ctx, wsList, client.InNamespace(ns.Name))).To(Succeed())
 				return len(wsList.Items)
 			}, 10*time.Second, 250*time.Millisecond).Should(Equal(0))
@@ -279,17 +279,17 @@ var _ = Describe("CLI Delete All Commands", func() {
 
 			By("Creating multiple task spawners directly")
 			for _, name := range []string{"ts-a", "ts-b"} {
-				ts := &kelosv1alpha1.TaskSpawner{
+				ts := &kelos.TaskSpawner{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      name,
 						Namespace: ns.Name,
 					},
-					Spec: kelosv1alpha1.TaskSpawnerSpec{
-						TaskTemplate: kelosv1alpha1.TaskTemplate{
+					Spec: kelos.TaskSpawnerSpec{
+						TaskTemplate: kelos.TaskTemplate{
 							Type: "claude-code",
-							Credentials: kelosv1alpha1.Credentials{
-								Type: kelosv1alpha1.CredentialTypeAPIKey,
-								SecretRef: &kelosv1alpha1.SecretReference{
+							Credentials: kelos.Credentials{
+								Type: kelos.CredentialTypeAPIKey,
+								SecretRef: &kelos.SecretReference{
 									Name: "test-secret",
 								},
 							},
@@ -305,7 +305,7 @@ var _ = Describe("CLI Delete All Commands", func() {
 
 			By("Verifying all task spawners are deleted")
 			Eventually(func() bool {
-				tsList := &kelosv1alpha1.TaskSpawnerList{}
+				tsList := &kelos.TaskSpawnerList{}
 				Expect(k8sClient.List(ctx, tsList, client.InNamespace(ns.Name))).To(Succeed())
 				for _, ts := range tsList.Items {
 					if ts.DeletionTimestamp == nil {
@@ -369,17 +369,17 @@ var _ = Describe("CLI Delete TaskSpawner Command", func() {
 			Expect(k8sClient.Create(ctx, ns)).Should(Succeed())
 
 			By("Creating a TaskSpawner directly")
-			ts := &kelosv1alpha1.TaskSpawner{
+			ts := &kelos.TaskSpawner{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "my-spawner",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpawnerSpec{
-					TaskTemplate: kelosv1alpha1.TaskTemplate{
+				Spec: kelos.TaskSpawnerSpec{
+					TaskTemplate: kelos.TaskTemplate{
 						Type: "claude-code",
-						Credentials: kelosv1alpha1.Credentials{
-							Type: kelosv1alpha1.CredentialTypeAPIKey,
-							SecretRef: &kelosv1alpha1.SecretReference{
+						Credentials: kelos.Credentials{
+							Type: kelos.CredentialTypeAPIKey,
+							SecretRef: &kelos.SecretReference{
 								Name: "test-secret",
 							},
 						},
@@ -396,7 +396,7 @@ var _ = Describe("CLI Delete TaskSpawner Command", func() {
 
 			By("Verifying the task spawner is deleted")
 			Eventually(func() bool {
-				ts2 := &kelosv1alpha1.TaskSpawner{}
+				ts2 := &kelos.TaskSpawner{}
 				err := k8sClient.Get(ctx, types.NamespacedName{Name: "my-spawner", Namespace: ns.Name}, ts2)
 				if err == nil {
 					return ts2.DeletionTimestamp != nil
@@ -417,17 +417,17 @@ var _ = Describe("CLI Delete TaskSpawner Command", func() {
 			Expect(k8sClient.Create(ctx, ns)).Should(Succeed())
 
 			By("Creating a TaskSpawner directly")
-			ts := &kelosv1alpha1.TaskSpawner{
+			ts := &kelos.TaskSpawner{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "alias-spawner",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpawnerSpec{
-					TaskTemplate: kelosv1alpha1.TaskTemplate{
+				Spec: kelos.TaskSpawnerSpec{
+					TaskTemplate: kelos.TaskTemplate{
 						Type: "claude-code",
-						Credentials: kelosv1alpha1.Credentials{
-							Type: kelosv1alpha1.CredentialTypeAPIKey,
-							SecretRef: &kelosv1alpha1.SecretReference{
+						Credentials: kelos.Credentials{
+							Type: kelos.CredentialTypeAPIKey,
+							SecretRef: &kelos.SecretReference{
 								Name: "test-secret",
 							},
 						},
@@ -444,7 +444,7 @@ var _ = Describe("CLI Delete TaskSpawner Command", func() {
 
 			By("Verifying the task spawner is deleted")
 			Eventually(func() bool {
-				ts2 := &kelosv1alpha1.TaskSpawner{}
+				ts2 := &kelos.TaskSpawner{}
 				err := k8sClient.Get(ctx, types.NamespacedName{Name: "alias-spawner", Namespace: ns.Name}, ts2)
 				if err == nil {
 					return ts2.DeletionTimestamp != nil
@@ -465,17 +465,17 @@ var _ = Describe("CLI Delete TaskSpawner Command", func() {
 			Expect(k8sClient.Create(ctx, ns)).Should(Succeed())
 
 			By("Creating a TaskSpawner")
-			ts := &kelosv1alpha1.TaskSpawner{
+			ts := &kelos.TaskSpawner{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "spawner-del",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpawnerSpec{
-					TaskTemplate: kelosv1alpha1.TaskTemplate{
+				Spec: kelos.TaskSpawnerSpec{
+					TaskTemplate: kelos.TaskTemplate{
 						Type: "claude-code",
-						Credentials: kelosv1alpha1.Credentials{
-							Type: kelosv1alpha1.CredentialTypeAPIKey,
-							SecretRef: &kelosv1alpha1.SecretReference{
+						Credentials: kelos.Credentials{
+							Type: kelos.CredentialTypeAPIKey,
+							SecretRef: &kelos.SecretReference{
 								Name: "test-secret",
 							},
 						},
@@ -502,12 +502,12 @@ var _ = Describe("CLI Delete TaskSpawner Command", func() {
 			Expect(k8sClient.Create(ctx, ns)).Should(Succeed())
 
 			By("Creating a Workspace")
-			ws := &kelosv1alpha1.Workspace{
+			ws := &kelos.Workspace{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "ws-del",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.WorkspaceSpec{
+				Spec: kelos.WorkspaceSpec{
 					Repo: "https://github.com/org/repo.git",
 				},
 			}
@@ -533,17 +533,17 @@ var _ = Describe("CLI Suspend/Resume Commands", func() {
 			Expect(k8sClient.Create(ctx, ns)).Should(Succeed())
 
 			By("Creating a TaskSpawner")
-			ts := &kelosv1alpha1.TaskSpawner{
+			ts := &kelos.TaskSpawner{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "cli-suspend-spawner",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpawnerSpec{
-					TaskTemplate: kelosv1alpha1.TaskTemplate{
+				Spec: kelos.TaskSpawnerSpec{
+					TaskTemplate: kelos.TaskTemplate{
 						Type: "claude-code",
-						Credentials: kelosv1alpha1.Credentials{
-							Type: kelosv1alpha1.CredentialTypeAPIKey,
-							SecretRef: &kelosv1alpha1.SecretReference{
+						Credentials: kelos.Credentials{
+							Type: kelos.CredentialTypeAPIKey,
+							SecretRef: &kelos.SecretReference{
 								Name: "test-secret",
 							},
 						},
@@ -559,7 +559,7 @@ var _ = Describe("CLI Suspend/Resume Commands", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying the TaskSpawner has suspend=true")
-			updatedTS := &kelosv1alpha1.TaskSpawner{}
+			updatedTS := &kelos.TaskSpawner{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "cli-suspend-spawner", Namespace: ns.Name}, updatedTS)).To(Succeed())
 			Expect(updatedTS.Spec.Suspend).NotTo(BeNil())
 			Expect(*updatedTS.Spec.Suspend).To(BeTrue())
@@ -578,18 +578,18 @@ var _ = Describe("CLI Suspend/Resume Commands", func() {
 
 			By("Creating a TaskSpawner already suspended")
 			suspend := true
-			ts := &kelosv1alpha1.TaskSpawner{
+			ts := &kelos.TaskSpawner{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "cli-suspend-idem",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpawnerSpec{
+				Spec: kelos.TaskSpawnerSpec{
 					Suspend: &suspend,
-					TaskTemplate: kelosv1alpha1.TaskTemplate{
+					TaskTemplate: kelos.TaskTemplate{
 						Type: "claude-code",
-						Credentials: kelosv1alpha1.Credentials{
-							Type: kelosv1alpha1.CredentialTypeAPIKey,
-							SecretRef: &kelosv1alpha1.SecretReference{
+						Credentials: kelos.Credentials{
+							Type: kelos.CredentialTypeAPIKey,
+							SecretRef: &kelos.SecretReference{
 								Name: "test-secret",
 							},
 						},
@@ -605,7 +605,7 @@ var _ = Describe("CLI Suspend/Resume Commands", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying the TaskSpawner is still suspended")
-			updatedTS := &kelosv1alpha1.TaskSpawner{}
+			updatedTS := &kelos.TaskSpawner{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "cli-suspend-idem", Namespace: ns.Name}, updatedTS)).To(Succeed())
 			Expect(updatedTS.Spec.Suspend).NotTo(BeNil())
 			Expect(*updatedTS.Spec.Suspend).To(BeTrue())
@@ -624,18 +624,18 @@ var _ = Describe("CLI Suspend/Resume Commands", func() {
 
 			By("Creating a suspended TaskSpawner")
 			suspend := true
-			ts := &kelosv1alpha1.TaskSpawner{
+			ts := &kelos.TaskSpawner{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "cli-resume-spawner",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpawnerSpec{
+				Spec: kelos.TaskSpawnerSpec{
 					Suspend: &suspend,
-					TaskTemplate: kelosv1alpha1.TaskTemplate{
+					TaskTemplate: kelos.TaskTemplate{
 						Type: "claude-code",
-						Credentials: kelosv1alpha1.Credentials{
-							Type: kelosv1alpha1.CredentialTypeAPIKey,
-							SecretRef: &kelosv1alpha1.SecretReference{
+						Credentials: kelos.Credentials{
+							Type: kelos.CredentialTypeAPIKey,
+							SecretRef: &kelos.SecretReference{
 								Name: "test-secret",
 							},
 						},
@@ -651,7 +651,7 @@ var _ = Describe("CLI Suspend/Resume Commands", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying the TaskSpawner has suspend=false")
-			updatedTS := &kelosv1alpha1.TaskSpawner{}
+			updatedTS := &kelos.TaskSpawner{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "cli-resume-spawner", Namespace: ns.Name}, updatedTS)).To(Succeed())
 			Expect(updatedTS.Spec.Suspend).NotTo(BeNil())
 			Expect(*updatedTS.Spec.Suspend).To(BeFalse())
@@ -669,17 +669,17 @@ var _ = Describe("CLI Suspend/Resume Commands", func() {
 			Expect(k8sClient.Create(ctx, ns)).Should(Succeed())
 
 			By("Creating a TaskSpawner (not suspended)")
-			ts := &kelosv1alpha1.TaskSpawner{
+			ts := &kelos.TaskSpawner{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "cli-resume-idem",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpawnerSpec{
-					TaskTemplate: kelosv1alpha1.TaskTemplate{
+				Spec: kelos.TaskSpawnerSpec{
+					TaskTemplate: kelos.TaskTemplate{
 						Type: "claude-code",
-						Credentials: kelosv1alpha1.Credentials{
-							Type: kelosv1alpha1.CredentialTypeAPIKey,
-							SecretRef: &kelosv1alpha1.SecretReference{
+						Credentials: kelos.Credentials{
+							Type: kelos.CredentialTypeAPIKey,
+							SecretRef: &kelos.SecretReference{
 								Name: "test-secret",
 							},
 						},
@@ -707,17 +707,17 @@ var _ = Describe("CLI Suspend/Resume Commands", func() {
 			Expect(k8sClient.Create(ctx, ns)).Should(Succeed())
 
 			By("Creating a TaskSpawner")
-			ts := &kelosv1alpha1.TaskSpawner{
+			ts := &kelos.TaskSpawner{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "alias-suspend",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpawnerSpec{
-					TaskTemplate: kelosv1alpha1.TaskTemplate{
+				Spec: kelos.TaskSpawnerSpec{
+					TaskTemplate: kelos.TaskTemplate{
 						Type: "claude-code",
-						Credentials: kelosv1alpha1.Credentials{
-							Type: kelosv1alpha1.CredentialTypeAPIKey,
-							SecretRef: &kelosv1alpha1.SecretReference{
+						Credentials: kelos.Credentials{
+							Type: kelos.CredentialTypeAPIKey,
+							SecretRef: &kelos.SecretReference{
 								Name: "test-secret",
 							},
 						},
@@ -733,7 +733,7 @@ var _ = Describe("CLI Suspend/Resume Commands", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying the TaskSpawner is suspended")
-			updatedTS := &kelosv1alpha1.TaskSpawner{}
+			updatedTS := &kelos.TaskSpawner{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "alias-suspend", Namespace: ns.Name}, updatedTS)).To(Succeed())
 			Expect(updatedTS.Spec.Suspend).NotTo(BeNil())
 			Expect(*updatedTS.Spec.Suspend).To(BeTrue())
@@ -760,17 +760,17 @@ var _ = Describe("CLI Suspend/Resume Commands", func() {
 			Expect(k8sClient.Create(ctx, ns)).Should(Succeed())
 
 			By("Creating a TaskSpawner")
-			ts := &kelosv1alpha1.TaskSpawner{
+			ts := &kelos.TaskSpawner{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "spawner-suspend-comp",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.TaskSpawnerSpec{
-					TaskTemplate: kelosv1alpha1.TaskTemplate{
+				Spec: kelos.TaskSpawnerSpec{
+					TaskTemplate: kelos.TaskTemplate{
 						Type: "claude-code",
-						Credentials: kelosv1alpha1.Credentials{
-							Type: kelosv1alpha1.CredentialTypeAPIKey,
-							SecretRef: &kelosv1alpha1.SecretReference{
+						Credentials: kelos.Credentials{
+							Type: kelos.CredentialTypeAPIKey,
+							SecretRef: &kelos.SecretReference{
 								Name: "test-secret",
 							},
 						},
