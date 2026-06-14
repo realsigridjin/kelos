@@ -13,6 +13,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
+	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 )
 
 func taskDuration(status *kelosv1alpha1.TaskStatus) string {
@@ -328,7 +329,7 @@ func printWorkspaceDetail(w io.Writer, ws *kelosv1alpha1.Workspace) {
 	}
 }
 
-func printAgentConfigTable(w io.Writer, configs []kelosv1alpha1.AgentConfig, allNamespaces bool) {
+func printAgentConfigTable(w io.Writer, configs []kelos.AgentConfig, allNamespaces bool) {
 	tw := tabwriter.NewWriter(w, 0, 0, 3, ' ', 0)
 	if allNamespaces {
 		fmt.Fprintln(tw, "NAMESPACE\tNAME\tPLUGINS\tSKILLS\tMCP SERVERS\tAGE")
@@ -349,7 +350,7 @@ func printAgentConfigTable(w io.Writer, configs []kelosv1alpha1.AgentConfig, all
 	tw.Flush()
 }
 
-func printAgentConfigDetail(w io.Writer, ac *kelosv1alpha1.AgentConfig) {
+func printAgentConfigDetail(w io.Writer, ac *kelos.AgentConfig) {
 	printField(w, "Name", ac.Name)
 	printField(w, "Namespace", ac.Namespace)
 	if ac.Spec.AgentsMD != "" {

@@ -22,6 +22,7 @@ import (
 	fmt "fmt"
 
 	v1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
+	v1alpha2 "github.com/kelos-dev/kelos/api/v1alpha2"
 	schema "k8s.io/apimachinery/pkg/runtime/schema"
 	cache "k8s.io/client-go/tools/cache"
 )
@@ -61,6 +62,16 @@ func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Api().V1alpha1().TaskSpawners().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("workspaces"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Api().V1alpha1().Workspaces().Informer()}, nil
+
+		// Group=api, Version=v1alpha2
+	case v1alpha2.SchemeGroupVersion.WithResource("agentconfigs"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Api().V1alpha2().AgentConfigs().Informer()}, nil
+	case v1alpha2.SchemeGroupVersion.WithResource("tasks"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Api().V1alpha2().Tasks().Informer()}, nil
+	case v1alpha2.SchemeGroupVersion.WithResource("taskspawners"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Api().V1alpha2().TaskSpawners().Informer()}, nil
+	case v1alpha2.SchemeGroupVersion.WithResource("workspaces"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Api().V1alpha2().Workspaces().Informer()}, nil
 
 	}
 

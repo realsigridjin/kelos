@@ -16,21 +16,21 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
+	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 )
 
 func TestIsWebhookBased(t *testing.T) {
 	tests := []struct {
 		name string
-		ts   *kelosv1alpha1.TaskSpawner
+		ts   *kelos.TaskSpawner
 		want bool
 	}{
 		{
 			name: "GitHub webhook TaskSpawner",
-			ts: &kelosv1alpha1.TaskSpawner{
-				Spec: kelosv1alpha1.TaskSpawnerSpec{
-					When: kelosv1alpha1.When{
-						GitHubWebhook: &kelosv1alpha1.GitHubWebhook{
+			ts: &kelos.TaskSpawner{
+				Spec: kelos.TaskSpawnerSpec{
+					When: kelos.When{
+						GitHubWebhook: &kelos.GitHubWebhook{
 							Events: []string{"issues"},
 						},
 					},
@@ -40,10 +40,10 @@ func TestIsWebhookBased(t *testing.T) {
 		},
 		{
 			name: "Linear webhook TaskSpawner",
-			ts: &kelosv1alpha1.TaskSpawner{
-				Spec: kelosv1alpha1.TaskSpawnerSpec{
-					When: kelosv1alpha1.When{
-						LinearWebhook: &kelosv1alpha1.LinearWebhook{
+			ts: &kelos.TaskSpawner{
+				Spec: kelos.TaskSpawnerSpec{
+					When: kelos.When{
+						LinearWebhook: &kelos.LinearWebhook{
 							Types: []string{"Issue"},
 						},
 					},
@@ -53,10 +53,10 @@ func TestIsWebhookBased(t *testing.T) {
 		},
 		{
 			name: "polling TaskSpawner",
-			ts: &kelosv1alpha1.TaskSpawner{
-				Spec: kelosv1alpha1.TaskSpawnerSpec{
-					When: kelosv1alpha1.When{
-						GitHubIssues: &kelosv1alpha1.GitHubIssues{},
+			ts: &kelos.TaskSpawner{
+				Spec: kelos.TaskSpawnerSpec{
+					When: kelos.When{
+						GitHubIssues: &kelos.GitHubIssues{},
 					},
 				},
 			},
@@ -64,10 +64,10 @@ func TestIsWebhookBased(t *testing.T) {
 		},
 		{
 			name: "cron TaskSpawner",
-			ts: &kelosv1alpha1.TaskSpawner{
-				Spec: kelosv1alpha1.TaskSpawnerSpec{
-					When: kelosv1alpha1.When{
-						Cron: &kelosv1alpha1.Cron{
+			ts: &kelos.TaskSpawner{
+				Spec: kelos.TaskSpawnerSpec{
+					When: kelos.When{
+						Cron: &kelos.Cron{
 							Schedule: "0 9 * * 1",
 						},
 					},
@@ -77,10 +77,10 @@ func TestIsWebhookBased(t *testing.T) {
 		},
 		{
 			name: "generic webhook TaskSpawner",
-			ts: &kelosv1alpha1.TaskSpawner{
-				Spec: kelosv1alpha1.TaskSpawnerSpec{
-					When: kelosv1alpha1.When{
-						GenericWebhook: &kelosv1alpha1.GenericWebhook{
+			ts: &kelos.TaskSpawner{
+				Spec: kelos.TaskSpawnerSpec{
+					When: kelos.When{
+						GenericWebhook: &kelos.GenericWebhook{
 							Source: "notion",
 							FieldMapping: map[string]string{
 								"id": "$.data.id",
@@ -93,10 +93,10 @@ func TestIsWebhookBased(t *testing.T) {
 		},
 		{
 			name: "Slack TaskSpawner",
-			ts: &kelosv1alpha1.TaskSpawner{
-				Spec: kelosv1alpha1.TaskSpawnerSpec{
-					When: kelosv1alpha1.When{
-						Slack: &kelosv1alpha1.Slack{
+			ts: &kelos.TaskSpawner{
+				Spec: kelos.TaskSpawnerSpec{
+					When: kelos.When{
+						Slack: &kelos.Slack{
 							Channels: []string{"C0123456789"},
 						},
 					},
@@ -116,92 +116,92 @@ func TestIsWebhookBased(t *testing.T) {
 
 func TestReconcileWebhook(t *testing.T) {
 	scheme := runtime.NewScheme()
-	require.NoError(t, kelosv1alpha1.AddToScheme(scheme))
+	require.NoError(t, kelos.AddToScheme(scheme))
 	require.NoError(t, appsv1.AddToScheme(scheme))
 	require.NoError(t, batchv1.AddToScheme(scheme))
 
 	tests := []struct {
 		name           string
-		ts             *kelosv1alpha1.TaskSpawner
+		ts             *kelos.TaskSpawner
 		existingObjs   []client.Object
 		isSuspended    bool
-		wantPhase      kelosv1alpha1.TaskSpawnerPhase
+		wantPhase      kelos.TaskSpawnerPhase
 		wantMessage    string
 		wantDeployment bool
 		wantCronJob    bool
 	}{
 		{
 			name: "active webhook TaskSpawner",
-			ts: &kelosv1alpha1.TaskSpawner{
+			ts: &kelos.TaskSpawner{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-webhook",
 					Namespace: "default",
 				},
-				Spec: kelosv1alpha1.TaskSpawnerSpec{
-					When: kelosv1alpha1.When{
-						GitHubWebhook: &kelosv1alpha1.GitHubWebhook{
+				Spec: kelos.TaskSpawnerSpec{
+					When: kelos.When{
+						GitHubWebhook: &kelos.GitHubWebhook{
 							Events: []string{"issues"},
 						},
 					},
 				},
 			},
 			isSuspended: false,
-			wantPhase:   kelosv1alpha1.TaskSpawnerPhaseRunning,
+			wantPhase:   kelos.TaskSpawnerPhaseRunning,
 			wantMessage: "Webhook-driven TaskSpawner ready",
 		},
 		{
 			name: "suspended GitHub webhook TaskSpawner",
-			ts: &kelosv1alpha1.TaskSpawner{
+			ts: &kelos.TaskSpawner{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-webhook",
 					Namespace: "default",
 				},
-				Spec: kelosv1alpha1.TaskSpawnerSpec{
-					When: kelosv1alpha1.When{
-						GitHubWebhook: &kelosv1alpha1.GitHubWebhook{
+				Spec: kelos.TaskSpawnerSpec{
+					When: kelos.When{
+						GitHubWebhook: &kelos.GitHubWebhook{
 							Events: []string{"issues"},
 						},
 					},
 				},
 			},
 			isSuspended: true,
-			wantPhase:   kelosv1alpha1.TaskSpawnerPhaseSuspended,
+			wantPhase:   kelos.TaskSpawnerPhaseSuspended,
 			wantMessage: "Suspended by user",
 		},
 		{
 			name: "suspended Linear webhook TaskSpawner",
-			ts: &kelosv1alpha1.TaskSpawner{
+			ts: &kelos.TaskSpawner{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-webhook-linear",
 					Namespace: "default",
 				},
-				Spec: kelosv1alpha1.TaskSpawnerSpec{
-					When: kelosv1alpha1.When{
-						LinearWebhook: &kelosv1alpha1.LinearWebhook{
+				Spec: kelos.TaskSpawnerSpec{
+					When: kelos.When{
+						LinearWebhook: &kelos.LinearWebhook{
 							Types: []string{"Issue"},
 						},
 					},
 				},
 			},
 			isSuspended: true,
-			wantPhase:   kelosv1alpha1.TaskSpawnerPhaseSuspended,
+			wantPhase:   kelos.TaskSpawnerPhaseSuspended,
 			wantMessage: "Suspended by user",
 		},
 		{
 			name: "webhook TaskSpawner with stale deployment",
-			ts: &kelosv1alpha1.TaskSpawner{
+			ts: &kelos.TaskSpawner{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-webhook",
 					Namespace: "default",
 				},
-				Spec: kelosv1alpha1.TaskSpawnerSpec{
-					When: kelosv1alpha1.When{
-						GitHubWebhook: &kelosv1alpha1.GitHubWebhook{
+				Spec: kelos.TaskSpawnerSpec{
+					When: kelos.When{
+						GitHubWebhook: &kelos.GitHubWebhook{
 							Events: []string{"issues"},
 						},
 					},
 				},
-				Status: kelosv1alpha1.TaskSpawnerStatus{
+				Status: kelos.TaskSpawnerStatus{
 					DeploymentName: "test-webhook",
 				},
 			},
@@ -222,25 +222,25 @@ func TestReconcileWebhook(t *testing.T) {
 				},
 			},
 			isSuspended:    false,
-			wantPhase:      kelosv1alpha1.TaskSpawnerPhaseRunning,
+			wantPhase:      kelos.TaskSpawnerPhaseRunning,
 			wantMessage:    "Webhook-driven TaskSpawner ready",
 			wantDeployment: false, // Should be deleted
 		},
 		{
 			name: "webhook TaskSpawner with stale cronjob",
-			ts: &kelosv1alpha1.TaskSpawner{
+			ts: &kelos.TaskSpawner{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-webhook",
 					Namespace: "default",
 				},
-				Spec: kelosv1alpha1.TaskSpawnerSpec{
-					When: kelosv1alpha1.When{
-						GitHubWebhook: &kelosv1alpha1.GitHubWebhook{
+				Spec: kelos.TaskSpawnerSpec{
+					When: kelos.When{
+						GitHubWebhook: &kelos.GitHubWebhook{
 							Events: []string{"issues"},
 						},
 					},
 				},
-				Status: kelosv1alpha1.TaskSpawnerStatus{
+				Status: kelos.TaskSpawnerStatus{
 					CronJobName: "test-webhook",
 				},
 			},
@@ -261,7 +261,7 @@ func TestReconcileWebhook(t *testing.T) {
 				},
 			},
 			isSuspended: false,
-			wantPhase:   kelosv1alpha1.TaskSpawnerPhaseRunning,
+			wantPhase:   kelos.TaskSpawnerPhaseRunning,
 			wantMessage: "Webhook-driven TaskSpawner ready",
 			wantCronJob: false, // Should be deleted
 		},
@@ -273,7 +273,7 @@ func TestReconcileWebhook(t *testing.T) {
 			client := fake.NewClientBuilder().
 				WithScheme(scheme).
 				WithObjects(objs...).
-				WithStatusSubresource(&kelosv1alpha1.TaskSpawner{}).
+				WithStatusSubresource(&kelos.TaskSpawner{}).
 				Build()
 
 			reconciler := &TaskSpawnerReconciler{
@@ -292,7 +292,7 @@ func TestReconcileWebhook(t *testing.T) {
 			require.NoError(t, err)
 
 			// Check final TaskSpawner status
-			var finalTs kelosv1alpha1.TaskSpawner
+			var finalTs kelos.TaskSpawner
 			err = client.Get(context.Background(), req.NamespacedName, &finalTs)
 			require.NoError(t, err)
 

@@ -1,5 +1,5 @@
 # Simple task with API key
-apiVersion: kelos.dev/v1alpha1
+apiVersion: kelos.dev/v1alpha2
 kind: Task
 metadata:
   name: simple-task
@@ -12,7 +12,7 @@ spec:
       name: anthropic-api-key
 ---
 # Task with workspace (git repo) — using Codex agent
-apiVersion: kelos.dev/v1alpha1
+apiVersion: kelos.dev/v1alpha2
 kind: Task
 metadata:
   name: add-tests
@@ -27,7 +27,7 @@ spec:
     name: my-workspace
 ---
 # Task with AgentConfig, branch lock, and model override
-apiVersion: kelos.dev/v1alpha1
+apiVersion: kelos.dev/v1alpha2
 kind: Task
 metadata:
   name: review-pr
@@ -42,13 +42,13 @@ spec:
       name: claude-oauth-token
   workspaceRef:
     name: my-workspace
-  agentConfigRef:
-    name: code-reviewer
+  agentConfigRefs:
+    - name: code-reviewer
   branch: feature/auth
 ---
 # Task with dependencies — stage 2 waits for stage 1
 # Note: requires a "scaffold" Task defined separately (see examples/07-task-pipeline)
-apiVersion: kelos.dev/v1alpha1
+apiVersion: kelos.dev/v1alpha2
 kind: Task
 metadata:
   name: write-tests
@@ -68,7 +68,7 @@ spec:
     - scaffold
 ---
 # Task with pod overrides (resources, timeout, env, node selector)
-apiVersion: kelos.dev/v1alpha1
+apiVersion: kelos.dev/v1alpha2
 kind: Task
 metadata:
   name: heavy-task
@@ -99,7 +99,7 @@ spec:
       cloud.google.com/gke-accelerator: nvidia-l4
 ---
 # Task with TTL auto-cleanup
-apiVersion: kelos.dev/v1alpha1
+apiVersion: kelos.dev/v1alpha2
 kind: Task
 metadata:
   name: ephemeral-task

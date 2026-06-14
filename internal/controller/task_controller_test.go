@@ -22,7 +22,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
+	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 	"github.com/kelos-dev/kelos/internal/githubapp"
 )
 
@@ -37,7 +37,7 @@ func TestTTLExpired(t *testing.T) {
 
 	tests := []struct {
 		name            string
-		task            *kelosv1alpha1.Task
+		task            *kelos.Task
 		wantExpired     bool
 		wantRequeueMin  time.Duration
 		wantRequeueMax  time.Duration
@@ -45,12 +45,12 @@ func TestTTLExpired(t *testing.T) {
 	}{
 		{
 			name: "No TTL set",
-			task: &kelosv1alpha1.Task{
-				Spec: kelosv1alpha1.TaskSpec{
+			task: &kelos.Task{
+				Spec: kelos.TaskSpec{
 					TTLSecondsAfterFinished: nil,
 				},
-				Status: kelosv1alpha1.TaskStatus{
-					Phase:          kelosv1alpha1.TaskPhaseSucceeded,
+				Status: kelos.TaskStatus{
+					Phase:          kelos.TaskPhaseSucceeded,
 					CompletionTime: timePtr(time.Now().Add(-10 * time.Second)),
 				},
 			},
@@ -59,12 +59,12 @@ func TestTTLExpired(t *testing.T) {
 		},
 		{
 			name: "Not in terminal phase",
-			task: &kelosv1alpha1.Task{
-				Spec: kelosv1alpha1.TaskSpec{
+			task: &kelos.Task{
+				Spec: kelos.TaskSpec{
 					TTLSecondsAfterFinished: int32Ptr(60),
 				},
-				Status: kelosv1alpha1.TaskStatus{
-					Phase: kelosv1alpha1.TaskPhaseRunning,
+				Status: kelos.TaskStatus{
+					Phase: kelos.TaskPhaseRunning,
 				},
 			},
 			wantExpired:     false,
@@ -72,12 +72,12 @@ func TestTTLExpired(t *testing.T) {
 		},
 		{
 			name: "CompletionTime not set",
-			task: &kelosv1alpha1.Task{
-				Spec: kelosv1alpha1.TaskSpec{
+			task: &kelos.Task{
+				Spec: kelos.TaskSpec{
 					TTLSecondsAfterFinished: int32Ptr(60),
 				},
-				Status: kelosv1alpha1.TaskStatus{
-					Phase:          kelosv1alpha1.TaskPhaseSucceeded,
+				Status: kelos.TaskStatus{
+					Phase:          kelos.TaskPhaseSucceeded,
 					CompletionTime: nil,
 				},
 			},
@@ -86,12 +86,12 @@ func TestTTLExpired(t *testing.T) {
 		},
 		{
 			name: "TTL=0 and completed",
-			task: &kelosv1alpha1.Task{
-				Spec: kelosv1alpha1.TaskSpec{
+			task: &kelos.Task{
+				Spec: kelos.TaskSpec{
 					TTLSecondsAfterFinished: int32Ptr(0),
 				},
-				Status: kelosv1alpha1.TaskStatus{
-					Phase:          kelosv1alpha1.TaskPhaseSucceeded,
+				Status: kelos.TaskStatus{
+					Phase:          kelos.TaskPhaseSucceeded,
 					CompletionTime: timePtr(time.Now().Add(-1 * time.Second)),
 				},
 			},
@@ -100,12 +100,12 @@ func TestTTLExpired(t *testing.T) {
 		},
 		{
 			name: "TTL expired for succeeded task",
-			task: &kelosv1alpha1.Task{
-				Spec: kelosv1alpha1.TaskSpec{
+			task: &kelos.Task{
+				Spec: kelos.TaskSpec{
 					TTLSecondsAfterFinished: int32Ptr(10),
 				},
-				Status: kelosv1alpha1.TaskStatus{
-					Phase:          kelosv1alpha1.TaskPhaseSucceeded,
+				Status: kelos.TaskStatus{
+					Phase:          kelos.TaskPhaseSucceeded,
 					CompletionTime: timePtr(time.Now().Add(-20 * time.Second)),
 				},
 			},
@@ -114,12 +114,12 @@ func TestTTLExpired(t *testing.T) {
 		},
 		{
 			name: "TTL expired for failed task",
-			task: &kelosv1alpha1.Task{
-				Spec: kelosv1alpha1.TaskSpec{
+			task: &kelos.Task{
+				Spec: kelos.TaskSpec{
 					TTLSecondsAfterFinished: int32Ptr(5),
 				},
-				Status: kelosv1alpha1.TaskStatus{
-					Phase:          kelosv1alpha1.TaskPhaseFailed,
+				Status: kelos.TaskStatus{
+					Phase:          kelos.TaskPhaseFailed,
 					CompletionTime: timePtr(time.Now().Add(-10 * time.Second)),
 				},
 			},
@@ -128,12 +128,12 @@ func TestTTLExpired(t *testing.T) {
 		},
 		{
 			name: "TTL not yet expired",
-			task: &kelosv1alpha1.Task{
-				Spec: kelosv1alpha1.TaskSpec{
+			task: &kelos.Task{
+				Spec: kelos.TaskSpec{
 					TTLSecondsAfterFinished: int32Ptr(60),
 				},
-				Status: kelosv1alpha1.TaskStatus{
-					Phase:          kelosv1alpha1.TaskPhaseSucceeded,
+				Status: kelos.TaskStatus{
+					Phase:          kelos.TaskPhaseSucceeded,
 					CompletionTime: timePtr(time.Now()),
 				},
 			},
@@ -143,12 +143,12 @@ func TestTTLExpired(t *testing.T) {
 		},
 		{
 			name: "Pending phase with TTL",
-			task: &kelosv1alpha1.Task{
-				Spec: kelosv1alpha1.TaskSpec{
+			task: &kelos.Task{
+				Spec: kelos.TaskSpec{
 					TTLSecondsAfterFinished: int32Ptr(10),
 				},
-				Status: kelosv1alpha1.TaskStatus{
-					Phase: kelosv1alpha1.TaskPhasePending,
+				Status: kelos.TaskStatus{
+					Phase: kelos.TaskPhasePending,
 				},
 			},
 			wantExpired:     false,
@@ -220,7 +220,8 @@ func TestResolveGitHubAppToken_EnterpriseURL(t *testing.T) {
 
 			scheme := runtime.NewScheme()
 			utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-			utilruntime.Must(kelosv1alpha1.AddToScheme(scheme))
+			utilruntime.Must(kelos.AddToScheme(scheme))
+			utilruntime.Must(kelos.AddToScheme(scheme))
 
 			secretData := map[string][]byte{
 				"appID":          []byte("12345"),
@@ -251,7 +252,7 @@ func TestResolveGitHubAppToken_EnterpriseURL(t *testing.T) {
 				TokenClient: tc,
 			}
 
-			task := &kelosv1alpha1.Task{
+			task := &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-task",
 					Namespace: "default",
@@ -268,9 +269,9 @@ func TestResolveGitHubAppToken_EnterpriseURL(t *testing.T) {
 				repoURL = server.URL + "/my-org/my-repo.git"
 			}
 
-			workspace := &kelosv1alpha1.WorkspaceSpec{
+			workspace := &kelos.WorkspaceSpec{
 				Repo: repoURL,
-				SecretRef: &kelosv1alpha1.SecretReference{
+				SecretRef: &kelos.SecretReference{
 					Name: "github-app-creds",
 				},
 			}
@@ -294,7 +295,8 @@ func TestResolveGitHubAppToken_EnterpriseURL(t *testing.T) {
 func TestResolveGitHubAppToken_PATSecret(t *testing.T) {
 	scheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-	utilruntime.Must(kelosv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(kelos.AddToScheme(scheme))
+	utilruntime.Must(kelos.AddToScheme(scheme))
 
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
@@ -316,15 +318,15 @@ func TestResolveGitHubAppToken_PATSecret(t *testing.T) {
 		Scheme: scheme,
 	}
 
-	task := &kelosv1alpha1.Task{
+	task := &kelos.Task{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-task",
 			Namespace: "default",
 		},
 	}
-	workspace := &kelosv1alpha1.WorkspaceSpec{
+	workspace := &kelos.WorkspaceSpec{
 		Repo: "https://github.com/kelos-dev/kelos.git",
-		SecretRef: &kelosv1alpha1.SecretReference{
+		SecretRef: &kelos.SecretReference{
 			Name: "pat-secret",
 		},
 	}
@@ -343,7 +345,8 @@ func TestResolveGitHubAppToken_PATSecret(t *testing.T) {
 func newReconcilerWithFakeClient(objs ...runtime.Object) *TaskReconciler {
 	scheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-	utilruntime.Must(kelosv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(kelos.AddToScheme(scheme))
+	utilruntime.Must(kelos.AddToScheme(scheme))
 
 	cl := fake.NewClientBuilder().
 		WithScheme(scheme).
@@ -369,7 +372,7 @@ func TestResolveMCPServerSecrets_HeadersFrom(t *testing.T) {
 	}
 
 	r := newReconcilerWithFakeClient(secret)
-	servers := []kelosv1alpha1.MCPServerSpec{
+	servers := []kelos.MCPServerSpec{
 		{
 			Name: "github",
 			Type: "http",
@@ -377,8 +380,8 @@ func TestResolveMCPServerSecrets_HeadersFrom(t *testing.T) {
 			Headers: map[string]string{
 				"X-Inline": "inline-value",
 			},
-			HeadersFrom: &kelosv1alpha1.SecretValuesSource{
-				SecretRef: kelosv1alpha1.SecretReference{Name: "mcp-headers"},
+			HeadersFrom: &kelos.SecretValuesSource{
+				SecretRef: kelos.SecretReference{Name: "mcp-headers"},
 			},
 		},
 	}
@@ -415,17 +418,17 @@ func TestResolveMCPServerSecrets_EnvFrom(t *testing.T) {
 	}
 
 	r := newReconcilerWithFakeClient(secret)
-	servers := []kelosv1alpha1.MCPServerSpec{
+	servers := []kelos.MCPServerSpec{
 		{
 			Name:    "local-db",
 			Type:    "stdio",
 			Command: "npx",
 			Args:    []string{"-y", "@bytebase/dbhub"},
-			Env: map[string]string{
-				"DSN": "postgres://localhost/db",
+			Env: []corev1.EnvVar{
+				{Name: "DSN", Value: "postgres://localhost/db"},
 			},
-			EnvFrom: &kelosv1alpha1.SecretValuesSource{
-				SecretRef: kelosv1alpha1.SecretReference{Name: "mcp-env"},
+			EnvFrom: &kelos.SecretValuesSource{
+				SecretRef: kelos.SecretReference{Name: "mcp-env"},
 			},
 		},
 	}
@@ -435,18 +438,388 @@ func TestResolveMCPServerSecrets_EnvFrom(t *testing.T) {
 		t.Fatalf("resolveMCPServerSecrets() error = %v", err)
 	}
 
-	if got := resolved[0].Env["DB_PASSWORD"]; got != "secret-pass" {
-		t.Errorf("DB_PASSWORD = %q, want %q", got, "secret-pass")
+	got := envVarMap(resolved[0].Env)
+	if got["DB_PASSWORD"] != "secret-pass" {
+		t.Errorf("DB_PASSWORD = %q, want %q", got["DB_PASSWORD"], "secret-pass")
 	}
-	if got := resolved[0].Env["DB_HOST"]; got != "db.internal" {
-		t.Errorf("DB_HOST = %q, want %q", got, "db.internal")
+	if got["DB_HOST"] != "db.internal" {
+		t.Errorf("DB_HOST = %q, want %q", got["DB_HOST"], "db.internal")
 	}
-	if got := resolved[0].Env["DSN"]; got != "postgres://localhost/db" {
-		t.Errorf("DSN = %q, want %q", got, "postgres://localhost/db")
+	if got["DSN"] != "postgres://localhost/db" {
+		t.Errorf("DSN = %q, want %q", got["DSN"], "postgres://localhost/db")
 	}
 	if resolved[0].EnvFrom != nil {
 		t.Fatal("EnvFrom should be nil after resolution")
 	}
+}
+
+func TestResolveMCPServerSecrets_EnvValueFromSecretKey(t *testing.T) {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "mcp-secret", Namespace: "default"},
+		Data: map[string][]byte{
+			"db-password": []byte("hunter2"),
+		},
+	}
+
+	r := newReconcilerWithFakeClient(secret)
+	servers := []kelos.MCPServerSpec{
+		{
+			Name:    "local-db",
+			Type:    "stdio",
+			Command: "dbhub",
+			Env: []corev1.EnvVar{
+				{Name: "DSN", Value: "postgres://localhost/db"},
+				{Name: "DB_PASSWORD", ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{Name: "mcp-secret"},
+						Key:                  "db-password",
+					},
+				}},
+			},
+		},
+	}
+
+	resolved, err := r.resolveMCPServerSecrets(context.Background(), "default", servers)
+	if err != nil {
+		t.Fatalf("resolveMCPServerSecrets() error = %v", err)
+	}
+
+	got := envVarMap(resolved[0].Env)
+	if got["DB_PASSWORD"] != "hunter2" {
+		t.Errorf("DB_PASSWORD = %q, want %q", got["DB_PASSWORD"], "hunter2")
+	}
+	if got["DSN"] != "postgres://localhost/db" {
+		t.Errorf("DSN = %q, want %q", got["DSN"], "postgres://localhost/db")
+	}
+	for _, e := range resolved[0].Env {
+		if e.ValueFrom != nil {
+			t.Errorf("ValueFrom for %q should be nil after resolution, got %+v", e.Name, e.ValueFrom)
+		}
+	}
+}
+
+func TestResolveMCPServerSecrets_EnvValueFromConfigMapKey(t *testing.T) {
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "mcp-config", Namespace: "default"},
+		Data: map[string]string{
+			"host": "db.internal",
+		},
+	}
+
+	r := newReconcilerWithFakeClient(cm)
+	servers := []kelos.MCPServerSpec{
+		{
+			Name:    "local-db",
+			Type:    "stdio",
+			Command: "dbhub",
+			Env: []corev1.EnvVar{
+				{Name: "DB_HOST", ValueFrom: &corev1.EnvVarSource{
+					ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{Name: "mcp-config"},
+						Key:                  "host",
+					},
+				}},
+			},
+		},
+	}
+
+	resolved, err := r.resolveMCPServerSecrets(context.Background(), "default", servers)
+	if err != nil {
+		t.Fatalf("resolveMCPServerSecrets() error = %v", err)
+	}
+
+	got := envVarMap(resolved[0].Env)
+	if got["DB_HOST"] != "db.internal" {
+		t.Errorf("DB_HOST = %q, want %q", got["DB_HOST"], "db.internal")
+	}
+}
+
+func TestResolveMCPServerSecrets_EnvValueFromMissingKey(t *testing.T) {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "mcp-secret", Namespace: "default"},
+		Data:       map[string][]byte{"other": []byte("x")},
+	}
+	r := newReconcilerWithFakeClient(secret)
+	servers := []kelos.MCPServerSpec{
+		{
+			Name: "local",
+			Type: "stdio",
+			Env: []corev1.EnvVar{
+				{Name: "DB_PASSWORD", ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{Name: "mcp-secret"},
+						Key:                  "missing",
+					},
+				}},
+			},
+		},
+	}
+
+	if _, err := r.resolveMCPServerSecrets(context.Background(), "default", servers); err == nil {
+		t.Fatal("expected error for missing secret key, got nil")
+	}
+}
+
+func TestResolveMCPServerSecrets_EnvValueFromOptionalMissingKey(t *testing.T) {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "mcp-secret", Namespace: "default"},
+		Data:       map[string][]byte{"other": []byte("x")},
+	}
+	optional := true
+	r := newReconcilerWithFakeClient(secret)
+	servers := []kelos.MCPServerSpec{
+		{
+			Name: "local",
+			Type: "stdio",
+			Env: []corev1.EnvVar{
+				{Name: "DB_PASSWORD", ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{Name: "mcp-secret"},
+						Key:                  "missing",
+						Optional:             &optional,
+					},
+				}},
+			},
+		},
+	}
+
+	resolved, err := r.resolveMCPServerSecrets(context.Background(), "default", servers)
+	if err != nil {
+		t.Fatalf("resolveMCPServerSecrets() error = %v", err)
+	}
+	got := envVarMap(resolved[0].Env)
+	if _, ok := got["DB_PASSWORD"]; ok {
+		t.Errorf("DB_PASSWORD present = %q, want it omitted for optional missing key", got["DB_PASSWORD"])
+	}
+}
+
+func TestResolveMCPServerSecrets_EnvValueFromOptionalMissingConfigMapKey(t *testing.T) {
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "mcp-config", Namespace: "default"},
+		Data:       map[string]string{"other": "x"},
+	}
+	optional := true
+	r := newReconcilerWithFakeClient(cm)
+	servers := []kelos.MCPServerSpec{
+		{
+			Name: "local",
+			Type: "stdio",
+			Env: []corev1.EnvVar{
+				{Name: "DB_HOST", ValueFrom: &corev1.EnvVarSource{
+					ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{Name: "mcp-config"},
+						Key:                  "missing",
+						Optional:             &optional,
+					},
+				}},
+			},
+		},
+	}
+
+	resolved, err := r.resolveMCPServerSecrets(context.Background(), "default", servers)
+	if err != nil {
+		t.Fatalf("resolveMCPServerSecrets() error = %v", err)
+	}
+	got := envVarMap(resolved[0].Env)
+	if _, ok := got["DB_HOST"]; ok {
+		t.Errorf("DB_HOST present = %q, want it omitted for optional missing key", got["DB_HOST"])
+	}
+}
+
+func TestResolveMCPServerSecrets_EnvValueFromUnsupportedFieldRef(t *testing.T) {
+	r := newReconcilerWithFakeClient()
+	servers := []kelos.MCPServerSpec{
+		{
+			Name: "local",
+			Type: "stdio",
+			Env: []corev1.EnvVar{
+				{Name: "NODE", ValueFrom: &corev1.EnvVarSource{
+					FieldRef: &corev1.ObjectFieldSelector{FieldPath: "spec.nodeName"},
+				}},
+			},
+		},
+	}
+
+	_, err := r.resolveMCPServerSecrets(context.Background(), "default", servers)
+	if err == nil {
+		t.Fatal("expected error for fieldRef, got nil")
+	}
+	if !strings.Contains(err.Error(), "secretKeyRef and configMapKeyRef") {
+		t.Errorf("error = %q, want it to mention supported sources", err)
+	}
+}
+
+// A SecretKeyRef combined with a pod-scoped source must be rejected rather
+// than silently honoring the SecretKeyRef branch.
+func TestResolveMCPServerSecrets_EnvValueFromSecretKeyWithFieldRef(t *testing.T) {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "mcp-secret", Namespace: "default"},
+		Data:       map[string][]byte{"password": []byte("hunter2")},
+	}
+	r := newReconcilerWithFakeClient(secret)
+	servers := []kelos.MCPServerSpec{
+		{
+			Name: "local",
+			Type: "stdio",
+			Env: []corev1.EnvVar{
+				{Name: "DB_PASSWORD", ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{Name: "mcp-secret"},
+						Key:                  "password",
+					},
+					FieldRef: &corev1.ObjectFieldSelector{FieldPath: "spec.nodeName"},
+				}},
+			},
+		},
+	}
+
+	_, err := r.resolveMCPServerSecrets(context.Background(), "default", servers)
+	if err == nil {
+		t.Fatal("expected error for secretKeyRef combined with fieldRef, got nil")
+	}
+	if !strings.Contains(err.Error(), "secretKeyRef and configMapKeyRef") {
+		t.Errorf("error = %q, want it to mention supported sources", err)
+	}
+}
+
+// Setting both SecretKeyRef and ConfigMapKeyRef is ambiguous and must be
+// rejected rather than silently preferring the secret.
+func TestResolveMCPServerSecrets_EnvValueFromSecretKeyAndConfigMapKey(t *testing.T) {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "mcp-secret", Namespace: "default"},
+		Data:       map[string][]byte{"password": []byte("hunter2")},
+	}
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "mcp-config", Namespace: "default"},
+		Data:       map[string]string{"password": "fromcm"},
+	}
+	r := newReconcilerWithFakeClient(secret, cm)
+	servers := []kelos.MCPServerSpec{
+		{
+			Name: "local",
+			Type: "stdio",
+			Env: []corev1.EnvVar{
+				{Name: "DB_PASSWORD", ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{Name: "mcp-secret"},
+						Key:                  "password",
+					},
+					ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{Name: "mcp-config"},
+						Key:                  "password",
+					},
+				}},
+			},
+		},
+	}
+
+	_, err := r.resolveMCPServerSecrets(context.Background(), "default", servers)
+	if err == nil {
+		t.Fatal("expected error for secretKeyRef combined with configMapKeyRef, got nil")
+	}
+	if !strings.Contains(err.Error(), "only one of secretKeyRef or configMapKeyRef") {
+		t.Errorf("error = %q, want it to mention only one source is allowed", err)
+	}
+}
+
+func TestResolveMCPServerSecrets_EnvValueFromUnsupportedFileKeyRef(t *testing.T) {
+	r := newReconcilerWithFakeClient()
+	servers := []kelos.MCPServerSpec{
+		{
+			Name: "local",
+			Type: "stdio",
+			Env: []corev1.EnvVar{
+				{Name: "TOKEN", ValueFrom: &corev1.EnvVarSource{
+					FileKeyRef: &corev1.FileKeySelector{Key: "token", Path: "env"},
+				}},
+			},
+		},
+	}
+
+	_, err := r.resolveMCPServerSecrets(context.Background(), "default", servers)
+	if err == nil {
+		t.Fatal("expected error for fileKeyRef, got nil")
+	}
+	if !strings.Contains(err.Error(), "secretKeyRef and configMapKeyRef") {
+		t.Errorf("error = %q, want it to mention supported sources", err)
+	}
+}
+
+func TestResolveMCPServerSecrets_EnvValueAndValueFromMutuallyExclusive(t *testing.T) {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "mcp-secret", Namespace: "default"},
+		Data:       map[string][]byte{"password": []byte("hunter2")},
+	}
+	r := newReconcilerWithFakeClient(secret)
+	servers := []kelos.MCPServerSpec{
+		{
+			Name: "local",
+			Type: "stdio",
+			Env: []corev1.EnvVar{
+				{Name: "DB_PASSWORD", Value: "literal", ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{Name: "mcp-secret"},
+						Key:                  "password",
+					},
+				}},
+			},
+		},
+	}
+
+	_, err := r.resolveMCPServerSecrets(context.Background(), "default", servers)
+	if err == nil {
+		t.Fatal("expected error when both value and valueFrom are set, got nil")
+	}
+	if !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Errorf("error = %q, want it to mention 'mutually exclusive'", err)
+	}
+}
+
+func TestResolveMCPServerSecrets_EnvFromOverridesValueFrom(t *testing.T) {
+	keySecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "key-secret", Namespace: "default"},
+		Data:       map[string][]byte{"value": []byte("from-key")},
+	}
+	bulkSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "bulk-secret", Namespace: "default"},
+		Data:       map[string][]byte{"SHARED": []byte("from-bulk")},
+	}
+
+	r := newReconcilerWithFakeClient(keySecret, bulkSecret)
+	servers := []kelos.MCPServerSpec{
+		{
+			Name: "local",
+			Type: "stdio",
+			Env: []corev1.EnvVar{
+				{Name: "SHARED", ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{Name: "key-secret"},
+						Key:                  "value",
+					},
+				}},
+			},
+			EnvFrom: &kelos.SecretValuesSource{
+				SecretRef: kelos.SecretReference{Name: "bulk-secret"},
+			},
+		},
+	}
+
+	resolved, err := r.resolveMCPServerSecrets(context.Background(), "default", servers)
+	if err != nil {
+		t.Fatalf("resolveMCPServerSecrets() error = %v", err)
+	}
+	got := envVarMap(resolved[0].Env)
+	if got["SHARED"] != "from-bulk" {
+		t.Errorf("SHARED = %q, want %q (envFrom should win)", got["SHARED"], "from-bulk")
+	}
+}
+
+func envVarMap(env []corev1.EnvVar) map[string]string {
+	out := make(map[string]string, len(env))
+	for _, e := range env {
+		out[e.Name] = e.Value
+	}
+	return out
 }
 
 func TestResolveMCPServerSecrets_SecretTakesPrecedence(t *testing.T) {
@@ -461,7 +834,7 @@ func TestResolveMCPServerSecrets_SecretTakesPrecedence(t *testing.T) {
 	}
 
 	r := newReconcilerWithFakeClient(secret)
-	servers := []kelosv1alpha1.MCPServerSpec{
+	servers := []kelos.MCPServerSpec{
 		{
 			Name: "github",
 			Type: "http",
@@ -469,8 +842,8 @@ func TestResolveMCPServerSecrets_SecretTakesPrecedence(t *testing.T) {
 			Headers: map[string]string{
 				"Authorization": "Bearer inline-token",
 			},
-			HeadersFrom: &kelosv1alpha1.SecretValuesSource{
-				SecretRef: kelosv1alpha1.SecretReference{Name: "mcp-headers"},
+			HeadersFrom: &kelos.SecretValuesSource{
+				SecretRef: kelos.SecretReference{Name: "mcp-headers"},
 			},
 		},
 	}
@@ -487,13 +860,13 @@ func TestResolveMCPServerSecrets_SecretTakesPrecedence(t *testing.T) {
 
 func TestResolveMCPServerSecrets_MissingSecret(t *testing.T) {
 	r := newReconcilerWithFakeClient()
-	servers := []kelosv1alpha1.MCPServerSpec{
+	servers := []kelos.MCPServerSpec{
 		{
 			Name: "github",
 			Type: "http",
 			URL:  "https://api.example.com/mcp/",
-			HeadersFrom: &kelosv1alpha1.SecretValuesSource{
-				SecretRef: kelosv1alpha1.SecretReference{Name: "missing-secret"},
+			HeadersFrom: &kelos.SecretValuesSource{
+				SecretRef: kelos.SecretReference{Name: "missing-secret"},
 			},
 		},
 	}
@@ -594,26 +967,27 @@ func TestLatestTaskPodName(t *testing.T) {
 func TestUpdateStatusRefreshesPodName(t *testing.T) {
 	scheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-	utilruntime.Must(kelosv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(kelos.AddToScheme(scheme))
+	utilruntime.Must(kelos.AddToScheme(scheme))
 
 	now := time.Now()
-	task := &kelosv1alpha1.Task{
+	task := &kelos.Task{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "task-1",
 			Namespace: "default",
 		},
-		Spec: kelosv1alpha1.TaskSpec{
+		Spec: kelos.TaskSpec{
 			Type:   "codex",
 			Prompt: "test",
-			Credentials: kelosv1alpha1.Credentials{
-				Type: kelosv1alpha1.CredentialTypeAPIKey,
-				SecretRef: &kelosv1alpha1.SecretReference{
+			Credentials: kelos.Credentials{
+				Type: kelos.CredentialTypeAPIKey,
+				SecretRef: &kelos.SecretReference{
 					Name: "creds",
 				},
 			},
 		},
-		Status: kelosv1alpha1.TaskStatus{
-			Phase:   kelosv1alpha1.TaskPhaseRunning,
+		Status: kelos.TaskStatus{
+			Phase:   kelos.TaskPhaseRunning,
 			PodName: "task-pod-old",
 		},
 	}
@@ -639,7 +1013,7 @@ func TestUpdateStatusRefreshesPodName(t *testing.T) {
 		t.Fatalf("updateStatus() error: %v", err)
 	}
 
-	updated := &kelosv1alpha1.Task{}
+	updated := &kelos.Task{}
 	if err := cl.Get(context.Background(), client.ObjectKeyFromObject(task), updated); err != nil {
 		t.Fatalf("getting updated task: %v", err)
 	}
@@ -651,25 +1025,26 @@ func TestUpdateStatusRefreshesPodName(t *testing.T) {
 func TestUpdateStatusClearsStalePodNameWhenNoLivePodsRemain(t *testing.T) {
 	scheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-	utilruntime.Must(kelosv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(kelos.AddToScheme(scheme))
+	utilruntime.Must(kelos.AddToScheme(scheme))
 
-	task := &kelosv1alpha1.Task{
+	task := &kelos.Task{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "task-1",
 			Namespace: "default",
 		},
-		Spec: kelosv1alpha1.TaskSpec{
+		Spec: kelos.TaskSpec{
 			Type:   "codex",
 			Prompt: "test",
-			Credentials: kelosv1alpha1.Credentials{
-				Type: kelosv1alpha1.CredentialTypeAPIKey,
-				SecretRef: &kelosv1alpha1.SecretReference{
+			Credentials: kelos.Credentials{
+				Type: kelos.CredentialTypeAPIKey,
+				SecretRef: &kelos.SecretReference{
 					Name: "creds",
 				},
 			},
 		},
-		Status: kelosv1alpha1.TaskStatus{
-			Phase:   kelosv1alpha1.TaskPhaseFailed,
+		Status: kelos.TaskStatus{
+			Phase:   kelos.TaskPhaseFailed,
 			PodName: "task-pod-old",
 		},
 	}
@@ -685,7 +1060,7 @@ func TestUpdateStatusClearsStalePodNameWhenNoLivePodsRemain(t *testing.T) {
 		t.Fatalf("updateStatus() error: %v", err)
 	}
 
-	updated := &kelosv1alpha1.Task{}
+	updated := &kelos.Task{}
 	if err := cl.Get(context.Background(), client.ObjectKeyFromObject(task), updated); err != nil {
 		t.Fatalf("getting updated task: %v", err)
 	}

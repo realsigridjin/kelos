@@ -1,5 +1,5 @@
 crds:
-  install: true
+  install: false
   keep: true
 
 image:
@@ -72,9 +72,9 @@ webhookServer:
     generic:
       enabled: false
       replicas: 1
-      # Name of a Secret containing per-source HMAC keys as individual keys.
-      # Each key should be named <SOURCE>_WEBHOOK_SECRET (e.g.,
-      # NOTION_WEBHOOK_SECRET, SENTRY_WEBHOOK_SECRET).
+      # Reserved for future per-source HMAC validation. The generic endpoint
+      # is currently unauthenticated; when set, these env vars are mounted but
+      # no code reads them.
       secretName: ""
       service:
         # Service type for the webhook endpoint.

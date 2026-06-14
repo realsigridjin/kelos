@@ -7,7 +7,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
+	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 )
 
 func TestMetricsRegistered(t *testing.T) {
@@ -125,7 +125,7 @@ func TestTaskOutputTokensCounter(t *testing.T) {
 func TestRecordCostTokenMetrics(t *testing.T) {
 	tests := []struct {
 		name       string
-		task       *kelosv1alpha1.Task
+		task       *kelos.Task
 		results    map[string]string
 		wantCost   float64
 		wantInput  float64
@@ -133,12 +133,12 @@ func TestRecordCostTokenMetrics(t *testing.T) {
 	}{
 		{
 			name: "All metrics present",
-			task: &kelosv1alpha1.Task{
+			task: &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace: "record-ns-1",
 					Labels:    map[string]string{"kelos.dev/taskspawner": "spawner-1"},
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:  "claude-code",
 					Model: "opus",
 				},
@@ -154,12 +154,12 @@ func TestRecordCostTokenMetrics(t *testing.T) {
 		},
 		{
 			name: "Only cost present",
-			task: &kelosv1alpha1.Task{
+			task: &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace: "record-ns-2",
 					Labels:    map[string]string{"kelos.dev/taskspawner": "spawner-2"},
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:  "claude-code",
 					Model: "sonnet",
 				},
@@ -171,11 +171,11 @@ func TestRecordCostTokenMetrics(t *testing.T) {
 		},
 		{
 			name: "No spawner label or model",
-			task: &kelosv1alpha1.Task{
+			task: &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace: "record-ns-3",
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type: "codex",
 				},
 			},
@@ -190,12 +190,12 @@ func TestRecordCostTokenMetrics(t *testing.T) {
 		},
 		{
 			name: "Invalid cost value is ignored",
-			task: &kelosv1alpha1.Task{
+			task: &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace: "record-ns-4",
 					Labels:    map[string]string{"kelos.dev/taskspawner": "spawner-4"},
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:  "claude-code",
 					Model: "opus",
 				},
@@ -208,12 +208,12 @@ func TestRecordCostTokenMetrics(t *testing.T) {
 		},
 		{
 			name: "Negative values are ignored",
-			task: &kelosv1alpha1.Task{
+			task: &kelos.Task{
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace: "record-ns-5",
 					Labels:    map[string]string{"kelos.dev/taskspawner": "spawner-5"},
 				},
-				Spec: kelosv1alpha1.TaskSpec{
+				Spec: kelos.TaskSpec{
 					Type:  "claude-code",
 					Model: "opus",
 				},

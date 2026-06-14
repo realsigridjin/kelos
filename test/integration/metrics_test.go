@@ -12,7 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
-	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
+	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 	"github.com/kelos-dev/kelos/internal/controller"
 )
 
@@ -48,7 +48,7 @@ func getMetricValue(name string, labels map[string]string) float64 {
 }
 
 const (
-	metricsTimeout  = time.Second * 10
+	metricsTimeout  = controllerSettleTimeout
 	metricsInterval = time.Millisecond * 250
 )
 
@@ -74,24 +74,24 @@ func createNamespaceWithSecret(nsName string) {
 // createAndCompleteTask creates a Task, waits for its Job to be created,
 // simulates Job completion, and waits for the Task to reach Succeeded phase.
 // Returns the completed Task object.
-func createAndCompleteTask(nsName, taskName, spawner, model string) *kelosv1alpha1.Task {
+func createAndCompleteTask(nsName, taskName, spawner, model string) *kelos.Task {
 	labels := map[string]string{}
 	if spawner != "" {
 		labels["kelos.dev/taskspawner"] = spawner
 	}
 
-	task := &kelosv1alpha1.Task{
+	task := &kelos.Task{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      taskName,
 			Namespace: nsName,
 			Labels:    labels,
 		},
-		Spec: kelosv1alpha1.TaskSpec{
+		Spec: kelos.TaskSpec{
 			Type:   "claude-code",
 			Prompt: fmt.Sprintf("Test task %s", taskName),
-			Credentials: kelosv1alpha1.Credentials{
-				Type: kelosv1alpha1.CredentialTypeAPIKey,
-				SecretRef: &kelosv1alpha1.SecretReference{
+			Credentials: kelos.Credentials{
+				Type: kelos.CredentialTypeAPIKey,
+				SecretRef: &kelos.SecretReference{
 					Name: "anthropic-api-key",
 				},
 			},
@@ -101,7 +101,7 @@ func createAndCompleteTask(nsName, taskName, spawner, model string) *kelosv1alph
 	Expect(k8sClient.Create(ctx, task)).Should(Succeed())
 
 	taskKey := types.NamespacedName{Name: taskName, Namespace: nsName}
-	createdTask := &kelosv1alpha1.Task{}
+	createdTask := &kelos.Task{}
 	Eventually(func() bool {
 		if err := k8sClient.Get(ctx, taskKey, createdTask); err != nil {
 			return false
@@ -128,15 +128,15 @@ func createAndCompleteTask(nsName, taskName, spawner, model string) *kelosv1alph
 		return k8sClient.Status().Update(ctx, createdJob)
 	}, metricsTimeout, metricsInterval).Should(Succeed())
 
-	Eventually(func() kelosv1alpha1.TaskPhase {
-		var t kelosv1alpha1.Task
+	Eventually(func() kelos.TaskPhase {
+		var t kelos.Task
 		if err := k8sClient.Get(ctx, taskKey, &t); err != nil {
 			return ""
 		}
 		return t.Status.Phase
-	}, metricsTimeout, metricsInterval).Should(Equal(kelosv1alpha1.TaskPhaseSucceeded))
+	}, metricsTimeout, metricsInterval).Should(Equal(kelos.TaskPhaseSucceeded))
 
-	completedTask := &kelosv1alpha1.Task{}
+	completedTask := &kelos.Task{}
 	Expect(k8sClient.Get(ctx, taskKey, completedTask)).Should(Succeed())
 	return completedTask
 }

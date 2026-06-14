@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
+	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 )
 
 func newGetAgentConfigCommand(cfg *ClientConfig, allNamespaces *bool) *cobra.Command {
@@ -37,44 +37,42 @@ func newGetAgentConfigCommand(cfg *ClientConfig, allNamespaces *bool) *cobra.Com
 			ctx := context.Background()
 
 			if len(args) == 1 {
-				ac := &kelosv1alpha1.AgentConfig{}
-				if err := cl.Get(ctx, client.ObjectKey{Name: args[0], Namespace: ns}, ac); err != nil {
+				ac, outputObject, err := getAgentConfig(ctx, cl, client.ObjectKey{Name: args[0], Namespace: ns})
+				if err != nil {
 					return fmt.Errorf("getting agent config: %w", err)
 				}
 
-				ac.SetGroupVersionKind(kelosv1alpha1.GroupVersion.WithKind("AgentConfig"))
 				switch output {
 				case "yaml":
-					return printYAML(os.Stdout, ac)
+					return printYAML(os.Stdout, outputObject)
 				case "json":
-					return printJSON(os.Stdout, ac)
+					return printJSON(os.Stdout, outputObject)
 				default:
 					if detail {
 						printAgentConfigDetail(os.Stdout, ac)
 					} else {
-						printAgentConfigTable(os.Stdout, []kelosv1alpha1.AgentConfig{*ac}, false)
+						printAgentConfigTable(os.Stdout, []kelos.AgentConfig{*ac}, false)
 					}
 					return nil
 				}
 			}
 
-			acList := &kelosv1alpha1.AgentConfigList{}
 			var listOpts []client.ListOption
 			if !*allNamespaces {
 				listOpts = append(listOpts, client.InNamespace(ns))
 			}
-			if err := cl.List(ctx, acList, listOpts...); err != nil {
+			items, outputList, err := listAgentConfigs(ctx, cl, listOpts...)
+			if err != nil {
 				return fmt.Errorf("listing agent configs: %w", err)
 			}
 
-			acList.SetGroupVersionKind(kelosv1alpha1.GroupVersion.WithKind("AgentConfigList"))
 			switch output {
 			case "yaml":
-				return printYAML(os.Stdout, acList)
+				return printYAML(os.Stdout, outputList)
 			case "json":
-				return printJSON(os.Stdout, acList)
+				return printJSON(os.Stdout, outputList)
 			default:
-				printAgentConfigTable(os.Stdout, acList.Items, *allNamespaces)
+				printAgentConfigTable(os.Stdout, items, *allNamespaces)
 				return nil
 			}
 		},

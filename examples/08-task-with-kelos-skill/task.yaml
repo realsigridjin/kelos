@@ -1,4 +1,4 @@
-apiVersion: kelos.dev/v1alpha1
+apiVersion: kelos.dev/v1alpha2
 kind: Task
 metadata:
   name: setup-kelos-workflow
@@ -14,5 +14,5 @@ spec:
       name: claude-oauth-token
   workspaceRef:
     name: my-workspace
-  agentConfigRef:
-    name: kelos-skill-agent
+  agentConfigRefs:
+    - name: kelos-skill-agent

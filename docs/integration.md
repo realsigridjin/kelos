@@ -20,7 +20,7 @@ One TaskSpawner handles the full lifecycle — discovery, filtering, Task creati
 React to issues in a GitHub repository. The spawner polls the GitHub API and creates a Task for each issue matching your filters.
 
 ```yaml
-apiVersion: kelos.dev/v1alpha1
+apiVersion: kelos.dev/v1alpha2
 kind: TaskSpawner
 metadata:
   name: fix-bugs
@@ -61,8 +61,6 @@ commentPolicy:
   minimumPermission: write   # only repo collaborators can trigger
 ```
 
-> **Note:** The top-level `triggerComment` and `excludeComments` fields are deprecated. Use `commentPolicy.triggerComment` and `commentPolicy.excludeComments` instead.
-
 **Status reporting:** Set `reporting.enabled: true` to post status updates (started, succeeded, failed) back to the issue as comments.
 
 ### GitHub Pull Requests
@@ -70,7 +68,7 @@ commentPolicy:
 React to pull requests — review code, respond to feedback, or enforce standards.
 
 ```yaml
-apiVersion: kelos.dev/v1alpha1
+apiVersion: kelos.dev/v1alpha2
 kind: TaskSpawner
 metadata:
   name: pr-reviewer
@@ -149,7 +147,7 @@ All event types support the `author` and `excludeAuthors` filter fields, and exp
 Events not in this list can still be specified in `events` — they will be parsed with best-effort field extraction (sender, action) from the raw JSON payload but will not have structured filter support.
 
 ```yaml
-apiVersion: kelos.dev/v1alpha1
+apiVersion: kelos.dev/v1alpha2
 kind: TaskSpawner
 metadata:
   name: webhook-responder
@@ -201,7 +199,7 @@ spec:
 React to Jira issues. The spawner polls the Jira API (Cloud or Data Center/Server) using JQL.
 
 ```yaml
-apiVersion: kelos.dev/v1alpha1
+apiVersion: kelos.dev/v1alpha2
 kind: TaskSpawner
 metadata:
   name: jira-worker
@@ -250,7 +248,7 @@ kubectl create secret generic jira-credentials \
 React to Linear webhook events in real time — issues, comments, and more. The webhook server receives events from Linear and creates Tasks for matching items.
 
 ```yaml
-apiVersion: kelos.dev/v1alpha1
+apiVersion: kelos.dev/v1alpha2
 kind: TaskSpawner
 metadata:
   name: linear-responder
@@ -314,7 +312,7 @@ Then configure a webhook in Linear (Settings → API → Webhooks) pointing to `
 React to arbitrary HTTP POST events from any system that can deliver a JSON payload — Sentry, Notion, Slack, Drata, PagerDuty, internal services, or anything else. Unlike the GitHub and Linear webhook sources, the generic webhook source has no built-in knowledge of any particular schema; you describe how to extract fields and what to filter on using JSONPath expressions.
 
 ```yaml
-apiVersion: kelos.dev/v1alpha1
+apiVersion: kelos.dev/v1alpha2
 kind: TaskSpawner
 metadata:
   name: sentry-error-responder
@@ -392,7 +390,7 @@ See [example 13](../examples/13-taskspawner-generic-webhook/) for a full setup w
 Run agents on a schedule — dependency updates, code health checks, or periodic maintenance.
 
 ```yaml
-apiVersion: kelos.dev/v1alpha1
+apiVersion: kelos.dev/v1alpha2
 kind: TaskSpawner
 metadata:
   name: weekly-deps
@@ -481,7 +479,7 @@ jobs:
       - name: Create Task
         run: |
           cat <<EOF | kubectl apply -f -
-          apiVersion: kelos.dev/v1alpha1
+          apiVersion: kelos.dev/v1alpha2
           kind: Task
           metadata:
             name: gha-task-${{ github.run_id }}
@@ -520,7 +518,7 @@ kelos run \
 
 # Using kubectl
 cat <<EOF | kubectl apply -f -
-apiVersion: kelos.dev/v1alpha1
+apiVersion: kelos.dev/v1alpha2
 kind: Task
 metadata:
   name: fix-flaky-test
@@ -551,7 +549,7 @@ config.load_kube_config()
 api = client.CustomObjectsApi()
 
 task = {
-    "apiVersion": "kelos.dev/v1alpha1",
+    "apiVersion": "kelos.dev/v1alpha2",
     "kind": "Task",
     "metadata": {"name": "programmatic-task"},
     "spec": {
@@ -568,7 +566,7 @@ task = {
 
 api.create_namespaced_custom_object(
     group="kelos.dev",
-    version="v1alpha1",
+    version="v1alpha2",
     namespace="default",
     plural="tasks",
     body=task,

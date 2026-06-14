@@ -19,7 +19,9 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
+	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 	"github.com/kelos-dev/kelos/internal/controller"
+	"github.com/kelos-dev/kelos/internal/conversion"
 	"github.com/kelos-dev/kelos/internal/githubapp"
 	"github.com/kelos-dev/kelos/internal/logging"
 	"github.com/kelos-dev/kelos/internal/telemetry"
@@ -33,6 +35,7 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(kelosv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(kelos.AddToScheme(scheme))
 }
 
 func main() {
@@ -248,6 +251,18 @@ func main() {
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "CodexAuthRefresher")
 		os.Exit(1)
+	}
+
+	// Serve the conversion webhooks (v1alpha1 <-> v1alpha2). The builder
+	// registers the single /convert handler and dispatches by GVK to the
+	// matching internal hub/spoke converter.
+	for _, registration := range conversion.WebhookRegistrations() {
+		if err := ctrl.NewWebhookManagedBy(mgr, registration.Object).
+			WithConverter(registration.Converter).
+			Complete(); err != nil {
+			setupLog.Error(err, "unable to create conversion webhook", "object", fmt.Sprintf("%T", registration.Object))
+			os.Exit(1)
+		}
 	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {

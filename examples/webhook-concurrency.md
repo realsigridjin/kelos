@@ -15,7 +15,7 @@ Webhook TaskSpawners support concurrency limits via the `maxConcurrency` field, 
 
 ### Concurrency Enforcement
 ```yaml
-apiVersion: kelos.dev/v1alpha1
+apiVersion: kelos.dev/v1alpha2
 kind: TaskSpawner
 metadata:
   name: github-webhook-limited

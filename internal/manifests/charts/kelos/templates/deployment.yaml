@@ -18,6 +18,12 @@ spec:
       labels:
         app.kubernetes.io/name: kelos
         app.kubernetes.io/component: manager
+        # Marks pods that serve the CRD conversion webhook on 9443. The
+        # kelos-webhook Service selects on this so that during an upgrade from a
+        # release whose controller did not serve the webhook, the old manager
+        # pods (which lack this label and do not listen on 9443) never become
+        # conversion endpoints.
+        kelos.dev/conversion-webhook: "true"
     spec:
       serviceAccountName: kelos-controller
       securityContext:
@@ -86,6 +92,13 @@ spec:
             - name: health
               containerPort: 8081
               protocol: TCP
+            - name: webhook
+              containerPort: 9443
+              protocol: TCP
+          volumeMounts:
+            - name: webhook-cert
+              mountPath: /tmp/k8s-webhook-server/serving-certs
+              readOnly: true
           livenessProbe:
             httpGet:
               path: /healthz
@@ -113,3 +126,8 @@ spec:
               {{- end }}
             {{- end }}
           {{- end }}
+      volumes:
+        - name: webhook-cert
+          secret:
+            secretName: kelos-webhook-server-cert
+            defaultMode: 420

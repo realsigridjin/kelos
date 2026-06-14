@@ -18,6 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
+	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 	"github.com/kelos-dev/kelos/internal/version"
 )
 
@@ -199,8 +200,8 @@ func collect(ctx context.Context, c client.Client, clientset kubernetes.Interfac
 	}
 	sort.Strings(report.Features.SourceTypes)
 
-	// Collect AgentConfig data.
-	var agentConfigs kelosv1alpha1.AgentConfigList
+	// Collect AgentConfig data (v1alpha2 is the storage version).
+	var agentConfigs kelos.AgentConfigList
 	if err := c.List(ctx, &agentConfigs); err != nil {
 		return nil, fmt.Errorf("listing agent configs: %w", err)
 	}

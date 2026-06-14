@@ -124,6 +124,14 @@ jobs:
       - name: Build CLI
         run: make build WHAT=cmd/kelos
 
+      - name: Install cert-manager
+        # kelos serves a CRD conversion webhook whose serving certificate is
+        # issued by cert-manager, so it is a hard prerequisite for kelos install.
+        run: |
+          kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
+          kubectl wait --for=condition=Available --timeout=300s -n cert-manager \
+            deployment/cert-manager deployment/cert-manager-webhook deployment/cert-manager-cainjector
+
       - name: Deploy controller
         run: |
           bin/kelos install --version e2e --image-pull-policy Never --disable-heartbeat

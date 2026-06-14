@@ -47,8 +47,8 @@ type When struct {
 
 	// GenericWebhook triggers task spawning from arbitrary HTTP POST payloads.
 	// Any system that can send an HTTP POST with a JSON body can trigger
-	// tasks through this source. The URL path is /webhook/<source> and
-	// the HMAC secret is read from the <SOURCE>_WEBHOOK_SECRET env var.
+	// tasks through this source. The URL path is /webhook/<source>.
+	// The endpoint is currently unauthenticated; restrict access at the network layer.
 	// +optional
 	GenericWebhook *GenericWebhook `json:"webhook,omitempty"`
 
@@ -548,15 +548,13 @@ type LinearWebhookFilter struct {
 
 // GenericWebhook configures webhook-driven task spawning from arbitrary HTTP
 // POST payloads with JSON bodies. Any system that can send an HTTP POST can
-// trigger tasks through this source. The URL path is /webhook/<source> and
-// the HMAC secret is read from the <SOURCE>_WEBHOOK_SECRET env var (e.g.,
-// source "notion" uses NOTION_WEBHOOK_SECRET).
+// trigger tasks through this source. The URL path is /webhook/<source>.
+// The endpoint is currently unauthenticated; per-source HMAC validation is
+// not implemented.
 // +kubebuilder:validation:XValidation:rule="'id' in self.fieldMapping",message="fieldMapping must include an 'id' key for deduplication and task naming"
 type GenericWebhook struct {
 	// Source is a short identifier for this webhook source (e.g., "notion",
-	// "sentry", "drata"). It determines:
-	//   - The URL path: /webhook/<source>
-	//   - The env var for HMAC validation: <SOURCE>_WEBHOOK_SECRET
+	// "sentry", "drata"). It determines the URL path: /webhook/<source>.
 	// Must be lowercase alphanumeric with optional hyphens.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Pattern=`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`

@@ -9,6 +9,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
+	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 )
 
 func TestPrintWorkspaceTable(t *testing.T) {
@@ -1152,18 +1153,18 @@ func TestPrintTaskDetail(t *testing.T) {
 }
 
 func TestPrintAgentConfigTable(t *testing.T) {
-	configs := []kelosv1alpha1.AgentConfig{
+	configs := []kelos.AgentConfig{
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:              "config-one",
 				CreationTimestamp: metav1.NewTime(time.Now().Add(-1 * time.Hour)),
 			},
-			Spec: kelosv1alpha1.AgentConfigSpec{
+			Spec: kelos.AgentConfigSpec{
 				AgentsMD: "some instructions",
-				Plugins: []kelosv1alpha1.PluginSpec{
+				Plugins: []kelos.PluginSpec{
 					{Name: "kelos"},
 				},
-				MCPServers: []kelosv1alpha1.MCPServerSpec{
+				MCPServers: []kelos.MCPServerSpec{
 					{Name: "github", Type: "http"},
 					{Name: "local", Type: "stdio"},
 				},
@@ -1174,7 +1175,7 @@ func TestPrintAgentConfigTable(t *testing.T) {
 				Name:              "config-two",
 				CreationTimestamp: metav1.NewTime(time.Now().Add(-24 * time.Hour)),
 			},
-			Spec: kelosv1alpha1.AgentConfigSpec{},
+			Spec: kelos.AgentConfigSpec{},
 		},
 	}
 
@@ -1199,14 +1200,14 @@ func TestPrintAgentConfigTable(t *testing.T) {
 }
 
 func TestPrintAgentConfigTableAllNamespaces(t *testing.T) {
-	configs := []kelosv1alpha1.AgentConfig{
+	configs := []kelos.AgentConfig{
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:              "config-one",
 				Namespace:         "ns-a",
 				CreationTimestamp: metav1.NewTime(time.Now().Add(-1 * time.Hour)),
 			},
-			Spec: kelosv1alpha1.AgentConfigSpec{},
+			Spec: kelos.AgentConfigSpec{},
 		},
 		{
 			ObjectMeta: metav1.ObjectMeta{
@@ -1214,7 +1215,7 @@ func TestPrintAgentConfigTableAllNamespaces(t *testing.T) {
 				Namespace:         "ns-b",
 				CreationTimestamp: metav1.NewTime(time.Now().Add(-24 * time.Hour)),
 			},
-			Spec: kelosv1alpha1.AgentConfigSpec{},
+			Spec: kelos.AgentConfigSpec{},
 		},
 	}
 
@@ -1234,20 +1235,20 @@ func TestPrintAgentConfigTableAllNamespaces(t *testing.T) {
 }
 
 func TestPrintAgentConfigTableSingleItem(t *testing.T) {
-	ac := kelosv1alpha1.AgentConfig{
+	ac := kelos.AgentConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:              "my-config",
 			CreationTimestamp: metav1.NewTime(time.Now().Add(-2 * time.Hour)),
 		},
-		Spec: kelosv1alpha1.AgentConfigSpec{
-			Plugins: []kelosv1alpha1.PluginSpec{
+		Spec: kelos.AgentConfigSpec{
+			Plugins: []kelos.PluginSpec{
 				{Name: "kelos"},
 			},
 		},
 	}
 
 	var buf bytes.Buffer
-	printAgentConfigTable(&buf, []kelosv1alpha1.AgentConfig{ac}, false)
+	printAgentConfigTable(&buf, []kelos.AgentConfig{ac}, false)
 	output := buf.String()
 
 	if !strings.Contains(output, "NAME") {
@@ -1262,25 +1263,25 @@ func TestPrintAgentConfigTableSingleItem(t *testing.T) {
 }
 
 func TestPrintAgentConfigDetail(t *testing.T) {
-	ac := &kelosv1alpha1.AgentConfig{
+	ac := &kelos.AgentConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "my-config",
 			Namespace: "default",
 		},
-		Spec: kelosv1alpha1.AgentConfigSpec{
+		Spec: kelos.AgentConfigSpec{
 			AgentsMD: "Build and test instructions",
-			Plugins: []kelosv1alpha1.PluginSpec{
+			Plugins: []kelos.PluginSpec{
 				{
 					Name: "kelos",
-					Skills: []kelosv1alpha1.SkillDefinition{
+					Skills: []kelos.SkillDefinition{
 						{Name: "review", Content: "review content"},
 					},
-					Agents: []kelosv1alpha1.AgentDefinition{
+					Agents: []kelos.AgentDefinition{
 						{Name: "triage", Content: "triage content"},
 					},
 				},
 			},
-			MCPServers: []kelosv1alpha1.MCPServerSpec{
+			MCPServers: []kelos.MCPServerSpec{
 				{Name: "github", Type: "http"},
 				{Name: "local-tool", Type: "stdio"},
 			},
@@ -1308,12 +1309,12 @@ func TestPrintAgentConfigDetail(t *testing.T) {
 }
 
 func TestPrintAgentConfigDetailMinimal(t *testing.T) {
-	ac := &kelosv1alpha1.AgentConfig{
+	ac := &kelos.AgentConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "minimal-config",
 			Namespace: "default",
 		},
-		Spec: kelosv1alpha1.AgentConfigSpec{},
+		Spec: kelos.AgentConfigSpec{},
 	}
 
 	var buf bytes.Buffer
