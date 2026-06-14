@@ -160,6 +160,7 @@ func TestDevelopmentCommandPatternsRequireExactCommandBodies(t *testing.T) {
 						{name: "embedded in sentence", body: "Please run " + tt.command, want: false},
 						{name: "trailing text", body: tt.command + " after CI passes", want: false},
 						{name: "following line prose", body: tt.command + "\nRebase on origin/main", want: allowsCommandLine},
+						{name: "following line prose with CRLF", body: tt.command + "\r\nRebase on origin/main", want: allowsCommandLine},
 						{name: "quoted markdown", body: "> " + tt.command, want: false},
 						{name: "inline code", body: "`" + tt.command + "`", want: false},
 						{name: "command line after prose", body: "Please run:\n" + tt.command, want: allowsCommandLine},
