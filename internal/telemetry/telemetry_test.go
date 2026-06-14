@@ -16,6 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
+	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 )
 
 // fakePostHogClient captures events for testing.
@@ -49,6 +50,9 @@ func newScheme(t *testing.T) *runtime.Scheme {
 	}
 	if err := kelosv1alpha1.AddToScheme(s); err != nil {
 		t.Fatal(err)
+	}
+	if err := kelos.AddToScheme(s); err != nil {
+		t.Fatalf("failed to add v1alpha2 scheme: %v", err)
 	}
 	return s
 }
@@ -103,7 +107,7 @@ func TestCollect(t *testing.T) {
 		},
 	}
 
-	agentConfigs := []kelosv1alpha1.AgentConfig{
+	agentConfigs := []kelos.AgentConfig{
 		{ObjectMeta: metav1.ObjectMeta{Name: "config-1", Namespace: "ns-a"}},
 	}
 

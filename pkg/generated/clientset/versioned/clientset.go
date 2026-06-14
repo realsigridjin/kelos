@@ -23,6 +23,7 @@ import (
 	http "net/http"
 
 	apiv1alpha1 "github.com/kelos-dev/kelos/pkg/generated/clientset/versioned/typed/api/v1alpha1"
+	apiv1alpha2 "github.com/kelos-dev/kelos/pkg/generated/clientset/versioned/typed/api/v1alpha2"
 	discovery "k8s.io/client-go/discovery"
 	rest "k8s.io/client-go/rest"
 	flowcontrol "k8s.io/client-go/util/flowcontrol"
@@ -31,17 +32,24 @@ import (
 type Interface interface {
 	Discovery() discovery.DiscoveryInterface
 	ApiV1alpha1() apiv1alpha1.ApiV1alpha1Interface
+	ApiV1alpha2() apiv1alpha2.ApiV1alpha2Interface
 }
 
 // Clientset contains the clients for groups.
 type Clientset struct {
 	*discovery.DiscoveryClient
 	apiV1alpha1 *apiv1alpha1.ApiV1alpha1Client
+	apiV1alpha2 *apiv1alpha2.ApiV1alpha2Client
 }
 
 // ApiV1alpha1 retrieves the ApiV1alpha1Client
 func (c *Clientset) ApiV1alpha1() apiv1alpha1.ApiV1alpha1Interface {
 	return c.apiV1alpha1
+}
+
+// ApiV1alpha2 retrieves the ApiV1alpha2Client
+func (c *Clientset) ApiV1alpha2() apiv1alpha2.ApiV1alpha2Interface {
+	return c.apiV1alpha2
 }
 
 // Discovery retrieves the DiscoveryClient
@@ -92,6 +100,10 @@ func NewForConfigAndClient(c *rest.Config, httpClient *http.Client) (*Clientset,
 	if err != nil {
 		return nil, err
 	}
+	cs.apiV1alpha2, err = apiv1alpha2.NewForConfigAndClient(&configShallowCopy, httpClient)
+	if err != nil {
+		return nil, err
+	}
 
 	cs.DiscoveryClient, err = discovery.NewDiscoveryClientForConfigAndClient(&configShallowCopy, httpClient)
 	if err != nil {
@@ -114,6 +126,7 @@ func NewForConfigOrDie(c *rest.Config) *Clientset {
 func New(c rest.Interface) *Clientset {
 	var cs Clientset
 	cs.apiV1alpha1 = apiv1alpha1.New(c)
+	cs.apiV1alpha2 = apiv1alpha2.New(c)
 
 	cs.DiscoveryClient = discovery.NewDiscoveryClient(c)
 	return &cs

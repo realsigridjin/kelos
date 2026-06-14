@@ -29,7 +29,6 @@ func TestRender_NilValues(t *testing.T) {
 	}
 	output := string(data)
 	for _, expected := range []string{
-		"kind: CustomResourceDefinition",
 		"kind: Namespace",
 		"kind: ServiceAccount",
 		"kind: ClusterRole",
@@ -39,6 +38,9 @@ func TestRender_NilValues(t *testing.T) {
 		if !strings.Contains(output, expected) {
 			t.Errorf("expected rendered output to contain %q", expected)
 		}
+	}
+	if strings.Contains(output, "kind: CustomResourceDefinition") {
+		t.Error("expected default chart render to omit CRDs")
 	}
 	if !imageLatestRefRE.MatchString(output) {
 		t.Error("expected :latest image refs in rendered output when using default values")
@@ -60,7 +62,6 @@ func TestRender_DefaultValues(t *testing.T) {
 	}
 	output := string(data)
 	for _, expected := range []string{
-		"kind: CustomResourceDefinition",
 		"kind: Namespace",
 		"kind: ServiceAccount",
 		"kind: ClusterRole",
@@ -70,6 +71,9 @@ func TestRender_DefaultValues(t *testing.T) {
 		if !strings.Contains(output, expected) {
 			t.Errorf("expected rendered output to contain %q", expected)
 		}
+	}
+	if strings.Contains(output, "kind: CustomResourceDefinition") {
+		t.Error("expected default chart render to omit CRDs")
 	}
 }
 
@@ -126,7 +130,12 @@ func TestRender_DisableTelemetry(t *testing.T) {
 }
 
 func TestRender_ResourceOrdering(t *testing.T) {
-	data, err := Render(manifests.ChartFS, nil)
+	vals := map[string]interface{}{
+		"crds": map[string]interface{}{
+			"install": true,
+		},
+	}
+	data, err := Render(manifests.ChartFS, vals)
 	if err != nil {
 		t.Fatalf("rendering chart: %v", err)
 	}
@@ -171,7 +180,12 @@ func TestRender_DisableCRDs(t *testing.T) {
 }
 
 func TestRender_TaskSpawnerTemplatePlaceholdersRemainLiteral(t *testing.T) {
-	data, err := Render(manifests.ChartFS, nil)
+	vals := map[string]interface{}{
+		"crds": map[string]interface{}{
+			"install": true,
+		},
+	}
+	data, err := Render(manifests.ChartFS, vals)
 	if err != nil {
 		t.Fatalf("rendering chart: %v", err)
 	}
@@ -179,14 +193,17 @@ func TestRender_TaskSpawnerTemplatePlaceholdersRemainLiteral(t *testing.T) {
 	if !strings.Contains(output, `Supports Go text/template variables from the work item, e.g. "kelos-task-{{.Number}}".`) {
 		t.Error("expected branch placeholder example to remain literal in rendered CRD output")
 	}
+	// Each placeholder appears in the Branch and PromptTemplate godoc of
+	// TaskTemplate, which is present in both the v1alpha1 and v1alpha2
+	// TaskSpawner CRD schemas (2 fields x 2 versions = 4).
 	for _, expected := range []string{
 		"Available variables (all sources): {{.ID}}, {{.Title}}, {{.Kind}}",
 		"GitHub issue/Jira sources: {{.Number}}, {{.Body}}, {{.URL}}, {{.Labels}}, {{.Comments}}",
 		"GitHub pull request sources additionally expose: {{.Branch}}, {{.ReviewState}}, {{.ReviewComments}}",
 		"Cron sources: {{.Time}}, {{.Schedule}}",
 	} {
-		if count := strings.Count(output, expected); count != 2 {
-			t.Errorf("expected %q to appear twice in TaskSpawner CRD descriptions, got %d", expected, count)
+		if count := strings.Count(output, expected); count != 4 {
+			t.Errorf("expected %q to appear four times in TaskSpawner CRD descriptions, got %d", expected, count)
 		}
 	}
 }
@@ -205,6 +222,22 @@ func TestRender_CRDKeepAnnotation(t *testing.T) {
 	output := string(data)
 	if !strings.Contains(output, "helm.sh/resource-policy") {
 		t.Error("expected helm.sh/resource-policy annotation when crds.keep is true")
+	}
+}
+
+func TestRender_CRDKeepAnnotationByDefaultWhenCRDsAreInstalled(t *testing.T) {
+	vals := map[string]interface{}{
+		"crds": map[string]interface{}{
+			"install": true,
+		},
+	}
+	data, err := Render(manifests.ChartFS, vals)
+	if err != nil {
+		t.Fatalf("rendering chart: %v", err)
+	}
+	output := string(data)
+	if !strings.Contains(output, "helm.sh/resource-policy") {
+		t.Error("expected helm.sh/resource-policy annotation by default")
 	}
 }
 

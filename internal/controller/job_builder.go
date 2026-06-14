@@ -11,7 +11,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
+	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 )
 
 const (
@@ -121,7 +121,7 @@ func NewJobBuilder() *JobBuilder {
 
 // Build creates a Job for the given Task. The prompt parameter is the
 // resolved prompt text (which may have been expanded from a template).
-func (b *JobBuilder) Build(task *kelosv1alpha1.Task, workspace *kelosv1alpha1.WorkspaceSpec, agentConfig *kelosv1alpha1.AgentConfigSpec, prompt string) (*batchv1.Job, error) {
+func (b *JobBuilder) Build(task *kelos.Task, workspace *kelos.WorkspaceSpec, agentConfig *kelos.AgentConfigSpec, prompt string) (*batchv1.Job, error) {
 	switch task.Spec.Type {
 	case AgentTypeClaudeCode:
 		return b.buildAgentJob(task, workspace, agentConfig, b.ClaudeCodeImage, b.ClaudeCodeImagePullPolicy, prompt)
@@ -185,7 +185,7 @@ func oauthEnvVar(agentType string) string {
 // credentialEnvVars returns the environment variables to inject for the given
 // credentials and agent type. This centralises all credential-type-specific
 // logic so that new providers (e.g. Vertex) only need to add a case here.
-func credentialEnvVars(creds kelosv1alpha1.Credentials, agentType string) []corev1.EnvVar {
+func credentialEnvVars(creds kelos.Credentials, agentType string) []corev1.EnvVar {
 	secretName := ""
 	if creds.SecretRef != nil {
 		secretName = creds.SecretRef.Name
@@ -206,15 +206,15 @@ func credentialEnvVars(creds kelosv1alpha1.Credentials, agentType string) []core
 	}
 
 	switch creds.Type {
-	case kelosv1alpha1.CredentialTypeAPIKey:
+	case kelos.CredentialTypeAPIKey:
 		keyName := apiKeyEnvVar(agentType)
 		return []corev1.EnvVar{secretEnvRef(keyName, false)}
 
-	case kelosv1alpha1.CredentialTypeOAuth:
+	case kelos.CredentialTypeOAuth:
 		tokenName := oauthEnvVar(agentType)
 		return []corev1.EnvVar{secretEnvRef(tokenName, false)}
 
-	case kelosv1alpha1.CredentialTypeNone:
+	case kelos.CredentialTypeNone:
 		// No built-in credential injection; users supply their own
 		// credentials via PodOverrides.Env.
 		return nil
@@ -229,14 +229,14 @@ func ptr[T any](v T) *T {
 	return &v
 }
 
-func effectiveWorkspaceRemotes(workspace *kelosv1alpha1.WorkspaceSpec) []kelosv1alpha1.GitRemote {
+func effectiveWorkspaceRemotes(workspace *kelos.WorkspaceSpec) []kelos.GitRemote {
 	if workspace == nil {
 		return nil
 	}
-	return append([]kelosv1alpha1.GitRemote(nil), workspace.Remotes...)
+	return append([]kelos.GitRemote(nil), workspace.Remotes...)
 }
 
-func upstreamRepoEnvValue(remotes []kelosv1alpha1.GitRemote) string {
+func upstreamRepoEnvValue(remotes []kelos.GitRemote) string {
 	for _, remote := range remotes {
 		if remote.Name != "upstream" {
 			continue
@@ -250,7 +250,7 @@ func upstreamRepoEnvValue(remotes []kelosv1alpha1.GitRemote) string {
 }
 
 // buildAgentJob creates a Job for the given agent type.
-func (b *JobBuilder) buildAgentJob(task *kelosv1alpha1.Task, workspace *kelosv1alpha1.WorkspaceSpec, agentConfig *kelosv1alpha1.AgentConfigSpec, defaultImage string, pullPolicy corev1.PullPolicy, prompt string) (*batchv1.Job, error) {
+func (b *JobBuilder) buildAgentJob(task *kelos.Task, workspace *kelos.WorkspaceSpec, agentConfig *kelos.AgentConfigSpec, defaultImage string, pullPolicy corev1.PullPolicy, prompt string) (*batchv1.Job, error) {
 	image := defaultImage
 	if task.Spec.Image != "" {
 		image = task.Spec.Image
@@ -370,7 +370,7 @@ func (b *JobBuilder) buildAgentJob(task *kelosv1alpha1.Task, workspace *kelosv1a
 	agentUID := AgentUID
 
 	mainContainer := corev1.Container{
-		Name:            kelosv1alpha1.AgentContainerName,
+		Name:            kelos.AgentContainerName,
 		Image:           image,
 		ImagePullPolicy: pullPolicy,
 		Command:         []string{"/kelos_entrypoint.sh"},
@@ -799,7 +799,7 @@ func (b *JobBuilder) buildAgentJob(task *kelosv1alpha1.Task, workspace *kelosv1a
 	return job, nil
 }
 
-func buildWorkspaceFileInjectionScript(files []kelosv1alpha1.WorkspaceFile) (string, error) {
+func buildWorkspaceFileInjectionScript(files []kelos.WorkspaceFile) (string, error) {
 	lines := []string{"set -eu"}
 
 	for _, file := range files {
@@ -859,8 +859,8 @@ var reservedVolumeNames = map[string]struct{}{
 func validateUserVolumes(volumes []corev1.Volume) error {
 	seen := make(map[string]struct{}, len(volumes))
 	for _, v := range volumes {
-		if strings.HasPrefix(v.Name, kelosv1alpha1.ReservedVolumeNamePrefix) {
-			return fmt.Errorf("podOverrides.volumes: %q uses the reserved %q volume name prefix", v.Name, kelosv1alpha1.ReservedVolumeNamePrefix)
+		if strings.HasPrefix(v.Name, kelos.ReservedVolumeNamePrefix) {
+			return fmt.Errorf("podOverrides.volumes: %q uses the reserved %q volume name prefix", v.Name, kelos.ReservedVolumeNamePrefix)
 		}
 		if _, reserved := reservedVolumeNames[v.Name]; reserved {
 			return fmt.Errorf("podOverrides.volumes: %q is a Kelos-reserved volume name", v.Name)
@@ -876,7 +876,7 @@ func validateUserVolumes(volumes []corev1.Volume) error {
 // reservedContainerNames is the set of built-in init container names that
 // Kelos uses internally. User-supplied extra/init containers must not use
 // these names. The agent (main) container is reserved via the
-// kelosv1alpha1.ReservedContainerNamePrefix prefix rather than enumerated
+// kelos.ReservedContainerNamePrefix prefix rather than enumerated
 // here, so agent-type literals (claude-code, codex, gemini, opencode,
 // cursor) are free for user-supplied containers.
 var reservedContainerNames = map[string]struct{}{
@@ -894,8 +894,8 @@ var reservedContainerNames = map[string]struct{}{
 func validateExtraContainers(containers []corev1.Container) error {
 	seen := make(map[string]struct{}, len(containers))
 	for _, c := range containers {
-		if strings.HasPrefix(c.Name, kelosv1alpha1.ReservedContainerNamePrefix) {
-			return fmt.Errorf("podOverrides: %q uses the reserved %q container name prefix", c.Name, kelosv1alpha1.ReservedContainerNamePrefix)
+		if strings.HasPrefix(c.Name, kelos.ReservedContainerNamePrefix) {
+			return fmt.Errorf("podOverrides: %q uses the reserved %q container name prefix", c.Name, kelos.ReservedContainerNamePrefix)
 		}
 		if _, reserved := reservedContainerNames[c.Name]; reserved {
 			return fmt.Errorf("podOverrides: %q is a Kelos-reserved container name", c.Name)
@@ -940,7 +940,7 @@ func sanitizeComponentName(name, kind string) error {
 	return nil
 }
 
-func buildPluginSetupScript(plugins []kelosv1alpha1.PluginSpec) (string, error) {
+func buildPluginSetupScript(plugins []kelos.PluginSpec) (string, error) {
 	lines := []string{"set -eu"}
 
 	for _, plugin := range plugins {
@@ -984,7 +984,7 @@ func buildPluginSetupScript(plugins []kelosv1alpha1.PluginSpec) (string, error) 
 // then relocates the installed skills into the <plugin>/skills/<skill>
 // layout that agent entrypoints discover, and ensures all output files are
 // owned by AgentUID.
-func buildSkillsInstallScript(skills []kelosv1alpha1.SkillsShSpec) (string, error) {
+func buildSkillsInstallScript(skills []kelos.SkillsShSpec) (string, error) {
 	lines := []string{
 		"set -eu",
 		"apk add --no-cache git >/dev/null 2>&1",
@@ -1036,7 +1036,9 @@ type mcpServerJSON struct {
 
 // buildMCPServersJSON converts MCPServerSpec entries into a JSON string
 // that matches the .mcp.json format: {"mcpServers":{"name":{...},...}}.
-func buildMCPServersJSON(servers []kelosv1alpha1.MCPServerSpec) (string, error) {
+// Env entries must already be resolved to literal Name/Value pairs by
+// resolveMCPServerSecrets — any remaining ValueFrom is treated as a bug.
+func buildMCPServersJSON(servers []kelos.MCPServerSpec) (string, error) {
 	mcpMap := make(map[string]mcpServerJSON, len(servers))
 	for _, s := range servers {
 		if s.Name == "" {
@@ -1048,13 +1050,17 @@ func buildMCPServersJSON(servers []kelosv1alpha1.MCPServerSpec) (string, error) 
 		if _, exists := mcpMap[s.Name]; exists {
 			return "", fmt.Errorf("duplicate MCP server name %q", s.Name)
 		}
+		envMap, err := envVarsToMap(s.Name, s.Env)
+		if err != nil {
+			return "", err
+		}
 		entry := mcpServerJSON{
 			Type:    s.Type,
 			Command: s.Command,
 			Args:    s.Args,
 			URL:     s.URL,
 			Headers: s.Headers,
-			Env:     s.Env,
+			Env:     envMap,
 		}
 		mcpMap[s.Name] = entry
 	}
@@ -1066,4 +1072,23 @@ func buildMCPServersJSON(servers []kelosv1alpha1.MCPServerSpec) (string, error) 
 		return "", fmt.Errorf("marshalling MCP servers: %w", err)
 	}
 	return string(data), nil
+}
+
+// envVarsToMap flattens a resolved []corev1.EnvVar into the map shape used by
+// the .mcp.json env field. ValueFrom must already have been resolved.
+func envVarsToMap(serverName string, env []corev1.EnvVar) (map[string]string, error) {
+	if len(env) == 0 {
+		return nil, nil
+	}
+	out := make(map[string]string, len(env))
+	for _, e := range env {
+		if e.Name == "" {
+			return nil, fmt.Errorf("MCP server %q has an env entry with an empty name", serverName)
+		}
+		if e.ValueFrom != nil {
+			return nil, fmt.Errorf("MCP server %q env %q: valueFrom must be resolved before rendering", serverName, e.Name)
+		}
+		out[e.Name] = e.Value
+	}
+	return out, nil
 }

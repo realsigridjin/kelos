@@ -17,6 +17,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
+	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 	"github.com/kelos-dev/kelos/internal/controller"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -42,7 +43,7 @@ func findEvent(namespace, involvedObjectName, reason string) *corev1.Event {
 
 var _ = Describe("Task Controller", func() {
 	const (
-		timeout  = time.Second * 10
+		timeout  = controllerSettleTimeout
 		interval = time.Millisecond * 250
 	)
 
@@ -305,13 +306,13 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, mcpSecret)).Should(Succeed())
 
 			By("Creating an AgentConfig with headersFrom")
-			agentConfig := &kelosv1alpha1.AgentConfig{
+			agentConfig := &kelos.AgentConfig{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "mcp-headers-from-config",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.AgentConfigSpec{
-					MCPServers: []kelosv1alpha1.MCPServerSpec{
+				Spec: kelos.AgentConfigSpec{
+					MCPServers: []kelos.MCPServerSpec{
 						{
 							Name: "github",
 							Type: "http",
@@ -319,8 +320,8 @@ var _ = Describe("Task Controller", func() {
 							Headers: map[string]string{
 								"X-Inline": "inline-value",
 							},
-							HeadersFrom: &kelosv1alpha1.SecretValuesSource{
-								SecretRef: kelosv1alpha1.SecretReference{Name: "mcp-github-headers"},
+							HeadersFrom: &kelos.SecretValuesSource{
+								SecretRef: kelos.SecretReference{Name: "mcp-github-headers"},
 							},
 						},
 					},
@@ -410,23 +411,23 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, mcpSecret)).Should(Succeed())
 
 			By("Creating an AgentConfig with envFrom")
-			agentConfig := &kelosv1alpha1.AgentConfig{
+			agentConfig := &kelos.AgentConfig{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "mcp-env-from-config",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.AgentConfigSpec{
-					MCPServers: []kelosv1alpha1.MCPServerSpec{
+				Spec: kelos.AgentConfigSpec{
+					MCPServers: []kelos.MCPServerSpec{
 						{
 							Name:    "local-db",
 							Type:    "stdio",
 							Command: "npx",
 							Args:    []string{"-y", "@bytebase/dbhub"},
-							Env: map[string]string{
-								"DSN": "postgres://localhost/db",
+							Env: []corev1.EnvVar{
+								{Name: "DSN", Value: "postgres://localhost/db"},
 							},
-							EnvFrom: &kelosv1alpha1.SecretValuesSource{
-								SecretRef: kelosv1alpha1.SecretReference{Name: "mcp-db-env"},
+							EnvFrom: &kelos.SecretValuesSource{
+								SecretRef: kelos.SecretReference{Name: "mcp-db-env"},
 							},
 						},
 					},
@@ -503,19 +504,19 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, apiSecret)).Should(Succeed())
 
 			By("Creating an AgentConfig with a missing MCP secret reference")
-			agentConfig := &kelosv1alpha1.AgentConfig{
+			agentConfig := &kelos.AgentConfig{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "mcp-missing-secret-config",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.AgentConfigSpec{
-					MCPServers: []kelosv1alpha1.MCPServerSpec{
+				Spec: kelos.AgentConfigSpec{
+					MCPServers: []kelos.MCPServerSpec{
 						{
 							Name: "github",
 							Type: "http",
 							URL:  "https://api.example.com/mcp/",
-							HeadersFrom: &kelosv1alpha1.SecretValuesSource{
-								SecretRef: kelosv1alpha1.SecretReference{Name: "missing-secret"},
+							HeadersFrom: &kelos.SecretValuesSource{
+								SecretRef: kelos.SecretReference{Name: "missing-secret"},
 							},
 						},
 					},
@@ -594,13 +595,13 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, mcpSecret)).Should(Succeed())
 
 			By("Creating an AgentConfig with overlapping inline and secret values")
-			agentConfig := &kelosv1alpha1.AgentConfig{
+			agentConfig := &kelos.AgentConfig{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "mcp-precedence-config",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.AgentConfigSpec{
-					MCPServers: []kelosv1alpha1.MCPServerSpec{
+				Spec: kelos.AgentConfigSpec{
+					MCPServers: []kelos.MCPServerSpec{
 						{
 							Name: "github",
 							Type: "http",
@@ -609,8 +610,8 @@ var _ = Describe("Task Controller", func() {
 								"Authorization": "Bearer inline-token",
 								"X-Inline":      "preserved",
 							},
-							HeadersFrom: &kelosv1alpha1.SecretValuesSource{
-								SecretRef: kelosv1alpha1.SecretReference{Name: "mcp-precedence-headers"},
+							HeadersFrom: &kelos.SecretValuesSource{
+								SecretRef: kelos.SecretReference{Name: "mcp-precedence-headers"},
 							},
 						},
 					},
@@ -662,6 +663,372 @@ var _ = Describe("Task Controller", func() {
 			Expect(json.Unmarshal([]byte(mcpJSON), &parsed)).Should(Succeed())
 			Expect(parsed.MCPServers["github"].Headers["Authorization"]).To(Equal("Bearer from-secret"))
 			Expect(parsed.MCPServers["github"].Headers["X-Inline"]).To(Equal("preserved"))
+		})
+
+		It("Should resolve env valueFrom secretKeyRef and configMapKeyRef", func() {
+			By("Creating a namespace")
+			ns := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-task-mcp-env-value-from",
+				},
+			}
+			Expect(k8sClient.Create(ctx, ns)).Should(Succeed())
+
+			By("Creating a Secret with API key")
+			apiSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "anthropic-api-key",
+					Namespace: ns.Name,
+				},
+				StringData: map[string]string{
+					"ANTHROPIC_API_KEY": "test-api-key",
+				},
+			}
+			Expect(k8sClient.Create(ctx, apiSecret)).Should(Succeed())
+
+			By("Creating a Secret holding the password under a single key")
+			passwordSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "mcp-db-password",
+					Namespace: ns.Name,
+				},
+				StringData: map[string]string{
+					"password": "hunter2",
+				},
+			}
+			Expect(k8sClient.Create(ctx, passwordSecret)).Should(Succeed())
+
+			By("Creating a ConfigMap holding the host under a single key")
+			hostCM := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "mcp-db-host",
+					Namespace: ns.Name,
+				},
+				Data: map[string]string{
+					"host": "db.internal",
+				},
+			}
+			Expect(k8sClient.Create(ctx, hostCM)).Should(Succeed())
+
+			By("Creating an AgentConfig with env.valueFrom")
+			agentConfig := &kelos.AgentConfig{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "mcp-value-from-config",
+					Namespace: ns.Name,
+				},
+				Spec: kelos.AgentConfigSpec{
+					MCPServers: []kelos.MCPServerSpec{
+						{
+							Name:    "local-db",
+							Type:    "stdio",
+							Command: "npx",
+							Args:    []string{"-y", "@bytebase/dbhub"},
+							Env: []corev1.EnvVar{
+								{Name: "DSN", Value: "postgres://localhost/db"},
+								{Name: "DB_PASSWORD", ValueFrom: &corev1.EnvVarSource{
+									SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{Name: "mcp-db-password"},
+										Key:                  "password",
+									},
+								}},
+								{Name: "DB_HOST", ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{Name: "mcp-db-host"},
+										Key:                  "host",
+									},
+								}},
+							},
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, agentConfig)).Should(Succeed())
+
+			By("Creating a Task referencing the AgentConfig")
+			task := &kelosv1alpha1.Task{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "task-mcp-value-from",
+					Namespace: ns.Name,
+				},
+				Spec: kelosv1alpha1.TaskSpec{
+					Type:   "claude-code",
+					Prompt: "Resolve MCP env valueFrom",
+					Credentials: kelosv1alpha1.Credentials{
+						Type:      kelosv1alpha1.CredentialTypeAPIKey,
+						SecretRef: &kelosv1alpha1.SecretReference{Name: "anthropic-api-key"},
+					},
+					AgentConfigRef: &kelosv1alpha1.AgentConfigReference{Name: "mcp-value-from-config"},
+				},
+			}
+			Expect(k8sClient.Create(ctx, task)).Should(Succeed())
+
+			By("Verifying a Job is created")
+			createdJob := &batchv1.Job{}
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: task.Name, Namespace: ns.Name}, createdJob)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+
+			By("Verifying KELOS_MCP_SERVERS contains values resolved from Secret and ConfigMap")
+			container := createdJob.Spec.Template.Spec.Containers[0]
+			var mcpJSON string
+			for _, env := range container.Env {
+				if env.Name == "KELOS_MCP_SERVERS" {
+					mcpJSON = env.Value
+					break
+				}
+			}
+			Expect(mcpJSON).NotTo(BeEmpty())
+
+			var parsed struct {
+				MCPServers map[string]struct {
+					Env map[string]string `json:"env"`
+				} `json:"mcpServers"`
+			}
+			Expect(json.Unmarshal([]byte(mcpJSON), &parsed)).Should(Succeed())
+			Expect(parsed.MCPServers["local-db"].Env["DSN"]).To(Equal("postgres://localhost/db"))
+			Expect(parsed.MCPServers["local-db"].Env["DB_PASSWORD"]).To(Equal("hunter2"))
+			Expect(parsed.MCPServers["local-db"].Env["DB_HOST"]).To(Equal("db.internal"))
+		})
+
+		It("Should fail the Task when MCP env uses an unsupported valueFrom variant", func() {
+			By("Creating a namespace")
+			ns := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-task-mcp-env-fieldref",
+				},
+			}
+			Expect(k8sClient.Create(ctx, ns)).Should(Succeed())
+
+			By("Creating a Secret with API key")
+			apiSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "anthropic-api-key",
+					Namespace: ns.Name,
+				},
+				StringData: map[string]string{
+					"ANTHROPIC_API_KEY": "test-api-key",
+				},
+			}
+			Expect(k8sClient.Create(ctx, apiSecret)).Should(Succeed())
+
+			By("Creating an AgentConfig whose MCP env uses an unsupported fieldRef")
+			agentConfig := &kelos.AgentConfig{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "mcp-fieldref-config",
+					Namespace: ns.Name,
+				},
+				Spec: kelos.AgentConfigSpec{
+					MCPServers: []kelos.MCPServerSpec{
+						{
+							Name:    "local-db",
+							Type:    "stdio",
+							Command: "npx",
+							Env: []corev1.EnvVar{
+								{Name: "NODE", ValueFrom: &corev1.EnvVarSource{
+									FieldRef: &corev1.ObjectFieldSelector{FieldPath: "spec.nodeName"},
+								}},
+							},
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, agentConfig)).Should(Succeed())
+
+			By("Creating a Task referencing the AgentConfig")
+			task := &kelosv1alpha1.Task{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "task-mcp-fieldref",
+					Namespace: ns.Name,
+				},
+				Spec: kelosv1alpha1.TaskSpec{
+					Type:   "claude-code",
+					Prompt: "Fail on unsupported MCP env valueFrom",
+					Credentials: kelosv1alpha1.Credentials{
+						Type:      kelosv1alpha1.CredentialTypeAPIKey,
+						SecretRef: &kelosv1alpha1.SecretReference{Name: "anthropic-api-key"},
+					},
+					AgentConfigRef: &kelosv1alpha1.AgentConfigReference{Name: "mcp-fieldref-config"},
+				},
+			}
+			Expect(k8sClient.Create(ctx, task)).Should(Succeed())
+
+			By("Verifying the Task transitions to Failed with a clear message")
+			taskLookupKey := types.NamespacedName{Name: task.Name, Namespace: ns.Name}
+			createdTask := &kelosv1alpha1.Task{}
+			Eventually(func() kelosv1alpha1.TaskPhase {
+				if err := k8sClient.Get(ctx, taskLookupKey, createdTask); err != nil {
+					return ""
+				}
+				return createdTask.Status.Phase
+			}, timeout, interval).Should(Equal(kelosv1alpha1.TaskPhaseFailed))
+			Expect(createdTask.Status.Message).To(ContainSubstring("secretKeyRef and configMapKeyRef"))
+		})
+
+		It("Should reject AgentConfigs that violate MCP server transport rules at admission", func() {
+			By("Creating a namespace")
+			ns := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-task-mcp-transport-validation",
+				},
+			}
+			Expect(k8sClient.Create(ctx, ns)).Should(Succeed())
+
+			cfg := func(name string, server kelos.MCPServerSpec) *kelos.AgentConfig {
+				return &kelos.AgentConfig{
+					ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns.Name},
+					Spec: kelos.AgentConfigSpec{
+						MCPServers: []kelos.MCPServerSpec{server},
+					},
+				}
+			}
+
+			By("Rejecting a stdio server without a command")
+			err := k8sClient.Create(ctx, cfg("mcp-stdio-no-command", kelos.MCPServerSpec{
+				Name: "local", Type: "stdio",
+			}))
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("command is required when type is stdio"))
+
+			By("Rejecting a stdio server with an empty command")
+			err = k8sClient.Create(ctx, cfg("mcp-stdio-empty-command", kelos.MCPServerSpec{
+				Name: "local", Type: "stdio", Command: "",
+			}))
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("command is required when type is stdio"))
+
+			By("Rejecting an http server without a url")
+			err = k8sClient.Create(ctx, cfg("mcp-http-no-url", kelos.MCPServerSpec{
+				Name: "remote", Type: "http",
+			}))
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("url is required when type is http or sse"))
+
+			By("Rejecting an http server with an empty url")
+			err = k8sClient.Create(ctx, cfg("mcp-http-empty-url", kelos.MCPServerSpec{
+				Name: "remote", Type: "http", URL: "",
+			}))
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("url is required when type is http or sse"))
+
+			By("Accepting a valid stdio server with a secretKeyRef env")
+			Expect(k8sClient.Create(ctx, cfg("mcp-valid", kelos.MCPServerSpec{
+				Name: "local", Type: "stdio", Command: "npx",
+				Env: []corev1.EnvVar{
+					{Name: "TOKEN", ValueFrom: &corev1.EnvVarSource{
+						SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "s"}, Key: "k"},
+					}},
+				},
+			}))).Should(Succeed())
+		})
+
+		It("Should omit an optional env valueFrom whose key is missing", func() {
+			By("Creating a namespace")
+			ns := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-task-mcp-env-optional-missing",
+				},
+			}
+			Expect(k8sClient.Create(ctx, ns)).Should(Succeed())
+
+			By("Creating a Secret with API key")
+			apiSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "anthropic-api-key",
+					Namespace: ns.Name,
+				},
+				StringData: map[string]string{
+					"ANTHROPIC_API_KEY": "test-api-key",
+				},
+			}
+			Expect(k8sClient.Create(ctx, apiSecret)).Should(Succeed())
+
+			By("Creating a Secret that does not hold the referenced key")
+			passwordSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "mcp-db-password",
+					Namespace: ns.Name,
+				},
+				StringData: map[string]string{
+					"other": "x",
+				},
+			}
+			Expect(k8sClient.Create(ctx, passwordSecret)).Should(Succeed())
+
+			By("Creating an AgentConfig with an optional env.valueFrom and a literal env")
+			optional := true
+			agentConfig := &kelos.AgentConfig{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "mcp-optional-missing-config",
+					Namespace: ns.Name,
+				},
+				Spec: kelos.AgentConfigSpec{
+					MCPServers: []kelos.MCPServerSpec{
+						{
+							Name:    "local-db",
+							Type:    "stdio",
+							Command: "npx",
+							Env: []corev1.EnvVar{
+								{Name: "DSN", Value: "postgres://localhost/db"},
+								{Name: "DB_PASSWORD", ValueFrom: &corev1.EnvVarSource{
+									SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{Name: "mcp-db-password"},
+										Key:                  "missing",
+										Optional:             &optional,
+									},
+								}},
+							},
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, agentConfig)).Should(Succeed())
+
+			By("Creating a Task referencing the AgentConfig")
+			task := &kelosv1alpha1.Task{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "task-mcp-optional-missing",
+					Namespace: ns.Name,
+				},
+				Spec: kelosv1alpha1.TaskSpec{
+					Type:   "claude-code",
+					Prompt: "Resolve MCP env optional valueFrom",
+					Credentials: kelosv1alpha1.Credentials{
+						Type:      kelosv1alpha1.CredentialTypeAPIKey,
+						SecretRef: &kelosv1alpha1.SecretReference{Name: "anthropic-api-key"},
+					},
+					AgentConfigRef: &kelosv1alpha1.AgentConfigReference{Name: "mcp-optional-missing-config"},
+				},
+			}
+			Expect(k8sClient.Create(ctx, task)).Should(Succeed())
+
+			By("Verifying a Job is created")
+			createdJob := &batchv1.Job{}
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: task.Name, Namespace: ns.Name}, createdJob)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+
+			By("Verifying KELOS_MCP_SERVERS omits the optional missing variable")
+			container := createdJob.Spec.Template.Spec.Containers[0]
+			var mcpJSON string
+			for _, env := range container.Env {
+				if env.Name == "KELOS_MCP_SERVERS" {
+					mcpJSON = env.Value
+					break
+				}
+			}
+			Expect(mcpJSON).NotTo(BeEmpty())
+
+			var parsed struct {
+				MCPServers map[string]struct {
+					Env map[string]string `json:"env"`
+				} `json:"mcpServers"`
+			}
+			Expect(json.Unmarshal([]byte(mcpJSON), &parsed)).Should(Succeed())
+			Expect(parsed.MCPServers["local-db"].Env["DSN"]).To(Equal("postgres://localhost/db"))
+			_, present := parsed.MCPServers["local-db"].Env["DB_PASSWORD"]
+			Expect(present).To(BeFalse())
 		})
 	})
 
@@ -3533,24 +3900,24 @@ var _ = Describe("Task Controller", func() {
 			Expect(k8sClient.Create(ctx, secret)).Should(Succeed())
 
 			By("Creating base AgentConfig")
-			baseConfig := &kelosv1alpha1.AgentConfig{
+			baseConfig := &kelos.AgentConfig{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "base-config",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.AgentConfigSpec{
+				Spec: kelos.AgentConfigSpec{
 					AgentsMD: "## Environment\nShared environment instructions",
 				},
 			}
 			Expect(k8sClient.Create(ctx, baseConfig)).Should(Succeed())
 
 			By("Creating role AgentConfig")
-			roleConfig := &kelosv1alpha1.AgentConfig{
+			roleConfig := &kelos.AgentConfig{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "role-config",
 					Namespace: ns.Name,
 				},
-				Spec: kelosv1alpha1.AgentConfigSpec{
+				Spec: kelos.AgentConfigSpec{
 					AgentsMD: "## Identity\nWorker agent role",
 				},
 			}

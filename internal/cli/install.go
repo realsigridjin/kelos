@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"os"
@@ -19,6 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
 	yamlutil "k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
@@ -32,6 +34,21 @@ import (
 )
 
 const fieldManager = "kelos"
+
+const installWaitTimeout = 2 * time.Minute
+
+var kelosCRDNames = []string{
+	"agentconfigs.kelos.dev",
+	"tasks.kelos.dev",
+	"taskspawners.kelos.dev",
+	"workspaces.kelos.dev",
+}
+
+var (
+	crdGVR       = schema.GroupVersionResource{Group: "apiextensions.k8s.io", Version: "v1", Resource: "customresourcedefinitions"}
+	endpointsGVR = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "endpoints"}
+	secretGVR    = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "secrets"}
+)
 
 type helmValuesOptions struct {
 	imageTag                   *string
@@ -114,10 +131,9 @@ func newInstallCommand(cfg *ClientConfig) *cobra.Command {
 			}
 
 			if dryRun {
-				if _, err := os.Stdout.Write(manifests.InstallCRD); err != nil {
-					return err
-				}
-				fmt.Fprintln(os.Stdout, "---")
+				// Real installs apply CRDs after the controller resources,
+				// certificate, and conversion webhook are ready; a single
+				// manifest stream cannot model that staging safely.
 				_, err := os.Stdout.Write(controllerManifest)
 				return err
 			}
@@ -138,14 +154,53 @@ func newInstallCommand(cfg *ClientConfig) *cobra.Command {
 
 			ctx := cmd.Context()
 
+			if err := requireCertManager(dc); err != nil {
+				return err
+			}
+
+			upgradingCRDs, err := kelosCRDsExist(ctx, dyn)
+			if err != nil {
+				return err
+			}
+			missingCRDs, err := missingKelosCRDNames(ctx, dyn)
+			if err != nil {
+				return err
+			}
+
+			fmt.Fprintf(os.Stdout, "Installing kelos controller resources (version: %s)\n", installVersion)
+			if err := applyManifests(ctx, dc, dyn, controllerManifest); err != nil {
+				return fmt.Errorf("installing controller: %w", err)
+			}
+
+			fmt.Fprintf(os.Stdout, "Waiting for kelos webhook certificate\n")
+			if err := waitForKelosWebhookCertificate(ctx, dyn); err != nil {
+				return err
+			}
+			if upgradingCRDs {
+				if len(missingCRDs) > 0 {
+					fmt.Fprintf(os.Stdout, "Installing missing kelos CRDs\n")
+					if err := applyKelosCRDs(ctx, dc, dyn, missingCRDs); err != nil {
+						return fmt.Errorf("installing missing CRDs: %w", err)
+					}
+				}
+				fmt.Fprintf(os.Stdout, "Waiting for kelos conversion webhook\n")
+				if err := waitForKelosWebhookReady(ctx, dyn); err != nil {
+					return err
+				}
+			}
+
 			fmt.Fprintf(os.Stdout, "Installing kelos CRDs\n")
 			if err := applyManifests(ctx, dc, dyn, manifests.InstallCRD); err != nil {
 				return fmt.Errorf("installing CRDs: %w", err)
 			}
 
-			fmt.Fprintf(os.Stdout, "Installing kelos controller (version: %s)\n", installVersion)
-			if err := applyManifests(ctx, dc, dyn, controllerManifest); err != nil {
-				return fmt.Errorf("installing controller: %w", err)
+			fmt.Fprintf(os.Stdout, "Waiting for kelos CRD conversion CA bundles\n")
+			if err := waitForKelosCRDConversionCABundles(ctx, dyn); err != nil {
+				return err
+			}
+			fmt.Fprintf(os.Stdout, "Waiting for kelos conversion webhook\n")
+			if err := waitForKelosWebhookReady(ctx, dyn); err != nil {
+				return err
 			}
 
 			fmt.Fprintf(os.Stdout, "Kelos installed successfully\n")
@@ -153,7 +208,7 @@ func newInstallCommand(cfg *ClientConfig) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print the manifests that would be applied without installing")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print controller manifests without installing; CRDs are staged separately")
 	cmd.Flags().StringArrayVarP(&valuesFiles, "values", "f", nil, "specify values in a YAML file (use '-' to read from stdin)")
 	cmd.Flags().StringArrayVar(&setValues, "set", nil, "set chart values on the command line (key1=val1,key2=val2)")
 	cmd.Flags().StringArrayVar(&setStringValues, "set-string", nil, "set string chart values on the command line (key1=val1,key2=val2)")
@@ -440,15 +495,257 @@ func nonEmptyStringPtr(s string) *string {
 	return &s
 }
 
-// kelosGVRs lists the kelos custom resource GVRs that need to be cleaned up
+// requireCertManager fails fast when the cert-manager API is not installed.
+// Readiness is checked through Kelos' own Certificate and webhook resources
+// after they are applied, which avoids assuming cert-manager's namespace or
+// release names.
+func requireCertManager(dc discovery.DiscoveryInterface) error {
+	resources, err := dc.ServerResourcesForGroupVersion("cert-manager.io/v1")
+	if err != nil {
+		if errors.IsNotFound(err) || meta.IsNoMatchError(err) {
+			return errCertManagerRequired
+		}
+		return fmt.Errorf("checking for cert-manager: %w", err)
+	}
+	var hasIssuer, hasCertificate bool
+	for _, r := range resources.APIResources {
+		switch r.Kind {
+		case "Issuer":
+			hasIssuer = true
+		case "Certificate":
+			hasCertificate = true
+		}
+	}
+	if !hasIssuer || !hasCertificate {
+		return errCertManagerRequired
+	}
+	return nil
+}
+
+func kelosCRDsExist(ctx context.Context, dyn dynamic.Interface) (bool, error) {
+	for _, name := range kelosCRDNames {
+		_, err := dyn.Resource(crdGVR).Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			if errors.IsNotFound(err) {
+				continue
+			}
+			return false, fmt.Errorf("checking Kelos CRD %s: %w", name, err)
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
+func missingKelosCRDNames(ctx context.Context, dyn dynamic.Interface) ([]string, error) {
+	var missing []string
+	for _, name := range kelosCRDNames {
+		_, err := dyn.Resource(crdGVR).Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			if errors.IsNotFound(err) {
+				missing = append(missing, name)
+				continue
+			}
+			return nil, fmt.Errorf("checking Kelos CRD %s: %w", name, err)
+		}
+	}
+	return missing, nil
+}
+
+func waitForKelosWebhookCertificate(ctx context.Context, dyn dynamic.Interface) error {
+	if err := wait.PollUntilContextTimeout(ctx, 500*time.Millisecond, installWaitTimeout, true, func(ctx context.Context) (bool, error) {
+		secret, err := dyn.Resource(secretGVR).Namespace("kelos-system").Get(ctx, "kelos-webhook-server-cert", metav1.GetOptions{})
+		if err != nil {
+			if errors.IsNotFound(err) {
+				return false, nil
+			}
+			return false, fmt.Errorf("checking kelos webhook certificate secret: %w", err)
+		}
+		return secretHasTLSData(secret), nil
+	}); err != nil {
+		return fmt.Errorf("waiting for kelos webhook certificate: %w", err)
+	}
+	return nil
+}
+
+func waitForKelosWebhookReady(ctx context.Context, dyn dynamic.Interface) error {
+	if err := wait.PollUntilContextTimeout(ctx, 500*time.Millisecond, installWaitTimeout, true, func(ctx context.Context) (bool, error) {
+		endpoints, err := dyn.Resource(endpointsGVR).Namespace("kelos-system").Get(ctx, "kelos-webhook", metav1.GetOptions{})
+		if err != nil {
+			if errors.IsNotFound(err) {
+				return false, nil
+			}
+			return false, fmt.Errorf("checking kelos webhook endpoints: %w", err)
+		}
+		return endpointsReady(endpoints), nil
+	}); err != nil {
+		return fmt.Errorf("waiting for kelos conversion webhook: %w", err)
+	}
+	return nil
+}
+
+func waitForKelosCRDConversionCABundles(ctx context.Context, dyn dynamic.Interface) error {
+	if err := wait.PollUntilContextTimeout(ctx, 500*time.Millisecond, installWaitTimeout, true, func(ctx context.Context) (bool, error) {
+		secret, err := dyn.Resource(secretGVR).Namespace("kelos-system").Get(ctx, "kelos-webhook-server-cert", metav1.GetOptions{})
+		if err != nil {
+			if errors.IsNotFound(err) {
+				return false, nil
+			}
+			return false, fmt.Errorf("checking kelos webhook certificate secret: %w", err)
+		}
+		expectedCABundle, ok := webhookCertificateCABundle(secret)
+		if !ok {
+			return false, nil
+		}
+		for _, name := range kelosCRDNames {
+			crd, err := dyn.Resource(crdGVR).Get(ctx, name, metav1.GetOptions{})
+			if err != nil {
+				if errors.IsNotFound(err) {
+					return false, nil
+				}
+				return false, fmt.Errorf("checking Kelos CRD %s: %w", name, err)
+			}
+			if !crdConversionCABundleMatches(crd, expectedCABundle) {
+				return false, nil
+			}
+		}
+		return true, nil
+	}); err != nil {
+		return fmt.Errorf("waiting for kelos CRD conversion CA bundles: %w", err)
+	}
+	return nil
+}
+
+func secretHasTLSData(secret *unstructured.Unstructured) bool {
+	_, hasCert := secretDataValue(secret, "tls.crt")
+	_, hasKey := secretDataValue(secret, "tls.key")
+	return hasCert && hasKey
+}
+
+func webhookCertificateCABundle(secret *unstructured.Unstructured) (string, bool) {
+	return secretDataValue(secret, "ca.crt")
+}
+
+func deploymentAvailable(deploy *unstructured.Unstructured) bool {
+	conditions, ok, err := unstructured.NestedSlice(deploy.Object, "status", "conditions")
+	if err != nil || !ok {
+		return false
+	}
+	for _, item := range conditions {
+		condition, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if condition["type"] == "Available" && condition["status"] == "True" {
+			return true
+		}
+	}
+	return false
+}
+
+func endpointsReady(endpoints *unstructured.Unstructured) bool {
+	subsets, ok, err := unstructured.NestedSlice(endpoints.Object, "subsets")
+	if err != nil || !ok {
+		return false
+	}
+	for _, item := range subsets {
+		subset, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		addresses, ok, err := unstructured.NestedSlice(subset, "addresses")
+		if err != nil || !ok || len(addresses) == 0 {
+			continue
+		}
+		ports, ok, err := unstructured.NestedSlice(subset, "ports")
+		if err != nil || !ok || len(ports) == 0 {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func crdConversionCABundleMatches(crd *unstructured.Unstructured, expectedCABundle string) bool {
+	strategy, _, _ := unstructured.NestedString(crd.Object, "spec", "conversion", "strategy")
+	if strategy != "Webhook" {
+		return false
+	}
+	caBundle, ok, err := unstructured.NestedFieldNoCopy(crd.Object, "spec", "conversion", "webhook", "clientConfig", "caBundle")
+	if err != nil || !ok {
+		return false
+	}
+	switch v := caBundle.(type) {
+	case string:
+		return v == expectedCABundle
+	case []byte:
+		return string(v) == expectedCABundle || base64.StdEncoding.EncodeToString(v) == expectedCABundle
+	default:
+		return false
+	}
+}
+
+func secretDataValue(secret *unstructured.Unstructured, key string) (string, bool) {
+	data, ok, err := unstructured.NestedFieldNoCopy(secret.Object, "data")
+	if err != nil || !ok {
+		return "", false
+	}
+	var value interface{}
+	switch m := data.(type) {
+	case map[string]interface{}:
+		value = m[key]
+	case map[string]string:
+		value = m[key]
+	default:
+		return "", false
+	}
+	switch v := value.(type) {
+	case string:
+		return v, v != ""
+	case []byte:
+		if len(v) == 0 {
+			return "", false
+		}
+		return base64.StdEncoding.EncodeToString(v), true
+	default:
+		return "", false
+	}
+}
+
+var errCertManagerRequired = fmt.Errorf("cert-manager is required but was not found in the cluster\n" +
+	"kelos issues the conversion webhook's serving certificate with cert-manager, so it must be installed first:\n" +
+	"  kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml\n" +
+	"Wait for the cert-manager pods to become ready, then re-run 'kelos install'")
+
+// kelosCRResources lists the kelos custom resources that need to be cleaned up
 // before the controller and CRDs can be safely removed. Resources with
 // finalizers (tasks, taskspawners) must be deleted while the controller is
 // still running so it can process the finalizer removal.
-var kelosGVRs = []schema.GroupVersionResource{
-	{Group: "kelos.dev", Version: "v1alpha1", Resource: "tasks"},
-	{Group: "kelos.dev", Version: "v1alpha1", Resource: "taskspawners"},
-	{Group: "kelos.dev", Version: "v1alpha1", Resource: "workspaces"},
-	{Group: "kelos.dev", Version: "v1alpha1", Resource: "agentconfigs"},
+var kelosCRResources = []string{"tasks", "taskspawners", "workspaces", "agentconfigs"}
+
+// kelosCRVersions are the served API versions to try for each resource, in
+// order. The v1alpha2 storage version is tried first so the common case needs
+// no conversion; v1alpha1 is a fallback so a newer CLI can still clean up a
+// cluster whose CRDs predate v1alpha2. Cleanup runs while the controller is
+// still up, so the conversion webhook remains available for any objects still
+// stored under the non-listed version.
+var kelosCRVersions = []string{"v1alpha2", "v1alpha1"}
+
+// listKelosResource lists a kelos custom resource across all namespaces using
+// the first served version from kelosCRVersions. ok is false when no candidate
+// version is served (the CRD is absent for all of them).
+func listKelosResource(ctx context.Context, dyn dynamic.Interface, resource string, limit int64) (schema.GroupVersionResource, *unstructured.UnstructuredList, bool, error) {
+	for _, version := range kelosCRVersions {
+		gvr := schema.GroupVersionResource{Group: "kelos.dev", Version: version, Resource: resource}
+		list, err := dyn.Resource(gvr).Namespace("").List(ctx, metav1.ListOptions{Limit: limit})
+		if err != nil {
+			if errors.IsNotFound(err) || meta.IsNoMatchError(err) {
+				continue
+			}
+			return gvr, nil, false, fmt.Errorf("listing %s: %w", resource, err)
+		}
+		return gvr, list, true, nil
+	}
+	return schema.GroupVersionResource{}, nil, false, nil
 }
 
 // crDeletionTimeout is the maximum time to wait for all custom resources
@@ -546,13 +843,13 @@ func newUninstallCommand(cfg *ClientConfig) *cobra.Command {
 // across all namespaces. It skips resources whose CRD does not exist
 // (e.g. if CRDs were already removed).
 func deleteAllCustomResources(ctx context.Context, dyn dynamic.Interface) error {
-	for _, gvr := range kelosGVRs {
-		list, err := dyn.Resource(gvr).Namespace("").List(ctx, metav1.ListOptions{})
+	for _, resource := range kelosCRResources {
+		gvr, list, ok, err := listKelosResource(ctx, dyn, resource, 0)
 		if err != nil {
-			if errors.IsNotFound(err) || meta.IsNoMatchError(err) {
-				continue
-			}
-			return fmt.Errorf("listing %s: %w", gvr.Resource, err)
+			return err
+		}
+		if !ok {
+			continue
 		}
 		for i := range list.Items {
 			obj := &list.Items[i]
@@ -576,15 +873,12 @@ func waitForCustomResourceDeletion(ctx context.Context, dyn dynamic.Interface) e
 	deadline := time.Now().Add(crDeletionTimeout)
 	for {
 		allGone := true
-		for _, gvr := range kelosGVRs {
-			list, err := dyn.Resource(gvr).Namespace("").List(ctx, metav1.ListOptions{Limit: 1})
+		for _, resource := range kelosCRResources {
+			_, list, ok, err := listKelosResource(ctx, dyn, resource, 1)
 			if err != nil {
-				if errors.IsNotFound(err) || meta.IsNoMatchError(err) {
-					continue
-				}
-				return fmt.Errorf("listing %s: %w", gvr.Resource, err)
+				return err
 			}
-			if len(list.Items) > 0 {
+			if ok && len(list.Items) > 0 {
 				allGone = false
 				break
 			}
@@ -666,6 +960,42 @@ func applyManifests(ctx context.Context, dc discovery.DiscoveryInterface, dyn dy
 	objs, err := parseManifests(data)
 	if err != nil {
 		return err
+	}
+	return applyObjects(ctx, dc, dyn, objs)
+}
+
+func applyKelosCRDs(ctx context.Context, dc discovery.DiscoveryInterface, dyn dynamic.Interface, names []string) error {
+	objs, err := parseManifests(manifests.InstallCRD)
+	if err != nil {
+		return err
+	}
+	wanted := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		wanted[name] = struct{}{}
+	}
+	var selected []*unstructured.Unstructured
+	seen := make(map[string]struct{}, len(names))
+	for _, obj := range objs {
+		if obj.GetKind() != "CustomResourceDefinition" {
+			continue
+		}
+		if _, ok := wanted[obj.GetName()]; !ok {
+			continue
+		}
+		selected = append(selected, obj)
+		seen[obj.GetName()] = struct{}{}
+	}
+	for _, name := range names {
+		if _, ok := seen[name]; !ok {
+			return fmt.Errorf("missing Kelos CRD manifest %s", name)
+		}
+	}
+	return applyObjects(ctx, dc, dyn, selected)
+}
+
+func applyObjects(ctx context.Context, dc discovery.DiscoveryInterface, dyn dynamic.Interface, objs []*unstructured.Unstructured) error {
+	if len(objs) == 0 {
+		return nil
 	}
 	mapper, err := newRESTMapper(dc)
 	if err != nil {

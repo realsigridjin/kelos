@@ -78,13 +78,13 @@ func completeAgentConfigNames(cfg *ClientConfig) cobra.CompletionFunc {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
 
-		acList := &kelosv1alpha1.AgentConfigList{}
-		if err := cl.List(ctx, acList, client.InNamespace(ns)); err != nil {
+		items, _, err := listAgentConfigs(ctx, cl, client.InNamespace(ns))
+		if err != nil {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
 
 		var names []string
-		for _, ac := range acList.Items {
+		for _, ac := range items {
 			names = append(names, ac.Name)
 		}
 		return names, cobra.ShellCompDirectiveNoFileComp

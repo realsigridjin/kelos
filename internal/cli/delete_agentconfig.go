@@ -6,10 +6,7 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
 )
 
 func newDeleteAgentConfigCommand(cfg *ClientConfig) *cobra.Command {
@@ -42,32 +39,25 @@ func newDeleteAgentConfigCommand(cfg *ClientConfig) *cobra.Command {
 			ctx := context.Background()
 
 			if all {
-				acList := &kelosv1alpha1.AgentConfigList{}
-				if err := cl.List(ctx, acList, client.InNamespace(ns)); err != nil {
+				items, _, err := listAgentConfigs(ctx, cl, client.InNamespace(ns))
+				if err != nil {
 					return fmt.Errorf("listing agent configs: %w", err)
 				}
-				if len(acList.Items) == 0 {
+				if len(items) == 0 {
 					fmt.Fprintln(os.Stdout, "No agent configs found")
 					return nil
 				}
-				for i := range acList.Items {
-					if err := cl.Delete(ctx, &acList.Items[i]); err != nil {
-						return fmt.Errorf("deleting agent config %s: %w", acList.Items[i].Name, err)
+				for i := range items {
+					if err := deleteAgentConfig(ctx, cl, items[i].Name, items[i].Namespace); err != nil {
+						return fmt.Errorf("deleting agent config %s: %w", items[i].Name, err)
 					}
-					fmt.Fprintf(os.Stdout, "agentconfig/%s deleted\n", acList.Items[i].Name)
+					fmt.Fprintf(os.Stdout, "agentconfig/%s deleted\n", items[i].Name)
 				}
 				return nil
 			}
 
-			ac := &kelosv1alpha1.AgentConfig{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      args[0],
-					Namespace: ns,
-				},
-			}
-
-			if err := cl.Delete(ctx, ac); err != nil {
-				return fmt.Errorf("deleting agent config: %w", err)
+			if err := deleteAgentConfig(ctx, cl, args[0], ns); err != nil {
+				return fmt.Errorf("deleting agent config %s: %w", args[0], err)
 			}
 			fmt.Fprintf(os.Stdout, "agentconfig/%s deleted\n", args[0])
 			return nil

@@ -25,7 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
+	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 	"github.com/kelos-dev/kelos/internal/githubapp"
 )
 
@@ -53,14 +53,14 @@ type TaskSpawnerReconciler struct {
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 // isCronBased returns true if the TaskSpawner uses a cron schedule.
-func isCronBased(ts *kelosv1alpha1.TaskSpawner) bool {
+func isCronBased(ts *kelos.TaskSpawner) bool {
 	return ts.Spec.When.Cron != nil
 }
 
 // isWebhookBased returns true if the TaskSpawner is webhook-driven.
 // Slack uses Socket Mode (outbound WebSocket) handled by the centralized
 // kelos-slack-server, so it follows the same no-deployment pattern.
-func isWebhookBased(ts *kelosv1alpha1.TaskSpawner) bool {
+func isWebhookBased(ts *kelos.TaskSpawner) bool {
 	return ts.Spec.When.GitHubWebhook != nil || ts.Spec.When.LinearWebhook != nil || ts.Spec.When.GenericWebhook != nil || ts.Spec.When.Slack != nil
 }
 
@@ -68,7 +68,7 @@ func isWebhookBased(ts *kelosv1alpha1.TaskSpawner) bool {
 func (r *TaskSpawnerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
-	var ts kelosv1alpha1.TaskSpawner
+	var ts kelos.TaskSpawner
 	if err := r.Get(ctx, req.NamespacedName, &ts); err != nil {
 		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
@@ -115,7 +115,7 @@ func (r *TaskSpawnerReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 }
 
 // reconcileWebhook handles webhook-based TaskSpawners by cleaning up any stale resources.
-func (r *TaskSpawnerReconciler) reconcileWebhook(ctx context.Context, req ctrl.Request, ts *kelosv1alpha1.TaskSpawner, isSuspended bool) (ctrl.Result, error) {
+func (r *TaskSpawnerReconciler) reconcileWebhook(ctx context.Context, req ctrl.Request, ts *kelos.TaskSpawner, isSuspended bool) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
 	// Clean up any stale Deployment or CronJob from previous configurations
@@ -127,10 +127,10 @@ func (r *TaskSpawnerReconciler) reconcileWebhook(ctx context.Context, req ctrl.R
 	}
 
 	// Determine the desired phase for webhook TaskSpawners
-	desiredPhase := kelosv1alpha1.TaskSpawnerPhaseRunning
+	desiredPhase := kelos.TaskSpawnerPhaseRunning
 	desiredMessage := "Webhook-driven TaskSpawner ready"
 	if isSuspended {
-		desiredPhase = kelosv1alpha1.TaskSpawnerPhaseSuspended
+		desiredPhase = kelos.TaskSpawnerPhaseSuspended
 		desiredMessage = "Suspended by user"
 	}
 
@@ -167,7 +167,7 @@ func (r *TaskSpawnerReconciler) reconcileWebhook(ctx context.Context, req ctrl.R
 
 // countActiveTasks counts the number of active (non-terminal) Tasks for a TaskSpawner.
 func (r *TaskSpawnerReconciler) countActiveTasks(ctx context.Context, taskSpawnerName types.NamespacedName) (int, error) {
-	var taskList kelosv1alpha1.TaskList
+	var taskList kelos.TaskList
 	if err := r.List(ctx, &taskList,
 		client.InNamespace(taskSpawnerName.Namespace),
 		client.MatchingLabels{"kelos.dev/taskspawner": taskSpawnerName.Name},
@@ -179,7 +179,7 @@ func (r *TaskSpawnerReconciler) countActiveTasks(ctx context.Context, taskSpawne
 	for i := range taskList.Items {
 		task := &taskList.Items[i]
 		// Count tasks that are not in terminal phases
-		if task.Status.Phase != kelosv1alpha1.TaskPhaseSucceeded && task.Status.Phase != kelosv1alpha1.TaskPhaseFailed {
+		if task.Status.Phase != kelos.TaskPhaseSucceeded && task.Status.Phase != kelos.TaskPhaseFailed {
 			activeTasks++
 		}
 	}
@@ -188,7 +188,7 @@ func (r *TaskSpawnerReconciler) countActiveTasks(ctx context.Context, taskSpawne
 }
 
 // reconcileDeployment handles the Deployment lifecycle for polling-based TaskSpawners.
-func (r *TaskSpawnerReconciler) reconcileDeployment(ctx context.Context, req ctrl.Request, ts *kelosv1alpha1.TaskSpawner, isSuspended bool) (ctrl.Result, error) {
+func (r *TaskSpawnerReconciler) reconcileDeployment(ctx context.Context, req ctrl.Request, ts *kelos.TaskSpawner, isSuspended bool) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
 	// Clean up any existing CronJob from a previous cron-based configuration.
@@ -225,11 +225,11 @@ func (r *TaskSpawnerReconciler) reconcileDeployment(ctx context.Context, req ctr
 	}
 
 	// Resolve workspace if workspaceRef is set in taskTemplate
-	var workspace *kelosv1alpha1.WorkspaceSpec
+	var workspace *kelos.WorkspaceSpec
 	var isGitHubApp bool
 	if ts.Spec.TaskTemplate.WorkspaceRef != nil {
 		workspaceRefName := ts.Spec.TaskTemplate.WorkspaceRef.Name
-		var ws kelosv1alpha1.Workspace
+		var ws kelos.Workspace
 		if err := r.Get(ctx, client.ObjectKey{
 			Namespace: ts.Namespace,
 			Name:      workspaceRefName,
@@ -276,7 +276,7 @@ func (r *TaskSpawnerReconciler) reconcileDeployment(ctx context.Context, req ctr
 			if getErr := r.Get(ctx, req.NamespacedName, ts); getErr != nil {
 				return getErr
 			}
-			ts.Status.Phase = kelosv1alpha1.TaskSpawnerPhaseFailed
+			ts.Status.Phase = kelos.TaskSpawnerPhaseFailed
 			ts.Status.Message = err.Error()
 			ts.Status.DeploymentName = ""
 			ts.Status.CronJobName = ""
@@ -307,10 +307,10 @@ func (r *TaskSpawnerReconciler) reconcileDeployment(ctx context.Context, req ctr
 
 	// Determine the desired phase based on current state
 	desiredPhase := ts.Status.Phase
-	if isSuspended && ts.Status.Phase != kelosv1alpha1.TaskSpawnerPhaseSuspended {
-		desiredPhase = kelosv1alpha1.TaskSpawnerPhaseSuspended
-	} else if !isSuspended && ts.Status.Phase == kelosv1alpha1.TaskSpawnerPhaseSuspended {
-		desiredPhase = kelosv1alpha1.TaskSpawnerPhaseRunning
+	if isSuspended && ts.Status.Phase != kelos.TaskSpawnerPhaseSuspended {
+		desiredPhase = kelos.TaskSpawnerPhaseSuspended
+	} else if !isSuspended && ts.Status.Phase == kelos.TaskSpawnerPhaseSuspended {
+		desiredPhase = kelos.TaskSpawnerPhaseRunning
 	}
 
 	// Update status with deployment name or phase if needed
@@ -323,13 +323,13 @@ func (r *TaskSpawnerReconciler) reconcileDeployment(ctx context.Context, req ctr
 			ts.Status.DeploymentName = deploy.Name
 			ts.Status.CronJobName = ""
 			if isSuspended {
-				ts.Status.Phase = kelosv1alpha1.TaskSpawnerPhaseSuspended
+				ts.Status.Phase = kelos.TaskSpawnerPhaseSuspended
 				ts.Status.Message = "Suspended by user"
-			} else if ts.Status.Phase == kelosv1alpha1.TaskSpawnerPhaseSuspended {
-				ts.Status.Phase = kelosv1alpha1.TaskSpawnerPhaseRunning
+			} else if ts.Status.Phase == kelos.TaskSpawnerPhaseSuspended {
+				ts.Status.Phase = kelos.TaskSpawnerPhaseRunning
 				ts.Status.Message = "Resumed"
 			} else if ts.Status.Phase == "" {
-				ts.Status.Phase = kelosv1alpha1.TaskSpawnerPhasePending
+				ts.Status.Phase = kelos.TaskSpawnerPhasePending
 			}
 			return r.Status().Update(ctx, ts)
 		}); err != nil {
@@ -342,7 +342,7 @@ func (r *TaskSpawnerReconciler) reconcileDeployment(ctx context.Context, req ctr
 }
 
 // reconcileCronJob handles the CronJob lifecycle for cron-based TaskSpawners.
-func (r *TaskSpawnerReconciler) reconcileCronJob(ctx context.Context, req ctrl.Request, ts *kelosv1alpha1.TaskSpawner, isSuspended bool) (ctrl.Result, error) {
+func (r *TaskSpawnerReconciler) reconcileCronJob(ctx context.Context, req ctrl.Request, ts *kelos.TaskSpawner, isSuspended bool) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
 	// Clean up any existing Deployment from a previous polling-based configuration.
@@ -362,11 +362,11 @@ func (r *TaskSpawnerReconciler) reconcileCronJob(ctx context.Context, req ctrl.R
 	}
 
 	// Resolve workspace if workspaceRef is set in taskTemplate
-	var workspace *kelosv1alpha1.WorkspaceSpec
+	var workspace *kelos.WorkspaceSpec
 	var isGitHubApp bool
 	if ts.Spec.TaskTemplate.WorkspaceRef != nil {
 		workspaceRefName := ts.Spec.TaskTemplate.WorkspaceRef.Name
-		var ws kelosv1alpha1.Workspace
+		var ws kelos.Workspace
 		if err := r.Get(ctx, client.ObjectKey{
 			Namespace: ts.Namespace,
 			Name:      workspaceRefName,
@@ -413,7 +413,7 @@ func (r *TaskSpawnerReconciler) reconcileCronJob(ctx context.Context, req ctrl.R
 			if getErr := r.Get(ctx, req.NamespacedName, ts); getErr != nil {
 				return getErr
 			}
-			ts.Status.Phase = kelosv1alpha1.TaskSpawnerPhaseFailed
+			ts.Status.Phase = kelos.TaskSpawnerPhaseFailed
 			ts.Status.Message = err.Error()
 			ts.Status.DeploymentName = ""
 			ts.Status.CronJobName = ""
@@ -438,9 +438,9 @@ func (r *TaskSpawnerReconciler) reconcileCronJob(ctx context.Context, req ctrl.R
 	// CronJobs are considered Running once they exist and are not suspended.
 	desiredPhase := ts.Status.Phase
 	if isSuspended {
-		desiredPhase = kelosv1alpha1.TaskSpawnerPhaseSuspended
-	} else if ts.Status.Phase != kelosv1alpha1.TaskSpawnerPhaseRunning {
-		desiredPhase = kelosv1alpha1.TaskSpawnerPhaseRunning
+		desiredPhase = kelos.TaskSpawnerPhaseSuspended
+	} else if ts.Status.Phase != kelos.TaskSpawnerPhaseRunning {
+		desiredPhase = kelos.TaskSpawnerPhaseRunning
 	}
 
 	needsStatusUpdate := ts.Status.CronJobName != cronJob.Name || ts.Status.DeploymentName != "" || ts.Status.Phase != desiredPhase
@@ -452,10 +452,10 @@ func (r *TaskSpawnerReconciler) reconcileCronJob(ctx context.Context, req ctrl.R
 			ts.Status.CronJobName = cronJob.Name
 			ts.Status.DeploymentName = ""
 			if isSuspended {
-				ts.Status.Phase = kelosv1alpha1.TaskSpawnerPhaseSuspended
+				ts.Status.Phase = kelos.TaskSpawnerPhaseSuspended
 				ts.Status.Message = "Suspended by user"
 			} else {
-				ts.Status.Phase = kelosv1alpha1.TaskSpawnerPhaseRunning
+				ts.Status.Phase = kelos.TaskSpawnerPhaseRunning
 				ts.Status.Message = ""
 			}
 			return r.Status().Update(ctx, ts)
@@ -469,7 +469,7 @@ func (r *TaskSpawnerReconciler) reconcileCronJob(ctx context.Context, req ctrl.R
 }
 
 // handleDeletion handles TaskSpawner deletion.
-func (r *TaskSpawnerReconciler) handleDeletion(ctx context.Context, ts *kelosv1alpha1.TaskSpawner) (ctrl.Result, error) {
+func (r *TaskSpawnerReconciler) handleDeletion(ctx context.Context, ts *kelos.TaskSpawner) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
 	if controllerutil.ContainsFinalizer(ts, taskSpawnerFinalizer) {
@@ -486,7 +486,7 @@ func (r *TaskSpawnerReconciler) handleDeletion(ctx context.Context, ts *kelosv1a
 }
 
 // createDeployment creates a Deployment for the TaskSpawner.
-func (r *TaskSpawnerReconciler) createDeployment(ctx context.Context, ts *kelosv1alpha1.TaskSpawner, workspace *kelosv1alpha1.WorkspaceSpec, isGitHubApp bool, replicas int32) (ctrl.Result, error) {
+func (r *TaskSpawnerReconciler) createDeployment(ctx context.Context, ts *kelos.TaskSpawner, workspace *kelos.WorkspaceSpec, isGitHubApp bool, replicas int32) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
 	deploy := r.DeploymentBuilder.Build(ts, workspace, isGitHubApp)
@@ -515,10 +515,10 @@ func (r *TaskSpawnerReconciler) createDeployment(ctx context.Context, ts *kelosv
 			return getErr
 		}
 		if replicas == 0 {
-			ts.Status.Phase = kelosv1alpha1.TaskSpawnerPhaseSuspended
+			ts.Status.Phase = kelos.TaskSpawnerPhaseSuspended
 			ts.Status.Message = "Suspended by user"
 		} else {
-			ts.Status.Phase = kelosv1alpha1.TaskSpawnerPhasePending
+			ts.Status.Phase = kelos.TaskSpawnerPhasePending
 		}
 		ts.Status.DeploymentName = deploy.Name
 		ts.Status.CronJobName = ""
@@ -532,7 +532,7 @@ func (r *TaskSpawnerReconciler) createDeployment(ctx context.Context, ts *kelosv
 }
 
 // updateDeployment updates the Deployment to match the desired spec if it has drifted.
-func (r *TaskSpawnerReconciler) updateDeployment(ctx context.Context, ts *kelosv1alpha1.TaskSpawner, deploy *appsv1.Deployment, workspace *kelosv1alpha1.WorkspaceSpec, isGitHubApp bool, desiredReplicas int32) error {
+func (r *TaskSpawnerReconciler) updateDeployment(ctx context.Context, ts *kelos.TaskSpawner, deploy *appsv1.Deployment, workspace *kelos.WorkspaceSpec, isGitHubApp bool, desiredReplicas int32) error {
 	logger := log.FromContext(ctx)
 
 	desired := r.DeploymentBuilder.Build(ts, workspace, isGitHubApp)
@@ -590,7 +590,7 @@ func (r *TaskSpawnerReconciler) updateDeployment(ctx context.Context, ts *kelosv
 }
 
 // createCronJob creates a CronJob for a cron-based TaskSpawner.
-func (r *TaskSpawnerReconciler) createCronJob(ctx context.Context, ts *kelosv1alpha1.TaskSpawner, workspace *kelosv1alpha1.WorkspaceSpec, isGitHubApp bool, isSuspended bool) (ctrl.Result, error) {
+func (r *TaskSpawnerReconciler) createCronJob(ctx context.Context, ts *kelos.TaskSpawner, workspace *kelos.WorkspaceSpec, isGitHubApp bool, isSuspended bool) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
 	cronJob := r.DeploymentBuilder.BuildCronJob(ts, workspace, isGitHubApp)
@@ -619,10 +619,10 @@ func (r *TaskSpawnerReconciler) createCronJob(ctx context.Context, ts *kelosv1al
 			return getErr
 		}
 		if isSuspended {
-			ts.Status.Phase = kelosv1alpha1.TaskSpawnerPhaseSuspended
+			ts.Status.Phase = kelos.TaskSpawnerPhaseSuspended
 			ts.Status.Message = "Suspended by user"
 		} else {
-			ts.Status.Phase = kelosv1alpha1.TaskSpawnerPhaseRunning
+			ts.Status.Phase = kelos.TaskSpawnerPhaseRunning
 		}
 		ts.Status.CronJobName = cronJob.Name
 		ts.Status.DeploymentName = ""
@@ -636,7 +636,7 @@ func (r *TaskSpawnerReconciler) createCronJob(ctx context.Context, ts *kelosv1al
 }
 
 // updateCronJob updates the CronJob if the schedule or suspend state changed.
-func (r *TaskSpawnerReconciler) updateCronJob(ctx context.Context, ts *kelosv1alpha1.TaskSpawner, cronJob *batchv1.CronJob, workspace *kelosv1alpha1.WorkspaceSpec, isGitHubApp bool, isSuspended bool) error {
+func (r *TaskSpawnerReconciler) updateCronJob(ctx context.Context, ts *kelos.TaskSpawner, cronJob *batchv1.CronJob, workspace *kelos.WorkspaceSpec, isGitHubApp bool, isSuspended bool) error {
 	logger := log.FromContext(ctx)
 
 	desired := r.DeploymentBuilder.BuildCronJob(ts, workspace, isGitHubApp)
@@ -714,7 +714,7 @@ func (r *TaskSpawnerReconciler) deleteStaleResource(ctx context.Context, key typ
 	ownerRefs := obj.GetOwnerReferences()
 	isOwnedByTaskSpawner := false
 	for _, ref := range ownerRefs {
-		if ref.APIVersion == "kelos.dev/v1alpha1" && ref.Kind == "TaskSpawner" && ref.Controller != nil && *ref.Controller {
+		if (ref.APIVersion == "kelos.dev/v1alpha1" || ref.APIVersion == "kelos.dev/v1alpha2") && ref.Kind == "TaskSpawner" && ref.Controller != nil && *ref.Controller {
 			isOwnedByTaskSpawner = true
 			break
 		}
@@ -850,12 +850,12 @@ func (r *TaskSpawnerReconciler) recordEvent(obj runtime.Object, eventType, reaso
 // SetupWithManager sets up the controller with the Manager.
 func (r *TaskSpawnerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&kelosv1alpha1.TaskSpawner{}).
+		For(&kelos.TaskSpawner{}).
 		Owns(&appsv1.Deployment{}).
 		Owns(&batchv1.CronJob{}).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.findTaskSpawnersForSecret)).
-		Watches(&kelosv1alpha1.Workspace{}, handler.EnqueueRequestsFromMapFunc(r.findTaskSpawnersForWorkspace)).
-		Watches(&kelosv1alpha1.Task{}, handler.EnqueueRequestsFromMapFunc(r.findTaskSpawnersForTask),
+		Watches(&kelos.Workspace{}, handler.EnqueueRequestsFromMapFunc(r.findTaskSpawnersForWorkspace)).
+		Watches(&kelos.Task{}, handler.EnqueueRequestsFromMapFunc(r.findTaskSpawnersForTask),
 			builder.WithPredicates(predicate.NewPredicateFuncs(func(obj client.Object) bool {
 				_, hasLabel := obj.GetLabels()["kelos.dev/taskspawner"]
 				return hasLabel
@@ -872,7 +872,7 @@ func (r *TaskSpawnerReconciler) findTaskSpawnersForSecret(ctx context.Context, o
 	}
 
 	// Find workspaces that reference this secret
-	var workspaceList kelosv1alpha1.WorkspaceList
+	var workspaceList kelos.WorkspaceList
 	if err := r.List(ctx, &workspaceList, client.InNamespace(secret.Namespace)); err != nil {
 		return nil
 	}
@@ -888,7 +888,7 @@ func (r *TaskSpawnerReconciler) findTaskSpawnersForSecret(ctx context.Context, o
 	}
 
 	// Find task spawners that reference those workspaces
-	var tsList kelosv1alpha1.TaskSpawnerList
+	var tsList kelos.TaskSpawnerList
 	if err := r.List(ctx, &tsList, client.InNamespace(secret.Namespace)); err != nil {
 		return nil
 	}
@@ -915,12 +915,12 @@ func (r *TaskSpawnerReconciler) findTaskSpawnersForSecret(ctx context.Context, o
 // findTaskSpawnersForWorkspace maps a Workspace change to the TaskSpawners
 // that reference it via taskTemplate.workspaceRef.
 func (r *TaskSpawnerReconciler) findTaskSpawnersForWorkspace(ctx context.Context, obj client.Object) []reconcile.Request {
-	ws, ok := obj.(*kelosv1alpha1.Workspace)
+	ws, ok := obj.(*kelos.Workspace)
 	if !ok {
 		return nil
 	}
 
-	var tsList kelosv1alpha1.TaskSpawnerList
+	var tsList kelos.TaskSpawnerList
 	if err := r.List(ctx, &tsList, client.InNamespace(ws.Namespace)); err != nil {
 		return nil
 	}
@@ -942,7 +942,7 @@ func (r *TaskSpawnerReconciler) findTaskSpawnersForWorkspace(ctx context.Context
 // findTaskSpawnersForTask maps a Task change to the TaskSpawner that owns it.
 // This allows webhook TaskSpawners to update their activeTasks count when Tasks complete/fail.
 func (r *TaskSpawnerReconciler) findTaskSpawnersForTask(ctx context.Context, obj client.Object) []reconcile.Request {
-	task, ok := obj.(*kelosv1alpha1.Task)
+	task, ok := obj.(*kelos.Task)
 	if !ok {
 		return nil
 	}

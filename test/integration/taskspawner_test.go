@@ -23,7 +23,12 @@ import (
 
 var _ = Describe("TaskSpawner Controller", func() {
 	const (
-		timeout  = time.Second * 30
+		// The spawner controller reads the v1alpha1 view of TaskSpawners, so
+		// every watch event round-trips through the conversion webhook. Right
+		// after the install/uninstall specs churn the CRDs, the in-process
+		// informer re-establishes its watch through that webhook, so reconciles
+		// need more headroom than a non-converted resource would.
+		timeout  = time.Second * 60
 		interval = time.Millisecond * 250
 	)
 
@@ -1946,6 +1951,9 @@ var _ = Describe("TaskSpawner Controller", func() {
 				err := k8sClient.Get(ctx, tsLookupKey, createdTS)
 				return err == nil
 			}, timeout, interval).Should(BeTrue())
+			// The v1alpha2 storage form uses commentPolicy; the v1alpha1 view
+			// backfills the deprecated fields for older clients.
+			Expect(createdTS.Spec.When.GitHubIssues.CommentPolicy).To(BeNil())
 			Expect(createdTS.Spec.When.GitHubIssues.TriggerComment).To(Equal("/kelos pick-up"))
 			Expect(createdTS.Spec.When.GitHubIssues.ExcludeComments).To(ConsistOf("/kelos needs-input", "/kelos pause"))
 
@@ -2021,6 +2029,7 @@ var _ = Describe("TaskSpawner Controller", func() {
 				err := k8sClient.Get(ctx, tsLookupKey, createdTS)
 				return err == nil
 			}, timeout, interval).Should(BeTrue())
+			Expect(createdTS.Spec.When.GitHubIssues.CommentPolicy).To(BeNil())
 			Expect(createdTS.Spec.When.GitHubIssues.TriggerComment).To(Equal("/kelos pick-up"))
 			Expect(createdTS.Spec.When.GitHubIssues.ExcludeComments).To(BeEmpty())
 
@@ -2092,6 +2101,7 @@ var _ = Describe("TaskSpawner Controller", func() {
 				err := k8sClient.Get(ctx, tsLookupKey, createdTS)
 				return err == nil
 			}, timeout, interval).Should(BeTrue())
+			Expect(createdTS.Spec.When.GitHubIssues.CommentPolicy).To(BeNil())
 			Expect(createdTS.Spec.When.GitHubIssues.TriggerComment).To(BeEmpty())
 			Expect(createdTS.Spec.When.GitHubIssues.ExcludeComments).To(ConsistOf("/kelos needs-input"))
 
@@ -2367,6 +2377,7 @@ var _ = Describe("TaskSpawner Controller", func() {
 				return err == nil
 			}, timeout, interval).Should(BeTrue())
 			Expect(createdTS.Spec.When.GitHubPullRequests.ReviewState).To(Equal("changes_requested"))
+			Expect(createdTS.Spec.When.GitHubPullRequests.CommentPolicy).To(BeNil())
 			Expect(createdTS.Spec.When.GitHubPullRequests.TriggerComment).To(Equal("/kelos pick-up"))
 			Expect(createdTS.Spec.When.GitHubPullRequests.ExcludeComments).To(ConsistOf("/kelos needs-input"))
 			Expect(createdTS.Spec.When.GitHubPullRequests.Labels).To(ConsistOf("generated-by-kelos"))
@@ -2443,8 +2454,9 @@ var _ = Describe("TaskSpawner Controller", func() {
 				err := k8sClient.Get(ctx, tsLookupKey, createdTS)
 				return err == nil
 			}, timeout, interval).Should(BeTrue())
+			// Per-source pollInterval is retained; the deprecated root
+			// pollInterval is dropped by the v1alpha1->v1alpha2 conversion.
 			Expect(createdTS.Spec.When.GitHubIssues.PollInterval).To(Equal("30s"))
-			Expect(createdTS.Spec.PollInterval).To(Equal("5m"))
 		})
 	})
 })

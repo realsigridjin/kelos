@@ -12,7 +12,7 @@
 | `spec.effort` | Agent reasoning effort. The value is passed through as `KELOS_EFFORT` without validation. Bundled agents translate common values (`minimal`, `low`, `medium`, `high`, `xhigh`, `max`) to their native controls where supported | No |
 | `spec.image` | Custom agent image override (see [Agent Image Interface](agent-image-interface.md)) | No |
 | `spec.workspaceRef.name` | Name of a Workspace resource to use | No |
-| `spec.agentConfigRef.name` | Name of an AgentConfig resource to use | No |
+| `spec.agentConfigRefs[].name` | Ordered AgentConfig resources to use. Configs are merged in order | No |
 | `spec.dependsOn` | Task names that must succeed before this Task starts (creates `Waiting` phase) | No |
 | `spec.branch` | Git branch to work on; only one Task with the same branch runs at a time (mutex) | No |
 | `spec.ttlSecondsAfterFinished` | Auto-delete task after N seconds (0 for immediate) | No |
@@ -52,7 +52,7 @@ If an existing manifest uses a user volume name such as `kelos-cache`, rename th
 Example — run a PostgreSQL sidecar for integration tests alongside the agent (reachable at `localhost:5432`):
 
 ```yaml
-apiVersion: kelos.dev/v1alpha1
+apiVersion: kelos.dev/v1alpha2
 kind: Task
 metadata:
   name: integration-test
@@ -161,7 +161,7 @@ For each labeled Secret with a non-empty `CODEX_AUTH_JSON` key, the controller m
 Use `spec.setupCommand` to install language dependencies, prime build caches, or run any other prerequisite step that must complete before the agent inspects the codebase. The command follows the same exec-form convention as Kubernetes `container.command` and `lifecycle.postStart.exec.command` — the array is passed directly to `exec` with no shell interpretation.
 
 ```yaml
-apiVersion: kelos.dev/v1alpha1
+apiVersion: kelos.dev/v1alpha2
 kind: Workspace
 metadata:
   name: node-app-workspace
@@ -232,7 +232,12 @@ GitHub Apps are preferred over PATs for production use because they offer fine-g
 | `spec.mcpServers[].args` | Command-line arguments (stdio only) | No |
 | `spec.mcpServers[].url` | Server endpoint (http/sse only) | No |
 | `spec.mcpServers[].headers` | HTTP headers (http/sse only) | No |
-| `spec.mcpServers[].env` | Environment variables for server process (stdio only) | No |
+| `spec.mcpServers[].headersFrom.secretRef.name` | Secret whose data keys become HTTP header names and values (http/sse only). Values from `headersFrom` override `headers` on key conflicts | No |
+| `spec.mcpServers[].env` | Environment variables for the server process (stdio only), as an array of Kubernetes `EnvVar` objects. Literal entries use `name` and `value` | No |
+| `spec.mcpServers[].env[].valueFrom.secretKeyRef` | Secret key reference for an MCP env value. Set `name` and `key`; when `optional: true`, a missing Secret or key omits the variable instead of failing the Task | No |
+| `spec.mcpServers[].env[].valueFrom.configMapKeyRef` | ConfigMap key reference for an MCP env value. Set `name` and `key`; when `optional: true`, a missing ConfigMap or key omits the variable instead of failing the Task | No |
+| `spec.mcpServers[].env[].valueFrom` | Only `secretKeyRef` and `configMapKeyRef` are supported for MCP server env. Other Kubernetes `EnvVarSource` variants are rejected when a Task consumes the AgentConfig | No |
+| `spec.mcpServers[].envFrom.secretRef.name` | Secret whose data keys become stdio MCP environment variable names and values. Values from `envFrom` override inline `env` on key conflicts | No |
 
 ## TaskSpawner
 
@@ -244,10 +249,8 @@ GitHub Apps are preferred over PATs for production use because they offer fine-g
 | `spec.when.githubIssues.excludeLabels` | Exclude issues with these labels | No |
 | `spec.when.githubIssues.state` | Filter by state: `open`, `closed`, `all` (default: `open`) | No |
 | `spec.when.githubIssues.types` | Filter by type: `issues`, `pulls` (default: `issues`) | No |
-| `spec.when.githubIssues.triggerComment` | **Deprecated: use `commentPolicy.triggerComment` instead.** Requires a matching command in the issue body or comments to include the issue. When combined with `excludeComments`, the latest matching command wins | No |
-| `spec.when.githubIssues.excludeComments` | **Deprecated: use `commentPolicy.excludeComments` instead.** Exclude issues whose most recent matching command is an exclude comment. When combined with `triggerComment`, the latest matching command wins | No |
-| `spec.when.githubIssues.commentPolicy.triggerComment` | Requires a matching command in the issue body or comments to include the issue. Replaces deprecated top-level `triggerComment` | No |
-| `spec.when.githubIssues.commentPolicy.excludeComments` | Blocks items whose most recent matching command is an exclude comment. Replaces deprecated top-level `excludeComments` | No |
+| `spec.when.githubIssues.commentPolicy.triggerComment` | Requires a matching command in the issue body or comments to include the issue | No |
+| `spec.when.githubIssues.commentPolicy.excludeComments` | Blocks items whose most recent matching command is an exclude comment | No |
 | `spec.when.githubIssues.commentPolicy.allowedUsers` | Restrict comment control to specific GitHub usernames | No |
 | `spec.when.githubIssues.commentPolicy.allowedTeams` | Restrict comment control to specific GitHub teams in `org/team-slug` format | No |
 | `spec.when.githubIssues.commentPolicy.minimumPermission` | Minimum repo permission required for comment control: `read`, `triage`, `write`, `maintain`, or `admin` | No |
@@ -256,16 +259,14 @@ GitHub Apps are preferred over PATs for production use because they offer fine-g
 | `spec.when.githubIssues.excludeAuthors` | Exclude issues created by any of these usernames (client-side) | No |
 | `spec.when.githubIssues.priorityLabels` | Priority-order labels for task selection when `maxConcurrency` is set; index 0 is highest priority | No |
 | `spec.when.githubIssues.reporting.enabled` | Post status comments (started, succeeded, failed) back to the GitHub issue | No |
-| `spec.when.githubIssues.pollInterval` | Per-source poll interval override (e.g., `"30s"`, `"5m"`); takes precedence over `spec.pollInterval` | No |
+| `spec.when.githubIssues.pollInterval` | Per-source poll interval (e.g., `"30s"`, `"5m"`). Defaults to `5m` when omitted | No |
 | `spec.when.githubPullRequests.repo` | Override repository to poll for PRs (in `owner/repo` format or full URL); defaults to workspace repo URL | No |
 | `spec.when.githubPullRequests.labels` | Filter pull requests by labels | No |
 | `spec.when.githubPullRequests.excludeLabels` | Exclude pull requests with these labels | No |
 | `spec.when.githubPullRequests.state` | Filter by state: `open`, `closed`, `all` (default: `open`) | No |
 | `spec.when.githubPullRequests.reviewState` | Filter by aggregated review state: `approved`, `changes_requested`, `any` (default: `any`) | No |
-| `spec.when.githubPullRequests.triggerComment` | **Deprecated: use `commentPolicy.triggerComment` instead.** Requires a matching command in the PR body or comments to include the PR. When combined with `excludeComments`, the latest matching command wins | No |
-| `spec.when.githubPullRequests.excludeComments` | **Deprecated: use `commentPolicy.excludeComments` instead.** Exclude PRs whose most recent matching command is an exclude comment. When combined with `triggerComment`, the latest matching command wins | No |
-| `spec.when.githubPullRequests.commentPolicy.triggerComment` | Requires a matching command in the PR body or comments to include the PR. Replaces deprecated top-level `triggerComment` | No |
-| `spec.when.githubPullRequests.commentPolicy.excludeComments` | Blocks PRs whose most recent matching command is an exclude comment. Replaces deprecated top-level `excludeComments` | No |
+| `spec.when.githubPullRequests.commentPolicy.triggerComment` | Requires a matching command in the PR body or comments to include the PR | No |
+| `spec.when.githubPullRequests.commentPolicy.excludeComments` | Blocks PRs whose most recent matching command is an exclude comment | No |
 | `spec.when.githubPullRequests.commentPolicy.allowedUsers` | Restrict comment control to specific GitHub usernames | No |
 | `spec.when.githubPullRequests.commentPolicy.allowedTeams` | Restrict comment control to specific GitHub teams in `org/team-slug` format | No |
 | `spec.when.githubPullRequests.commentPolicy.minimumPermission` | Minimum repo permission required for comment control: `read`, `triage`, `write`, `maintain`, or `admin` | No |
@@ -275,7 +276,7 @@ GitHub Apps are preferred over PATs for production use because they offer fine-g
 | `spec.when.githubPullRequests.priorityLabels` | Priority-order labels for task selection when `maxConcurrency` is set; index 0 is highest priority | No |
 | `spec.when.githubPullRequests.reporting.enabled` | Post status comments (started, succeeded, failed) back to the GitHub pull request | No |
 | `spec.when.githubPullRequests.reporting.checks.name` | Creates a GitHub Check Run for each PR task, enabling branch protection and merge queue integration. Sets the Check Run name (defaults to `"Kelos: <taskspawner-name>"`, max 100 chars). The token used by the workspace must have `checks:write` permission. Not supported on `githubIssues` (rejected by CEL validation). | No |
-| `spec.when.githubPullRequests.pollInterval` | Per-source poll interval override (e.g., `"30s"`, `"5m"`); takes precedence over `spec.pollInterval` | No |
+| `spec.when.githubPullRequests.pollInterval` | Per-source poll interval (e.g., `"30s"`, `"5m"`). Defaults to `5m` when omitted | No |
 | `spec.when.githubWebhook.events` | GitHub event types to listen for (e.g., `"issues"`, `"pull_request"`, `"push"`, `"issue_comment"`) | Yes (when using githubWebhook) |
 | `spec.when.githubWebhook.repository` | Restrict webhooks to a specific repository (`owner/repo` format); if empty, webhooks from any repository are accepted | No |
 | `spec.when.githubWebhook.excludeAuthors` | Exclude webhook events sent by any of these usernames; applied before filter evaluation | No |
@@ -311,14 +312,14 @@ GitHub Apps are preferred over PATs for production use because they offer fine-g
 | `spec.when.webhook.filters[].field` | JSONPath expression selecting the payload field to match | Yes (per filter) |
 | `spec.when.webhook.filters[].value` | Require an exact string match against the extracted field value (mutually exclusive with `pattern`) | Conditional |
 | `spec.when.webhook.filters[].pattern` | Require a regex match against the extracted field value (mutually exclusive with `value`) | Conditional |
-| `spec.when.jira.pollInterval` | Per-source poll interval override (e.g., `"30s"`, `"5m"`); takes precedence over `spec.pollInterval` | No |
+| `spec.when.jira.pollInterval` | Per-source poll interval (e.g., `"30s"`, `"5m"`). Defaults to `5m` when omitted | No |
 | `spec.when.cron.schedule` | Cron schedule expression (e.g., `"0 * * * *"`) | Yes (when using cron) |
 | `spec.taskTemplate.type` | Agent type (`claude-code`, `codex`, `gemini`, `opencode`, or `cursor`) | Yes |
 | `spec.taskTemplate.credentials` | Credentials for the agent (same as Task) | Yes |
 | `spec.taskTemplate.model` | Model override for spawned Tasks. Same pass-through behavior as `Task.spec.model`: either an agent-native shorthand (e.g., `sonnet`, `opus` for Claude Code) or a versioned ID (e.g., `claude-sonnet-4-6`) is valid | No |
 | `spec.taskTemplate.effort` | Reasoning effort for spawned Tasks. Same pass-through behavior as `Task.spec.effort` | No |
 | `spec.taskTemplate.image` | Custom agent image override (see [Agent Image Interface](agent-image-interface.md)) | No |
-| `spec.taskTemplate.agentConfigRef.name` | Name of an AgentConfig resource for spawned Tasks | No |
+| `spec.taskTemplate.agentConfigRefs[].name` | Ordered AgentConfig resources for spawned Tasks. Configs are merged in order | No |
 | `spec.taskTemplate.promptTemplate` | Go text/template for prompt (see [template variables](#prompttemplate-variables) below) | No |
 | `spec.taskTemplate.dependsOn` | Task names that spawned Tasks depend on | No |
 | `spec.taskTemplate.branch` | Git branch template for spawned Tasks (supports Go template variables, e.g., `kelos-task-{{.Number}}`) | No |
@@ -328,7 +329,6 @@ GitHub Apps are preferred over PATs for production use because they offer fine-g
 | `spec.taskTemplate.metadata.annotations` | Annotations merged into spawned Tasks; values support the same Go template variables as `branch`/`promptTemplate`; source annotations (e.g. `kelos.dev/source-kind`) are applied after rendering and override conflicting user values | No |
 | `spec.taskTemplate.contextSources` | External data sources fetched in parallel before task creation; each source's value is exposed as `{{.Context.NAME}}` in `branch`, `promptTemplate`, and `metadata` templates (see [Context Sources](#context-sources) below). Maximum 8 entries; names must be unique | No |
 | `spec.taskTemplate.upstreamRepo` | Upstream repository in `owner/repo` format; injected as `KELOS_UPSTREAM_REPO` into the agent container. Typically auto-derived from `githubIssues.repo`/`githubPullRequests.repo`, but can be set explicitly for fork workflows | No |
-| `spec.pollInterval` | How often to poll the source (default: `5m`). Deprecated: use per-source `pollInterval` instead | No |
 | `spec.maxConcurrency` | Limit max concurrent running tasks (important for cost control) | No |
 | `spec.maxTotalTasks` | Lifetime limit on total tasks created by this spawner | No |
 | `spec.suspend` | Pause the spawner without deleting it; resume with `spec.suspend: false` (default: `false`) | No |
@@ -399,7 +399,7 @@ The `promptTemplate` field uses Go `text/template` syntax. Available variables d
 Example — fetch a Jira issue description over HTTP and inject it into a prompt triggered by a GitHub issue:
 
 ```yaml
-apiVersion: kelos.dev/v1alpha1
+apiVersion: kelos.dev/v1alpha2
 kind: TaskSpawner
 metadata:
   name: enrich-from-jira
@@ -589,6 +589,7 @@ The `kelos` CLI lets you manage the full lifecycle without writing YAML.
 - `--controller-resource-limits`: Resource limits for the controller container as comma-separated `name=value` pairs, for example `cpu=500m,memory=128Mi`
 
 `kelos install` renders the embedded Helm chart but still manages CRDs separately, so `crds.install` must be omitted or set to `false`.
+`kelos install --dry-run` prints the controller-side chart manifests only; it omits CRDs because real installs apply them in a staged sequence after certificate and conversion webhook readiness.
 When the same key is set multiple ways, precedence is: chart defaults, then `--values` files, then compatibility install flags, then explicit `--set`, `--set-string`, and `--set-file` overrides.
 
 ### `kelos run` Flags
@@ -626,7 +627,7 @@ When the same key is set multiple ways, precedence is: chart defaults, then `--v
 - `--config`: Path to config file (default `~/.kelos/config.yaml`)
 - `--namespace, -n`: Kubernetes namespace
 - `--kubeconfig`: Path to kubeconfig file
-- `--dry-run`: Print resources without creating them (supported by `run`, `create`, `install`)
+- `--dry-run`: Print resources without creating them. For `install`, this prints controller manifests only; CRDs are staged separately during real installs
 - `--yes, -y`: Skip confirmation prompts
 
 ### Shell Completion

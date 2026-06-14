@@ -3,7 +3,7 @@
 # For push events, changed files are extracted from the payload (no API call).
 # For pull_request events, changed files are fetched from the GitHub API
 # using the workspace's secretRef for authentication.
-apiVersion: kelos.dev/v1alpha1
+apiVersion: kelos.dev/v1alpha2
 kind: TaskSpawner
 metadata:
   name: webhook-security-reviewer

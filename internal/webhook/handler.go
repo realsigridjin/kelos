@@ -117,8 +117,7 @@ func (d *DeliveryCache) cleanup() {
 }
 
 // NewWebhookHandler creates a new webhook handler for the specified source.
-// For GenericSource, the HMAC secret is looked up per-request from
-// <SOURCE>_WEBHOOK_SECRET env vars, so WEBHOOK_SECRET is not required.
+// GenericSource is currently unauthenticated, so WEBHOOK_SECRET is not required.
 func NewWebhookHandler(ctx context.Context, client client.Client, source WebhookSource, log logr.Logger) (*WebhookHandler, error) {
 	var secret []byte
 	if source != GenericSource {

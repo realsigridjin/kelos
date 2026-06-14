@@ -69,6 +69,6 @@ kubectl delete -f examples/05-task-with-agentconfig/
   AgentConfig is not found when the Task starts, the controller will retry
   until it becomes available.
 - You can reuse the same AgentConfig across multiple Tasks by setting
-  `agentConfigRef.name` in each Task spec.
+  `agentConfigRefs[].name` in each Task spec.
 - Plugins are supported across all agent types. Each agent installs skills
   using its native mechanism.

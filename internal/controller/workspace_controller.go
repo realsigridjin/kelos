@@ -18,7 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
+	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 	"github.com/kelos-dev/kelos/internal/githubapp"
 )
 
@@ -40,7 +40,7 @@ type WorkspaceReconciler struct {
 func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
-	var workspace kelosv1alpha1.Workspace
+	var workspace kelos.Workspace
 	if err := r.Get(ctx, req.NamespacedName, &workspace); err != nil {
 		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
@@ -77,7 +77,7 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	return ctrl.Result{}, nil
 }
 
-func (r *WorkspaceReconciler) reconcileService(ctx context.Context, workspace *kelosv1alpha1.Workspace) error {
+func (r *WorkspaceReconciler) reconcileService(ctx context.Context, workspace *kelos.Workspace) error {
 	desired := r.ProxyBuilder.BuildService(workspace)
 	if err := controllerutil.SetControllerReference(workspace, desired, r.Scheme); err != nil {
 		return err
@@ -112,7 +112,7 @@ func (r *WorkspaceReconciler) reconcileService(ctx context.Context, workspace *k
 	return nil
 }
 
-func (r *WorkspaceReconciler) reconcileDeployment(ctx context.Context, workspace *kelosv1alpha1.Workspace, isGitHubApp bool) error {
+func (r *WorkspaceReconciler) reconcileDeployment(ctx context.Context, workspace *kelos.Workspace, isGitHubApp bool) error {
 	desired := r.ProxyBuilder.BuildDeployment(workspace, isGitHubApp)
 	if err := controllerutil.SetControllerReference(workspace, desired, r.Scheme); err != nil {
 		return err
@@ -178,7 +178,7 @@ func (r *WorkspaceReconciler) recordEvent(obj runtime.Object, eventType, reason,
 // SetupWithManager sets up the controller with the Manager.
 func (r *WorkspaceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&kelosv1alpha1.Workspace{}).
+		For(&kelos.Workspace{}).
 		Owns(&appsv1.Deployment{}).
 		Owns(&corev1.Service{}).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.findWorkspacesForSecret)).
@@ -191,7 +191,7 @@ func (r *WorkspaceReconciler) findWorkspacesForSecret(ctx context.Context, obj c
 		return nil
 	}
 
-	var workspaceList kelosv1alpha1.WorkspaceList
+	var workspaceList kelos.WorkspaceList
 	if err := r.List(ctx, &workspaceList, client.InNamespace(secret.Namespace)); err != nil {
 		return nil
 	}

@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
-	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
+
+	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 )
 
 // resolveContent returns the content string directly, or if it starts with "@",
@@ -65,15 +68,15 @@ func parseNameContent(s, flagName string) (string, string, error) {
 // parseMCPFlag parses a --mcp flag value in the format "name=JSON" or
 // "name=@file" into an MCPServerSpec. The JSON (or file content) must
 // contain at least a "type" field.
-func parseMCPFlag(s string) (kelosv1alpha1.MCPServerSpec, error) {
+func parseMCPFlag(s string) (kelos.MCPServerSpec, error) {
 	parts := strings.SplitN(s, "=", 2)
 	if len(parts) != 2 || parts[0] == "" {
-		return kelosv1alpha1.MCPServerSpec{}, fmt.Errorf("invalid --mcp value %q: must be name=JSON or name=@file", s)
+		return kelos.MCPServerSpec{}, fmt.Errorf("invalid --mcp value %q: must be name=JSON or name=@file", s)
 	}
 	name := parts[0]
 	content, err := resolveContent(parts[1])
 	if err != nil {
-		return kelosv1alpha1.MCPServerSpec{}, fmt.Errorf("resolving --mcp %q: %w", name, err)
+		return kelos.MCPServerSpec{}, fmt.Errorf("resolving --mcp %q: %w", name, err)
 	}
 
 	var raw struct {
@@ -82,45 +85,101 @@ func parseMCPFlag(s string) (kelosv1alpha1.MCPServerSpec, error) {
 		Args    []string          `json:"args,omitempty"`
 		URL     string            `json:"url,omitempty"`
 		Headers map[string]string `json:"headers,omitempty"`
-		Env     map[string]string `json:"env,omitempty"`
+		Env     json.RawMessage   `json:"env,omitempty"`
 	}
 	if err := json.Unmarshal([]byte(content), &raw); err != nil {
-		return kelosv1alpha1.MCPServerSpec{}, fmt.Errorf("invalid --mcp %q JSON: %w", name, err)
+		return kelos.MCPServerSpec{}, fmt.Errorf("invalid --mcp %q JSON: %w", name, err)
 	}
 	if raw.Type == "" {
-		return kelosv1alpha1.MCPServerSpec{}, fmt.Errorf("--mcp %q: \"type\" field is required", name)
+		return kelos.MCPServerSpec{}, fmt.Errorf("--mcp %q: \"type\" field is required", name)
 	}
 	switch raw.Type {
-	case "stdio", "http", "sse":
+	case "stdio":
+		if raw.Command == "" {
+			return kelos.MCPServerSpec{}, fmt.Errorf("--mcp %q: \"command\" is required when type is stdio", name)
+		}
+	case "http", "sse":
+		if raw.URL == "" {
+			return kelos.MCPServerSpec{}, fmt.Errorf("--mcp %q: \"url\" is required when type is %s", name, raw.Type)
+		}
 	default:
-		return kelosv1alpha1.MCPServerSpec{}, fmt.Errorf("--mcp %q: unsupported type %q (must be stdio, http, or sse)", name, raw.Type)
+		return kelos.MCPServerSpec{}, fmt.Errorf("--mcp %q: unsupported type %q (must be stdio, http, or sse)", name, raw.Type)
 	}
 
-	return kelosv1alpha1.MCPServerSpec{
+	env, err := parseMCPEnv(name, raw.Env)
+	if err != nil {
+		return kelos.MCPServerSpec{}, err
+	}
+
+	return kelos.MCPServerSpec{
 		Name:    name,
 		Type:    raw.Type,
 		Command: raw.Command,
 		Args:    raw.Args,
 		URL:     raw.URL,
 		Headers: raw.Headers,
-		Env:     raw.Env,
+		Env:     env,
 	}, nil
+}
+
+// parseMCPEnv accepts the env field of a --mcp JSON payload in either of two
+// shapes:
+//
+//   - a []corev1.EnvVar list with full valueFrom support, e.g.
+//     [{"name":"FOO","value":"bar"},{"name":"BAZ","valueFrom":{...}}]
+//   - a {"NAME":"VALUE",...} map, retained as shorthand for the common case of
+//     literal values
+//
+// Both decode into []corev1.EnvVar so downstream code only deals with one
+// shape.
+func parseMCPEnv(name string, raw json.RawMessage) ([]corev1.EnvVar, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, nil
+	}
+	trimmed := strings.TrimLeft(string(raw), " \t\n\r")
+	if strings.HasPrefix(trimmed, "[") {
+		var list []corev1.EnvVar
+		if err := json.Unmarshal(raw, &list); err != nil {
+			return nil, fmt.Errorf("--mcp %q: invalid env list: %w", name, err)
+		}
+		return list, nil
+	}
+	if strings.HasPrefix(trimmed, "{") {
+		var asMap map[string]string
+		if err := json.Unmarshal(raw, &asMap); err != nil {
+			return nil, fmt.Errorf("--mcp %q: invalid env map: %w", name, err)
+		}
+		if len(asMap) == 0 {
+			return nil, nil
+		}
+		keys := make([]string, 0, len(asMap))
+		for k := range asMap {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		out := make([]corev1.EnvVar, 0, len(asMap))
+		for _, k := range keys {
+			out = append(out, corev1.EnvVar{Name: k, Value: asMap[k]})
+		}
+		return out, nil
+	}
+	return nil, fmt.Errorf("--mcp %q: env must be an array or object", name)
 }
 
 // parseSkillsShFlag parses a --skills-sh flag value in the format
 // "source" or "source:skill" into a SkillsShSpec.
-func parseSkillsShFlag(s string) (kelosv1alpha1.SkillsShSpec, error) {
+func parseSkillsShFlag(s string) (kelos.SkillsShSpec, error) {
 	if s == "" {
-		return kelosv1alpha1.SkillsShSpec{}, fmt.Errorf("invalid --skills-sh value: must not be empty")
+		return kelos.SkillsShSpec{}, fmt.Errorf("invalid --skills-sh value: must not be empty")
 	}
 	parts := strings.SplitN(s, ":", 2)
 	if parts[0] == "" {
-		return kelosv1alpha1.SkillsShSpec{}, fmt.Errorf("invalid --skills-sh value %q: source must not be empty", s)
+		return kelos.SkillsShSpec{}, fmt.Errorf("invalid --skills-sh value %q: source must not be empty", s)
 	}
-	spec := kelosv1alpha1.SkillsShSpec{Source: parts[0]}
+	spec := kelos.SkillsShSpec{Source: parts[0]}
 	if len(parts) == 2 {
 		if parts[1] == "" {
-			return kelosv1alpha1.SkillsShSpec{}, fmt.Errorf("invalid --skills-sh value %q: skill name after colon must not be empty", s)
+			return kelos.SkillsShSpec{}, fmt.Errorf("invalid --skills-sh value %q: skill name after colon must not be empty", s)
 		}
 		spec.Skill = parts[1]
 	}

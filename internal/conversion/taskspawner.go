@@ -1,0 +1,151 @@
+package conversion
+
+import (
+	"context"
+
+	v1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
+	v1alpha2 "github.com/kelos-dev/kelos/api/v1alpha2"
+)
+
+func taskSpawnerToHub(_ context.Context, src *v1alpha1.TaskSpawner, dst *v1alpha2.TaskSpawner) error {
+	dst.ObjectMeta = src.ObjectMeta
+	if err := convertViaJSON(&src.Spec, &dst.Spec); err != nil {
+		return err
+	}
+	if err := convertViaJSON(&src.Status, &dst.Status); err != nil {
+		return err
+	}
+	foldTaskSpawnerForward(&src.Spec, &dst.Spec)
+	return nil
+}
+
+func taskSpawnerFromHub(_ context.Context, src *v1alpha2.TaskSpawner, dst *v1alpha1.TaskSpawner) error {
+	dst.ObjectMeta = src.ObjectMeta
+	if err := convertViaJSON(&src.Spec, &dst.Spec); err != nil {
+		return err
+	}
+	backfillTaskSpawnerLegacy(&dst.Spec)
+	return convertViaJSON(&src.Status, &dst.Status)
+}
+
+func foldTaskSpawnerForward(src *v1alpha1.TaskSpawnerSpec, dst *v1alpha2.TaskSpawnerSpec) {
+	foldTaskTemplateAgentConfigRefForward(&src.TaskTemplate, &dst.TaskTemplate)
+
+	if src.PollInterval != "" {
+		if gi := dst.When.GitHubIssues; gi != nil && gi.PollInterval == "" {
+			gi.PollInterval = src.PollInterval
+		}
+		if pr := dst.When.GitHubPullRequests; pr != nil && pr.PollInterval == "" {
+			pr.PollInterval = src.PollInterval
+		}
+		if j := dst.When.Jira; j != nil && j.PollInterval == "" {
+			j.PollInterval = src.PollInterval
+		}
+	}
+
+	if gi := src.When.GitHubIssues; gi != nil && dst.When.GitHubIssues != nil {
+		foldLegacyCommentPolicy(&dst.When.GitHubIssues.CommentPolicy, gi.TriggerComment, gi.ExcludeComments)
+	}
+	if pr := src.When.GitHubPullRequests; pr != nil && dst.When.GitHubPullRequests != nil {
+		foldLegacyCommentPolicy(&dst.When.GitHubPullRequests.CommentPolicy, pr.TriggerComment, pr.ExcludeComments)
+	}
+}
+
+func foldTaskTemplateAgentConfigRefForward(src *v1alpha1.TaskTemplate, dst *v1alpha2.TaskTemplate) {
+	if len(dst.AgentConfigRefs) == 0 && src.AgentConfigRef != nil {
+		dst.AgentConfigRefs = []v1alpha2.AgentConfigReference{{Name: src.AgentConfigRef.Name}}
+	}
+}
+
+func foldLegacyCommentPolicy(policy **v1alpha2.GitHubCommentPolicy, trigger string, exclude []string) {
+	if trigger == "" && len(exclude) == 0 {
+		return
+	}
+	if *policy == nil {
+		*policy = &v1alpha2.GitHubCommentPolicy{}
+	}
+	if trigger != "" && (*policy).TriggerComment == "" {
+		(*policy).TriggerComment = trigger
+	}
+	if len(exclude) > 0 && len((*policy).ExcludeComments) == 0 {
+		(*policy).ExcludeComments = copyStrings(exclude)
+	}
+}
+
+func backfillTaskSpawnerLegacy(spec *v1alpha1.TaskSpawnerSpec) {
+	if spec.PollInterval == "" {
+		spec.PollInterval = commonPollingInterval(spec.When)
+	}
+	if gi := spec.When.GitHubIssues; gi != nil {
+		backfillGitHubIssuesLegacy(gi)
+	}
+	if pr := spec.When.GitHubPullRequests; pr != nil {
+		backfillGitHubPullRequestsLegacy(pr)
+	}
+}
+
+func commonPollingInterval(when v1alpha1.When) string {
+	var common string
+	for _, interval := range []string{
+		pollIntervalFromGitHubIssues(when.GitHubIssues),
+		pollIntervalFromGitHubPullRequests(when.GitHubPullRequests),
+		pollIntervalFromJira(when.Jira),
+	} {
+		if interval == "" {
+			continue
+		}
+		if common == "" {
+			common = interval
+			continue
+		}
+		if common != interval {
+			return ""
+		}
+	}
+	return common
+}
+
+func pollIntervalFromGitHubIssues(source *v1alpha1.GitHubIssues) string {
+	if source == nil {
+		return ""
+	}
+	return source.PollInterval
+}
+
+func pollIntervalFromGitHubPullRequests(source *v1alpha1.GitHubPullRequests) string {
+	if source == nil {
+		return ""
+	}
+	return source.PollInterval
+}
+
+func pollIntervalFromJira(source *v1alpha1.Jira) string {
+	if source == nil {
+		return ""
+	}
+	return source.PollInterval
+}
+
+func backfillGitHubIssuesLegacy(source *v1alpha1.GitHubIssues) {
+	if source.CommentPolicy == nil || !commentPolicyFitsLegacyFields(source.CommentPolicy) {
+		return
+	}
+	source.TriggerComment = source.CommentPolicy.TriggerComment
+	source.ExcludeComments = copyStrings(source.CommentPolicy.ExcludeComments)
+	source.CommentPolicy = nil
+}
+
+func backfillGitHubPullRequestsLegacy(source *v1alpha1.GitHubPullRequests) {
+	if source.CommentPolicy == nil || !commentPolicyFitsLegacyFields(source.CommentPolicy) {
+		return
+	}
+	source.TriggerComment = source.CommentPolicy.TriggerComment
+	source.ExcludeComments = copyStrings(source.CommentPolicy.ExcludeComments)
+	source.CommentPolicy = nil
+}
+
+func commentPolicyFitsLegacyFields(policy *v1alpha1.GitHubCommentPolicy) bool {
+	return len(policy.AllowedUsers) == 0 &&
+		len(policy.AllowedTeams) == 0 &&
+		policy.MinimumPermission == ""
+}

@@ -23,6 +23,7 @@ GENERATED_FILES=(
   internal/manifests/charts/kelos/templates/crds/workspace-crd.yaml
   internal/manifests/charts/kelos/templates/rbac.yaml
   api/v1alpha1/zz_generated.deepcopy.go
+  api/v1alpha2/zz_generated.deepcopy.go
 )
 
 TMPDIR="$(mktemp -d)"

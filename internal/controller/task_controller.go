@@ -25,7 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	kelosv1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
+	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 	"github.com/kelos-dev/kelos/internal/githubapp"
 )
 
@@ -60,13 +60,14 @@ type TaskReconciler struct {
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=pods/log,verbs=get
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 // Reconcile handles Task reconciliation.
 func (r *TaskReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
-	var task kelosv1alpha1.Task
+	var task kelos.Task
 	if err := r.Get(ctx, req.NamespacedName, &task); err != nil {
 		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
@@ -168,7 +169,7 @@ func (r *TaskReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 }
 
 // handleDeletion handles Task deletion.
-func (r *TaskReconciler) handleDeletion(ctx context.Context, task *kelosv1alpha1.Task) (ctrl.Result, error) {
+func (r *TaskReconciler) handleDeletion(ctx context.Context, task *kelos.Task) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
 	if controllerutil.ContainsFinalizer(task, taskFinalizer) {
@@ -201,12 +202,12 @@ func (r *TaskReconciler) handleDeletion(ctx context.Context, task *kelosv1alpha1
 }
 
 // createJob creates a Job for the Task.
-func (r *TaskReconciler) createJob(ctx context.Context, task *kelosv1alpha1.Task) (ctrl.Result, error) {
+func (r *TaskReconciler) createJob(ctx context.Context, task *kelos.Task) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
-	var workspace *kelosv1alpha1.WorkspaceSpec
+	var workspace *kelos.WorkspaceSpec
 	if task.Spec.WorkspaceRef != nil {
-		var ws kelosv1alpha1.Workspace
+		var ws kelos.Workspace
 		if err := r.Get(ctx, client.ObjectKey{
 			Namespace: task.Namespace,
 			Name:      task.Spec.WorkspaceRef.Name,
@@ -230,7 +231,7 @@ func (r *TaskReconciler) createJob(ctx context.Context, task *kelosv1alpha1.Task
 					if getErr := r.Get(ctx, client.ObjectKeyFromObject(task), task); getErr != nil {
 						return getErr
 					}
-					task.Status.Phase = kelosv1alpha1.TaskPhaseFailed
+					task.Status.Phase = kelos.TaskPhaseFailed
 					task.Status.Message = fmt.Sprintf("Failed to resolve GitHub token: %v", err)
 					return r.Status().Update(ctx, task)
 				})
@@ -243,15 +244,15 @@ func (r *TaskReconciler) createJob(ctx context.Context, task *kelosv1alpha1.Task
 		}
 	}
 
-	var agentConfig *kelosv1alpha1.AgentConfigSpec
+	var agentConfig *kelos.AgentConfigSpec
 	if refs := ResolveAgentConfigRefs(&task.Spec); len(refs) > 0 {
-		var specs []kelosv1alpha1.AgentConfigSpec
+		var specs []kelos.AgentConfigSpec
 		for _, ref := range refs {
-			var ac kelosv1alpha1.AgentConfig
-			if err := r.Get(ctx, client.ObjectKey{
+			ac, err := r.getAgentConfig(ctx, client.ObjectKey{
 				Namespace: task.Namespace,
 				Name:      ref.Name,
-			}, &ac); err != nil {
+			})
+			if err != nil {
 				if apierrors.IsNotFound(err) {
 					logger.Info("AgentConfig not found yet, requeuing", "agentConfig", ref.Name)
 					return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
@@ -273,7 +274,7 @@ func (r *TaskReconciler) createJob(ctx context.Context, task *kelosv1alpha1.Task
 					if getErr := r.Get(ctx, client.ObjectKeyFromObject(task), task); getErr != nil {
 						return getErr
 					}
-					task.Status.Phase = kelosv1alpha1.TaskPhaseFailed
+					task.Status.Phase = kelos.TaskPhaseFailed
 					task.Status.Message = fmt.Sprintf("Failed to resolve MCP server secret: %v", err)
 					return r.Status().Update(ctx, task)
 				})
@@ -296,7 +297,7 @@ func (r *TaskReconciler) createJob(ctx context.Context, task *kelosv1alpha1.Task
 			if getErr := r.Get(ctx, client.ObjectKeyFromObject(task), task); getErr != nil {
 				return getErr
 			}
-			task.Status.Phase = kelosv1alpha1.TaskPhaseFailed
+			task.Status.Phase = kelos.TaskPhaseFailed
 			task.Status.Message = fmt.Sprintf("Failed to build Job: %v", err)
 			return r.Status().Update(ctx, task)
 		})
@@ -329,7 +330,7 @@ func (r *TaskReconciler) createJob(ctx context.Context, task *kelosv1alpha1.Task
 		if getErr := r.Get(ctx, client.ObjectKeyFromObject(task), task); getErr != nil {
 			return getErr
 		}
-		task.Status.Phase = kelosv1alpha1.TaskPhasePending
+		task.Status.Phase = kelos.TaskPhasePending
 		task.Status.JobName = job.Name
 		return r.Status().Update(ctx, task)
 	}); err != nil {
@@ -344,7 +345,7 @@ func (r *TaskReconciler) createJob(ctx context.Context, task *kelosv1alpha1.Task
 // and if so, generates an installation token and creates a new secret with
 // the GITHUB_TOKEN key. Returns a modified workspace spec pointing to the
 // generated secret.
-func (r *TaskReconciler) resolveGitHubAppToken(ctx context.Context, task *kelosv1alpha1.Task, workspace *kelosv1alpha1.WorkspaceSpec) (*kelosv1alpha1.WorkspaceSpec, error) {
+func (r *TaskReconciler) resolveGitHubAppToken(ctx context.Context, task *kelos.Task, workspace *kelos.WorkspaceSpec) (*kelos.WorkspaceSpec, error) {
 	logger := log.FromContext(ctx)
 
 	var secret corev1.Secret
@@ -421,14 +422,14 @@ func (r *TaskReconciler) resolveGitHubAppToken(ctx context.Context, task *kelosv
 
 	// Return a modified workspace spec that points to the generated token secret
 	resolved := *workspace
-	resolved.SecretRef = &kelosv1alpha1.SecretReference{
+	resolved.SecretRef = &kelos.SecretReference{
 		Name: tokenSecretName,
 	}
 	return &resolved, nil
 }
 
-func (r *TaskReconciler) resolveMCPServerSecrets(ctx context.Context, namespace string, servers []kelosv1alpha1.MCPServerSpec) ([]kelosv1alpha1.MCPServerSpec, error) {
-	resolved := make([]kelosv1alpha1.MCPServerSpec, len(servers))
+func (r *TaskReconciler) resolveMCPServerSecrets(ctx context.Context, namespace string, servers []kelos.MCPServerSpec) ([]kelos.MCPServerSpec, error) {
+	resolved := make([]kelos.MCPServerSpec, len(servers))
 	for i, server := range servers {
 		resolved[i] = server
 
@@ -451,31 +452,159 @@ func (r *TaskReconciler) resolveMCPServerSecrets(ctx context.Context, namespace 
 			resolved[i].HeadersFrom = nil
 		}
 
-		if server.EnvFrom != nil {
-			var secret corev1.Secret
-			if err := r.Get(ctx, client.ObjectKey{
-				Namespace: namespace,
-				Name:      server.EnvFrom.SecretRef.Name,
-			}, &secret); err != nil {
-				return nil, fmt.Errorf("fetching envFrom secret %q for MCP server %q: %w", server.EnvFrom.SecretRef.Name, server.Name, err)
-			}
-			merged := make(map[string]string, len(server.Env)+len(secret.Data))
-			for key, value := range server.Env {
-				merged[key] = value
-			}
-			for key, value := range secret.Data {
-				merged[key] = string(value)
-			}
-			resolved[i].Env = merged
-			resolved[i].EnvFrom = nil
+		resolvedEnv, err := r.resolveMCPServerEnv(ctx, namespace, server)
+		if err != nil {
+			return nil, err
 		}
+		resolved[i].Env = resolvedEnv
+		resolved[i].EnvFrom = nil
 	}
 
 	return resolved, nil
 }
 
+// resolveMCPServerEnv resolves the Env entries of a single MCP server to a
+// slice of literal Name/Value pairs. Entries with ValueFrom are resolved by
+// fetching the referenced Secret key or ConfigMap key. EnvFrom (whole-secret)
+// is then merged on top so its keys take precedence on collision, matching
+// the existing behaviour.
+func (r *TaskReconciler) resolveMCPServerEnv(ctx context.Context, namespace string, server kelos.MCPServerSpec) ([]corev1.EnvVar, error) {
+	// Resolve inline Env entries into a map keyed by name so EnvFrom can
+	// override and so the final list has no duplicate names.
+	values := make(map[string]string, len(server.Env))
+	order := make([]string, 0, len(server.Env))
+	for _, entry := range server.Env {
+		if entry.Name == "" {
+			return nil, fmt.Errorf("MCP server %q has an env entry with an empty name", server.Name)
+		}
+
+		value, ok, err := r.resolveEnvVarValue(ctx, namespace, server.Name, entry)
+		if err != nil {
+			return nil, err
+		}
+		// An optional ValueFrom whose Secret/ConfigMap or key is missing is
+		// omitted, matching kubelet semantics for pod env.
+		if !ok {
+			continue
+		}
+		if _, seen := values[entry.Name]; !seen {
+			order = append(order, entry.Name)
+		}
+		values[entry.Name] = value
+	}
+
+	if server.EnvFrom != nil {
+		var secret corev1.Secret
+		if err := r.Get(ctx, client.ObjectKey{
+			Namespace: namespace,
+			Name:      server.EnvFrom.SecretRef.Name,
+		}, &secret); err != nil {
+			return nil, fmt.Errorf("fetching envFrom secret %q for MCP server %q: %w", server.EnvFrom.SecretRef.Name, server.Name, err)
+		}
+		// Iterate in sorted key order so the resolved Env slice is
+		// deterministic regardless of Secret data map iteration order.
+		keys := make([]string, 0, len(secret.Data))
+		for key := range secret.Data {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			if _, seen := values[key]; !seen {
+				order = append(order, key)
+			}
+			values[key] = string(secret.Data[key])
+		}
+	}
+
+	if len(order) == 0 {
+		return nil, nil
+	}
+	out := make([]corev1.EnvVar, 0, len(order))
+	for _, name := range order {
+		out = append(out, corev1.EnvVar{Name: name, Value: values[name]})
+	}
+	return out, nil
+}
+
+// resolveEnvVarValue returns the resolved string value for a single EnvVar
+// entry on an MCP server. Literal Value entries pass through; ValueFrom is
+// resolved against Secret or ConfigMap. Only SecretKeyRef and ConfigMapKeyRef
+// are honored; FieldRef, ResourceFieldRef and FileKeyRef refer to pod-scoped
+// (or file-gated) information that has no meaning for an MCP server process.
+// Because MCP env is resolved here rather than by the kubelet, those variants
+// have nothing to resolve against and are rejected. Setting both SecretKeyRef
+// and ConfigMapKeyRef is ambiguous and is rejected rather than silently
+// preferring one.
+//
+// The returned ok is false when an optional ValueFrom resolves to nothing
+// (Secret/ConfigMap or key missing); the caller omits the variable entirely,
+// matching kubelet semantics for pod env.
+func (r *TaskReconciler) resolveEnvVarValue(ctx context.Context, namespace, serverName string, entry corev1.EnvVar) (string, bool, error) {
+	if entry.ValueFrom == nil {
+		return entry.Value, true, nil
+	}
+	if entry.Value != "" {
+		return "", false, fmt.Errorf("MCP server %q env %q: value and valueFrom are mutually exclusive", serverName, entry.Name)
+	}
+
+	src := entry.ValueFrom
+	if src.FieldRef != nil || src.ResourceFieldRef != nil || src.FileKeyRef != nil {
+		return "", false, fmt.Errorf("MCP server %q env %q: valueFrom only supports secretKeyRef and configMapKeyRef", serverName, entry.Name)
+	}
+	if src.SecretKeyRef != nil && src.ConfigMapKeyRef != nil {
+		return "", false, fmt.Errorf("MCP server %q env %q: valueFrom must set only one of secretKeyRef or configMapKeyRef", serverName, entry.Name)
+	}
+
+	switch {
+	case src.SecretKeyRef != nil:
+		ref := src.SecretKeyRef
+		var secret corev1.Secret
+		if err := r.Get(ctx, client.ObjectKey{
+			Namespace: namespace,
+			Name:      ref.Name,
+		}, &secret); err != nil {
+			if apierrors.IsNotFound(err) && ref.Optional != nil && *ref.Optional {
+				return "", false, nil
+			}
+			return "", false, fmt.Errorf("fetching secret %q for MCP server %q env %q: %w", ref.Name, serverName, entry.Name, err)
+		}
+		raw, ok := secret.Data[ref.Key]
+		if !ok {
+			if ref.Optional != nil && *ref.Optional {
+				return "", false, nil
+			}
+			return "", false, fmt.Errorf("secret %q has no key %q for MCP server %q env %q", ref.Name, ref.Key, serverName, entry.Name)
+		}
+		return string(raw), true, nil
+	case src.ConfigMapKeyRef != nil:
+		ref := src.ConfigMapKeyRef
+		var cm corev1.ConfigMap
+		if err := r.Get(ctx, client.ObjectKey{
+			Namespace: namespace,
+			Name:      ref.Name,
+		}, &cm); err != nil {
+			if apierrors.IsNotFound(err) && ref.Optional != nil && *ref.Optional {
+				return "", false, nil
+			}
+			return "", false, fmt.Errorf("fetching configmap %q for MCP server %q env %q: %w", ref.Name, serverName, entry.Name, err)
+		}
+		if value, ok := cm.Data[ref.Key]; ok {
+			return value, true, nil
+		}
+		if raw, ok := cm.BinaryData[ref.Key]; ok {
+			return string(raw), true, nil
+		}
+		if ref.Optional != nil && *ref.Optional {
+			return "", false, nil
+		}
+		return "", false, fmt.Errorf("configmap %q has no key %q for MCP server %q env %q", ref.Name, ref.Key, serverName, entry.Name)
+	default:
+		return "", false, fmt.Errorf("MCP server %q env %q: valueFrom must set secretKeyRef or configMapKeyRef", serverName, entry.Name)
+	}
+}
+
 // updateStatus updates Task status based on Job status.
-func (r *TaskReconciler) updateStatus(ctx context.Context, task *kelosv1alpha1.Task, job *batchv1.Job) (ctrl.Result, error) {
+func (r *TaskReconciler) updateStatus(ctx context.Context, task *kelos.Task, job *batchv1.Job) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
 	// Discover pod name for the task
@@ -490,31 +619,31 @@ func (r *TaskReconciler) updateStatus(ctx context.Context, task *kelosv1alpha1.T
 	}
 
 	// Determine the new phase based on Job status
-	var newPhase kelosv1alpha1.TaskPhase
+	var newPhase kelos.TaskPhase
 	var newMessage string
 	var setStartTime, setCompletionTime bool
 
 	if job.Status.Active > 0 {
-		if task.Status.Phase != kelosv1alpha1.TaskPhaseRunning {
-			newPhase = kelosv1alpha1.TaskPhaseRunning
+		if task.Status.Phase != kelos.TaskPhaseRunning {
+			newPhase = kelos.TaskPhaseRunning
 			setStartTime = true
 			r.recordEvent(task, corev1.EventTypeNormal, "TaskRunning", "Task started running")
 		}
 	} else if job.Status.Succeeded > 0 {
-		if task.Status.Phase != kelosv1alpha1.TaskPhaseSucceeded {
-			newPhase = kelosv1alpha1.TaskPhaseSucceeded
+		if task.Status.Phase != kelos.TaskPhaseSucceeded {
+			newPhase = kelos.TaskPhaseSucceeded
 			newMessage = "Task completed successfully"
 			setCompletionTime = true
 			r.recordEvent(task, corev1.EventTypeNormal, "TaskSucceeded", "Task completed successfully")
-			taskCompletedTotal.WithLabelValues(task.Namespace, task.Spec.Type, string(kelosv1alpha1.TaskPhaseSucceeded)).Inc()
+			taskCompletedTotal.WithLabelValues(task.Namespace, task.Spec.Type, string(kelos.TaskPhaseSucceeded)).Inc()
 		}
 	} else if isJobFailed(job) {
-		if task.Status.Phase != kelosv1alpha1.TaskPhaseFailed {
-			newPhase = kelosv1alpha1.TaskPhaseFailed
+		if task.Status.Phase != kelos.TaskPhaseFailed {
+			newPhase = kelos.TaskPhaseFailed
 			newMessage = "Task failed"
 			setCompletionTime = true
 			r.recordEvent(task, corev1.EventTypeWarning, "TaskFailed", "Task failed")
-			taskCompletedTotal.WithLabelValues(task.Namespace, task.Spec.Type, string(kelosv1alpha1.TaskPhaseFailed)).Inc()
+			taskCompletedTotal.WithLabelValues(task.Namespace, task.Spec.Type, string(kelos.TaskPhaseFailed)).Inc()
 		}
 	}
 
@@ -540,7 +669,7 @@ func (r *TaskReconciler) updateStatus(ctx context.Context, task *kelosv1alpha1.T
 		if effectivePodName == "" {
 			effectivePodName = task.Status.PodName
 		}
-		containerName := kelosv1alpha1.AgentContainerName
+		containerName := kelos.AgentContainerName
 		outputs, results = r.readOutputs(ctx, task.Namespace, effectivePodName, containerName)
 	}
 
@@ -630,11 +759,11 @@ func latestTaskPodName(pods []corev1.Pod) string {
 // ttlExpired checks whether a finished Task has exceeded its TTL.
 // It returns (true, 0) if the Task should be deleted now, or (false, duration)
 // if the Task should be requeued after the given duration.
-func (r *TaskReconciler) ttlExpired(task *kelosv1alpha1.Task) (bool, time.Duration) {
+func (r *TaskReconciler) ttlExpired(task *kelos.Task) (bool, time.Duration) {
 	if task.Spec.TTLSecondsAfterFinished == nil {
 		return false, 0
 	}
-	if task.Status.Phase != kelosv1alpha1.TaskPhaseSucceeded && task.Status.Phase != kelosv1alpha1.TaskPhaseFailed {
+	if task.Status.Phase != kelos.TaskPhaseSucceeded && task.Status.Phase != kelos.TaskPhaseFailed {
 		return false, 0
 	}
 	if task.Status.CompletionTime == nil {
@@ -688,18 +817,18 @@ func (r *TaskReconciler) recordEvent(obj runtime.Object, eventType, reason, mess
 
 // checkDependencies verifies that all tasks listed in DependsOn have succeeded.
 // Returns (ready, result, error). ready=true means all dependencies succeeded.
-func (r *TaskReconciler) checkDependencies(ctx context.Context, task *kelosv1alpha1.Task) (bool, ctrl.Result, error) {
+func (r *TaskReconciler) checkDependencies(ctx context.Context, task *kelos.Task) (bool, ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
 	// Cycle detection only on first check (skip if already Waiting)
-	if task.Status.Phase != kelosv1alpha1.TaskPhaseWaiting {
+	if task.Status.Phase != kelos.TaskPhaseWaiting {
 		if err := r.detectCycle(ctx, task); err != nil {
 			logger.Info("Circular dependency detected", "task", task.Name, "error", err)
 			updateErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 				if getErr := r.Get(ctx, client.ObjectKeyFromObject(task), task); getErr != nil {
 					return getErr
 				}
-				task.Status.Phase = kelosv1alpha1.TaskPhaseFailed
+				task.Status.Phase = kelos.TaskPhaseFailed
 				task.Status.Message = fmt.Sprintf("Circular dependency detected: %v", err)
 				now := metav1.Now()
 				task.Status.CompletionTime = &now
@@ -714,7 +843,7 @@ func (r *TaskReconciler) checkDependencies(ctx context.Context, task *kelosv1alp
 	}
 
 	for _, depName := range task.Spec.DependsOn {
-		var depTask kelosv1alpha1.Task
+		var depTask kelos.Task
 		if err := r.Get(ctx, client.ObjectKey{
 			Namespace: task.Namespace, Name: depName,
 		}, &depTask); err != nil {
@@ -726,13 +855,13 @@ func (r *TaskReconciler) checkDependencies(ctx context.Context, task *kelosv1alp
 			return false, ctrl.Result{}, err
 		}
 
-		if depTask.Status.Phase == kelosv1alpha1.TaskPhaseFailed {
+		if depTask.Status.Phase == kelos.TaskPhaseFailed {
 			logger.Info("Dependency failed", "dependency", depName)
 			updateErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 				if getErr := r.Get(ctx, client.ObjectKeyFromObject(task), task); getErr != nil {
 					return getErr
 				}
-				task.Status.Phase = kelosv1alpha1.TaskPhaseFailed
+				task.Status.Phase = kelos.TaskPhaseFailed
 				task.Status.Message = fmt.Sprintf("Dependency %q failed", depName)
 				now := metav1.Now()
 				task.Status.CompletionTime = &now
@@ -742,11 +871,11 @@ func (r *TaskReconciler) checkDependencies(ctx context.Context, task *kelosv1alp
 				logger.Error(updateErr, "Unable to update Task status")
 			}
 			r.recordEvent(task, corev1.EventTypeWarning, "DependencyFailed", "Dependency %q failed", depName)
-			taskCompletedTotal.WithLabelValues(task.Namespace, task.Spec.Type, string(kelosv1alpha1.TaskPhaseFailed)).Inc()
+			taskCompletedTotal.WithLabelValues(task.Namespace, task.Spec.Type, string(kelos.TaskPhaseFailed)).Inc()
 			return false, ctrl.Result{}, nil
 		}
 
-		if depTask.Status.Phase != kelosv1alpha1.TaskPhaseSucceeded {
+		if depTask.Status.Phase != kelos.TaskPhaseSucceeded {
 			logger.Info("Dependency not ready", "dependency", depName, "phase", depTask.Status.Phase)
 			r.setWaitingPhase(ctx, task, fmt.Sprintf("Waiting for dependency %q", depName))
 			return false, ctrl.Result{RequeueAfter: 10 * time.Second}, nil
@@ -758,7 +887,7 @@ func (r *TaskReconciler) checkDependencies(ctx context.Context, task *kelosv1alp
 
 // detectCycle walks the dependency graph from the given task and returns an
 // error if a cycle is detected.
-func (r *TaskReconciler) detectCycle(ctx context.Context, task *kelosv1alpha1.Task) error {
+func (r *TaskReconciler) detectCycle(ctx context.Context, task *kelos.Task) error {
 	visited := make(map[string]bool)
 	return r.walkDeps(ctx, task.Namespace, task.Name, visited)
 }
@@ -769,7 +898,7 @@ func (r *TaskReconciler) walkDeps(ctx context.Context, namespace, name string, v
 	}
 	visited[name] = true
 
-	var t kelosv1alpha1.Task
+	var t kelos.Task
 	if err := r.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, &t); err != nil {
 		return nil // Cannot detect cycle if task doesn't exist yet
 	}
@@ -787,7 +916,7 @@ func (r *TaskReconciler) walkDeps(ctx context.Context, namespace, name string, v
 // branchLockKey returns the key used for branch locking. The lock is scoped
 // to (workspace, branch) so that tasks on different workspaces with the same
 // branch name do not block each other.
-func branchLockKey(task *kelosv1alpha1.Task) string {
+func branchLockKey(task *kelos.Task) string {
 	ws := ""
 	if task.Spec.WorkspaceRef != nil {
 		ws = task.Spec.WorkspaceRef.Name
@@ -799,11 +928,11 @@ func branchLockKey(task *kelosv1alpha1.Task) string {
 // active. Returns (locked, result, error). locked=true means another task holds
 // the branch. A task is considered to hold the lock if it is Running, Pending,
 // or is an earlier-created Waiting task (FIFO ordering for the branch queue).
-func (r *TaskReconciler) checkBranchLock(ctx context.Context, task *kelosv1alpha1.Task) (bool, ctrl.Result, error) {
+func (r *TaskReconciler) checkBranchLock(ctx context.Context, task *kelos.Task) (bool, ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 	key := branchLockKey(task)
 
-	var taskList kelosv1alpha1.TaskList
+	var taskList kelos.TaskList
 	if err := r.List(ctx, &taskList, client.InNamespace(task.Namespace)); err != nil {
 		return false, ctrl.Result{}, err
 	}
@@ -816,11 +945,11 @@ func (r *TaskReconciler) checkBranchLock(ctx context.Context, task *kelosv1alpha
 			continue
 		}
 		switch t.Status.Phase {
-		case kelosv1alpha1.TaskPhaseRunning, kelosv1alpha1.TaskPhasePending:
+		case kelos.TaskPhaseRunning, kelos.TaskPhasePending:
 			logger.Info("Branch locked by another task", "branch", task.Spec.Branch, "lockedBy", t.Name)
 			r.setWaitingPhase(ctx, task, fmt.Sprintf("Waiting for branch %q (locked by %s)", task.Spec.Branch, t.Name))
 			return true, ctrl.Result{RequeueAfter: 10 * time.Second}, nil
-		case kelosv1alpha1.TaskPhaseWaiting:
+		case kelos.TaskPhaseWaiting:
 			if t.CreationTimestamp.Before(&task.CreationTimestamp) {
 				logger.Info("Branch queued behind earlier task", "branch", task.Spec.Branch, "queuedBehind", t.Name)
 				r.setWaitingPhase(ctx, task, fmt.Sprintf("Waiting for branch %q (queued behind %s)", task.Spec.Branch, t.Name))
@@ -833,16 +962,16 @@ func (r *TaskReconciler) checkBranchLock(ctx context.Context, task *kelosv1alpha
 }
 
 // setWaitingPhase updates the task phase to Waiting with the given message.
-func (r *TaskReconciler) setWaitingPhase(ctx context.Context, task *kelosv1alpha1.Task, message string) {
+func (r *TaskReconciler) setWaitingPhase(ctx context.Context, task *kelos.Task, message string) {
 	logger := log.FromContext(ctx)
 	updateErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		if getErr := r.Get(ctx, client.ObjectKeyFromObject(task), task); getErr != nil {
 			return getErr
 		}
-		if task.Status.Phase == kelosv1alpha1.TaskPhaseWaiting && task.Status.Message == message {
+		if task.Status.Phase == kelos.TaskPhaseWaiting && task.Status.Message == message {
 			return nil
 		}
-		task.Status.Phase = kelosv1alpha1.TaskPhaseWaiting
+		task.Status.Phase = kelos.TaskPhaseWaiting
 		task.Status.Message = message
 		return r.Status().Update(ctx, task)
 	})
@@ -853,7 +982,7 @@ func (r *TaskReconciler) setWaitingPhase(ctx context.Context, task *kelosv1alpha
 
 // resolvePromptTemplate resolves Go template references in the prompt using
 // dependency outputs. Falls back to the raw prompt on any error.
-func (r *TaskReconciler) resolvePromptTemplate(ctx context.Context, task *kelosv1alpha1.Task) string {
+func (r *TaskReconciler) resolvePromptTemplate(ctx context.Context, task *kelos.Task) string {
 	logger := log.FromContext(ctx)
 
 	if len(task.Spec.DependsOn) == 0 {
@@ -862,7 +991,7 @@ func (r *TaskReconciler) resolvePromptTemplate(ctx context.Context, task *kelosv
 
 	deps := make(map[string]interface{})
 	for _, depName := range task.Spec.DependsOn {
-		var depTask kelosv1alpha1.Task
+		var depTask kelos.Task
 		if err := r.Get(ctx, client.ObjectKey{
 			Namespace: task.Namespace, Name: depName,
 		}, &depTask); err != nil {
@@ -892,7 +1021,7 @@ func (r *TaskReconciler) resolvePromptTemplate(ctx context.Context, task *kelosv
 
 // RecordCostTokenMetrics emits Prometheus counters for cost and token usage
 // extracted from Task results.
-func RecordCostTokenMetrics(task *kelosv1alpha1.Task, results map[string]string) {
+func RecordCostTokenMetrics(task *kelos.Task, results map[string]string) {
 	spawner := task.Labels["kelos.dev/taskspawner"]
 	model := task.Spec.Model
 	labels := []string{task.Namespace, task.Spec.Type, spawner, model}
@@ -930,10 +1059,10 @@ func isJobFailed(job *batchv1.Job) bool {
 // SetupWithManager sets up the controller with the Manager.
 func (r *TaskReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&kelosv1alpha1.Task{}).
+		For(&kelos.Task{}).
 		Owns(&batchv1.Job{}).
-		Watches(&kelosv1alpha1.Task{}, handler.EnqueueRequestsFromMapFunc(r.enqueueDependentTasks)).
-		Watches(&kelosv1alpha1.Workspace{}, handler.EnqueueRequestsFromMapFunc(r.enqueueTasksForWorkspace)).
+		Watches(&kelos.Task{}, handler.EnqueueRequestsFromMapFunc(r.enqueueDependentTasks)).
+		Watches(&kelos.Workspace{}, handler.EnqueueRequestsFromMapFunc(r.enqueueTasksForWorkspace)).
 		Complete(r)
 }
 
@@ -941,12 +1070,12 @@ func (r *TaskReconciler) SetupWithManager(mgr ctrl.Manager) error {
 // the given Workspace. This ensures Tasks waiting for a Workspace are
 // reconciled immediately when it appears.
 func (r *TaskReconciler) enqueueTasksForWorkspace(ctx context.Context, obj client.Object) []reconcile.Request {
-	ws, ok := obj.(*kelosv1alpha1.Workspace)
+	ws, ok := obj.(*kelos.Workspace)
 	if !ok {
 		return nil
 	}
 
-	var taskList kelosv1alpha1.TaskList
+	var taskList kelos.TaskList
 	if err := r.List(ctx, &taskList, client.InNamespace(ws.Namespace)); err != nil {
 		return nil
 	}
@@ -967,17 +1096,17 @@ func (r *TaskReconciler) enqueueTasksForWorkspace(ctx context.Context, obj clien
 // branch-queued tasks are reconciled immediately when a task reaches a terminal
 // phase, instead of waiting for a requeue timer.
 func (r *TaskReconciler) enqueueDependentTasks(ctx context.Context, obj client.Object) []reconcile.Request {
-	task, ok := obj.(*kelosv1alpha1.Task)
+	task, ok := obj.(*kelos.Task)
 	if !ok {
 		return nil
 	}
 
 	// Only trigger when a task reaches a terminal phase
-	if task.Status.Phase != kelosv1alpha1.TaskPhaseSucceeded && task.Status.Phase != kelosv1alpha1.TaskPhaseFailed {
+	if task.Status.Phase != kelos.TaskPhaseSucceeded && task.Status.Phase != kelos.TaskPhaseFailed {
 		return nil
 	}
 
-	var taskList kelosv1alpha1.TaskList
+	var taskList kelos.TaskList
 	if err := r.List(ctx, &taskList, client.InNamespace(task.Namespace)); err != nil {
 		return nil
 	}
@@ -1001,7 +1130,7 @@ func (r *TaskReconciler) enqueueDependentTasks(ctx context.Context, obj client.O
 		// Re-enqueue tasks waiting for the same workspace+branch
 		if !seen[t.Name] && task.Spec.Branch != "" && t.Spec.Branch != "" &&
 			branchLockKey(&t) == branchLockKey(task) &&
-			t.Status.Phase == kelosv1alpha1.TaskPhaseWaiting {
+			t.Status.Phase == kelos.TaskPhaseWaiting {
 			seen[t.Name] = true
 			requests = append(requests, reconcile.Request{
 				NamespacedName: client.ObjectKeyFromObject(&t),

@@ -1,5 +1,5 @@
 # Basic workspace with PAT authentication
-apiVersion: kelos.dev/v1alpha1
+apiVersion: kelos.dev/v1alpha2
 kind: Workspace
 metadata:
   name: my-workspace
@@ -15,7 +15,7 @@ spec:
 #     --from-literal=appID=12345 \
 #     --from-literal=installationID=67890 \
 #     --from-file=privateKey=my-app.private-key.pem
-apiVersion: kelos.dev/v1alpha1
+apiVersion: kelos.dev/v1alpha2
 kind: Workspace
 metadata:
   name: my-workspace-app
@@ -26,7 +26,7 @@ spec:
     name: github-app-creds
 ---
 # Fork workflow — workspace points to fork, with upstream remote
-apiVersion: kelos.dev/v1alpha1
+apiVersion: kelos.dev/v1alpha2
 kind: Workspace
 metadata:
   name: my-fork
@@ -40,7 +40,7 @@ spec:
       url: https://github.com/original-org/original-repo.git
 ---
 # Workspace with injected files (skills, instructions)
-apiVersion: kelos.dev/v1alpha1
+apiVersion: kelos.dev/v1alpha2
 kind: Workspace
 metadata:
   name: workspace-with-files
