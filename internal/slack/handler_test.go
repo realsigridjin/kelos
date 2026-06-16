@@ -3,9 +3,13 @@ package slack
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/go-logr/logr"
+	goslack "github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -498,4 +502,173 @@ func TestHandleMemberJoinedChannelSkipsEmptyMessage(t *testing.T) {
 	}
 
 	h.handleMemberJoinedChannel(context.Background(), evt)
+}
+
+func TestDenySlackConnectChannels(t *testing.T) {
+	tests := []struct {
+		name           string
+		channelResp    string
+		expectLeave    bool
+		expectJoinPost bool
+	}{
+		{
+			name:        "leaves externally shared channel",
+			channelResp: `{"ok":true,"channel":{"id":"C123","is_ext_shared":true,"is_pending_ext_shared":false}}`,
+			expectLeave: true,
+		},
+		{
+			name:        "leaves pending externally shared channel",
+			channelResp: `{"ok":true,"channel":{"id":"C123","is_ext_shared":false,"is_pending_ext_shared":true}}`,
+			expectLeave: true,
+		},
+		{
+			name:           "stays in internal channel",
+			channelResp:    `{"ok":true,"channel":{"id":"C123","is_ext_shared":false,"is_pending_ext_shared":false}}`,
+			expectLeave:    false,
+			expectJoinPost: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var leaveCalled, postCalled bool
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case strings.Contains(r.URL.Path, "conversations.info"):
+					w.Write([]byte(tt.channelResp))
+				case strings.Contains(r.URL.Path, "conversations.leave"):
+					leaveCalled = true
+					w.Write([]byte(`{"ok":true}`))
+				case strings.Contains(r.URL.Path, "chat.postMessage"):
+					postCalled = true
+					w.Write([]byte(`{"ok":true,"channel":"C123","ts":"1.1"}`))
+				default:
+					w.Write([]byte(`{"ok":true}`))
+				}
+			}))
+			defer srv.Close()
+
+			api := goslack.New("xoxb-test", goslack.OptionAPIURL(srv.URL+"/"))
+
+			h := &SlackHandler{
+				log:                      logr.Discard(),
+				api:                      api,
+				botUserID:                "UBOT",
+				joinMessage:              "Welcome!",
+				denySlackConnectChannels: true,
+			}
+
+			evt := &slackevents.MemberJoinedChannelEvent{
+				User:    "UBOT",
+				Channel: "C123",
+			}
+
+			h.handleMemberJoinedChannel(context.Background(), evt)
+
+			if leaveCalled != tt.expectLeave {
+				t.Errorf("conversations.leave called = %v, want %v", leaveCalled, tt.expectLeave)
+			}
+			if postCalled != tt.expectJoinPost {
+				t.Errorf("chat.postMessage called = %v, want %v", postCalled, tt.expectJoinPost)
+			}
+		})
+	}
+}
+
+func TestDenySlackConnectDisabledDoesNotCheck(t *testing.T) {
+	// With denySlackConnectChannels=false and api=nil, calling handleMemberJoinedChannel
+	// for an external channel should NOT call conversations.info (would panic on nil api).
+	h := &SlackHandler{
+		log:                      logr.Discard(),
+		botUserID:                "UBOT",
+		denySlackConnectChannels: false,
+		// api is nil — would panic if shouldDenySlackConnect were called.
+	}
+
+	evt := &slackevents.MemberJoinedChannelEvent{
+		User:    "UBOT",
+		Channel: "C123",
+	}
+
+	// Should not panic — autoleave check is skipped.
+	h.handleMemberJoinedChannel(context.Background(), evt)
+}
+
+func TestDenySlackConnectAPIErrorFailsClosed(t *testing.T) {
+	var postCalled bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.Contains(r.URL.Path, "conversations.info"):
+			w.Write([]byte(`{"ok":false,"error":"channel_not_found"}`))
+		case strings.Contains(r.URL.Path, "conversations.leave"):
+			t.Error("conversations.leave should not be called when info fails")
+			w.Write([]byte(`{"ok":true}`))
+		case strings.Contains(r.URL.Path, "chat.postMessage"):
+			postCalled = true
+			w.Write([]byte(`{"ok":true,"channel":"C123","ts":"1.1"}`))
+		default:
+			w.Write([]byte(`{"ok":true}`))
+		}
+	}))
+	defer srv.Close()
+
+	api := goslack.New("xoxb-test", goslack.OptionAPIURL(srv.URL+"/"))
+
+	h := &SlackHandler{
+		log:                      logr.Discard(),
+		api:                      api,
+		botUserID:                "UBOT",
+		joinMessage:              "Welcome!",
+		denySlackConnectChannels: true,
+	}
+
+	evt := &slackevents.MemberJoinedChannelEvent{
+		User:    "UBOT",
+		Channel: "C123",
+	}
+
+	h.handleMemberJoinedChannel(context.Background(), evt)
+
+	if postCalled {
+		t.Error("Join message should not be posted when conversations.info fails (fail closed)")
+	}
+}
+
+func TestDenySlackConnectLeaveFailureDoesNotPostJoinMessage(t *testing.T) {
+	var postCalled bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.Contains(r.URL.Path, "conversations.info"):
+			w.Write([]byte(`{"ok":true,"channel":{"id":"C123","is_ext_shared":true}}`))
+		case strings.Contains(r.URL.Path, "conversations.leave"):
+			w.Write([]byte(`{"ok":false,"error":"not_allowed"}`))
+		case strings.Contains(r.URL.Path, "chat.postMessage"):
+			postCalled = true
+			w.Write([]byte(`{"ok":true,"channel":"C123","ts":"1.1"}`))
+		default:
+			w.Write([]byte(`{"ok":true}`))
+		}
+	}))
+	defer srv.Close()
+
+	api := goslack.New("xoxb-test", goslack.OptionAPIURL(srv.URL+"/"))
+
+	h := &SlackHandler{
+		log:                      logr.Discard(),
+		api:                      api,
+		botUserID:                "UBOT",
+		joinMessage:              "Welcome!",
+		denySlackConnectChannels: true,
+	}
+
+	evt := &slackevents.MemberJoinedChannelEvent{
+		User:    "UBOT",
+		Channel: "C123",
+	}
+
+	h.handleMemberJoinedChannel(context.Background(), evt)
+
+	if postCalled {
+		t.Error("Join message should not be posted when channel is external, even if leave fails")
+	}
 }

@@ -31,20 +31,23 @@ const (
 // matching TaskSpawners. It is the centralized equivalent of the per-TaskSpawner
 // SlackSource that previously ran in each spawner pod.
 type SlackHandler struct {
-	client      client.Client
-	log         logr.Logger
-	taskBuilder *taskbuilder.TaskBuilder
-	api         *goslack.Client
-	sm          *socketmode.Client
-	botUserID   string
-	botID       string
-	joinMessage string
-	cancel      context.CancelFunc
+	client                   client.Client
+	log                      logr.Logger
+	taskBuilder              *taskbuilder.TaskBuilder
+	api                      *goslack.Client
+	sm                       *socketmode.Client
+	botUserID                string
+	botID                    string
+	joinMessage              string
+	denySlackConnectChannels bool
+	cancel                   context.CancelFunc
 }
 
 // NewSlackHandler creates a new handler. Call Start to begin listening.
 // If joinMessageFile is non-empty, the bot posts its contents when added to a channel.
-func NewSlackHandler(ctx context.Context, cl client.Client, botToken, appToken, joinMessageFile string, log logr.Logger) (*SlackHandler, error) {
+// If denySlackConnectChannels is true, the bot denies service to Slack Connect
+// (externally shared) channels, leaving on invite and failing closed on lookup errors.
+func NewSlackHandler(ctx context.Context, cl client.Client, botToken, appToken, joinMessageFile string, denySlackConnectChannels bool, log logr.Logger) (*SlackHandler, error) {
 	api := goslack.New(botToken, goslack.OptionAppLevelToken(appToken))
 
 	authResp, err := api.AuthTestContext(ctx)
@@ -72,14 +75,15 @@ func NewSlackHandler(ctx context.Context, cl client.Client, botToken, appToken, 
 	}
 
 	return &SlackHandler{
-		client:      cl,
-		log:         log,
-		taskBuilder: tb,
-		api:         api,
-		sm:          newSocketModeClient(api),
-		botUserID:   authResp.UserID,
-		botID:       authResp.BotID,
-		joinMessage: joinMessage,
+		client:                   cl,
+		log:                      log,
+		taskBuilder:              tb,
+		api:                      api,
+		sm:                       newSocketModeClient(api),
+		botUserID:                authResp.UserID,
+		botID:                    authResp.BotID,
+		joinMessage:              joinMessage,
+		denySlackConnectChannels: denySlackConnectChannels,
 	}, nil
 }
 
@@ -143,13 +147,18 @@ func (h *SlackHandler) handleEventsAPI(ctx context.Context, evt socketmode.Event
 	}
 }
 
-// handleMemberJoinedChannel posts a welcome message when the bot itself is
-// added to a channel. The message text is read from the file pointed to by
-// joinMessageFile. If the file is not configured or cannot be read, the
-// event is silently ignored.
+// handleMemberJoinedChannel is called when any user joins a channel. When the
+// bot itself is added, it denies Slack Connect channels if configured (leaving
+// and skipping the join message). Otherwise it posts the configured welcome message.
 func (h *SlackHandler) handleMemberJoinedChannel(ctx context.Context, evt *slackevents.MemberJoinedChannelEvent) {
 	if evt.User != h.botUserID {
 		return
+	}
+
+	if h.denySlackConnectChannels {
+		if h.shouldDenySlackConnect(ctx, evt.Channel) {
+			return
+		}
 	}
 
 	if h.joinMessage == "" {
@@ -163,6 +172,42 @@ func (h *SlackHandler) handleMemberJoinedChannel(ctx context.Context, evt *slack
 	if _, _, err := h.api.PostMessageContext(postCtx, evt.Channel, goslack.MsgOptionText(h.joinMessage, false)); err != nil {
 		h.log.Error(err, "Failed to post join message", "channel", evt.Channel)
 	}
+}
+
+// shouldDenySlackConnect checks if a channel is externally shared (Slack Connect)
+// and leaves it if so. Returns true if the channel is denied — either because it
+// was confirmed external and left, or because the status could not be determined
+// (fail closed).
+func (h *SlackHandler) shouldDenySlackConnect(ctx context.Context, channelID string) bool {
+	infoCtx, cancel := context.WithTimeout(ctx, enrichCallTimeout)
+	defer cancel()
+
+	info, err := h.api.GetConversationInfoContext(infoCtx, &goslack.GetConversationInfoInput{
+		ChannelID: channelID,
+	})
+	if err != nil {
+		h.log.Error(err, "Failed to get channel info, denying channel (fail closed)", "channel", channelID)
+		return true
+	}
+
+	if !info.IsExtShared && !info.IsPendingExtShared {
+		return false
+	}
+
+	h.log.Info("Denying Slack Connect channel, leaving", "channel", channelID,
+		"isExtShared", info.IsExtShared, "isPendingExtShared", info.IsPendingExtShared)
+
+	leaveCtx, leaveCancel := context.WithTimeout(ctx, postMessageTimeout)
+	defer leaveCancel()
+
+	notInChannel, err := h.api.LeaveConversationContext(leaveCtx, channelID)
+	if err != nil {
+		h.log.Error(err, "Failed to leave denied Slack Connect channel", "channel", channelID)
+	} else if notInChannel {
+		h.log.Info("Bot was already not in channel", "channel", channelID)
+	}
+
+	return true
 }
 
 func (h *SlackHandler) handleMessageEvent(ctx context.Context, innerEvent *slackevents.MessageEvent) {

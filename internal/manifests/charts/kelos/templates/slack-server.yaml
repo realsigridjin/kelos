@@ -33,6 +33,9 @@ spec:
             - --leader-elect
             - --metrics-bind-address=:8080
             - --health-probe-bind-address=:8081
+            {{- if .Values.slackServer.denySlackConnectChannels }}
+            - --deny-slack-connect-channels
+            {{- end }}
           env:
             - name: SLACK_BOT_TOKEN
               valueFrom:

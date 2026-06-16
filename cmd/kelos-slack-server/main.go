@@ -37,11 +37,12 @@ func init() {
 
 func main() {
 	var (
-		metricsAddr          string
-		probeAddr            string
-		enableLeaderElection bool
-		reportingInterval    time.Duration
-		activityInterval     time.Duration
+		metricsAddr              string
+		probeAddr                string
+		enableLeaderElection     bool
+		reportingInterval        time.Duration
+		activityInterval         time.Duration
+		denySlackConnectChannels bool
 	)
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
@@ -49,6 +50,7 @@ func main() {
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false, "Enable leader election for controller manager.")
 	flag.DurationVar(&reportingInterval, "reporting-interval", 30*time.Second, "How often to run the Slack reporting cycle.")
 	flag.DurationVar(&activityInterval, "activity-interval", 5*time.Second, "How often to update Slack activity indicators.")
+	flag.BoolVar(&denySlackConnectChannels, "deny-slack-connect-channels", false, "Deny service to externally shared (Slack Connect) channels. The bot will leave on invite and skip processing when channel status cannot be verified.")
 
 	opts, applyVerbosity := logging.SetupZapOptions(flag.CommandLine)
 	flag.Parse()
@@ -105,6 +107,7 @@ func main() {
 		botToken,
 		appToken,
 		joinMessageFile,
+		denySlackConnectChannels,
 		ctrl.Log.WithName("slack"),
 	)
 	if err != nil {
