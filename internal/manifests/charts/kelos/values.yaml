@@ -116,6 +116,8 @@ slackServer:
   secretName: ""
   # Message posted when the bot joins a channel. Leave empty to disable.
   joinMessage: ""
+  # Deny service to externally shared (Slack Connect) channels.
+  denySlackConnectChannels: false
   resources:
     limits:
       cpu: 500m
