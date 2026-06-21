@@ -143,6 +143,7 @@ type AgentConfigReference struct {
 // +genclient
 // +genclient:noStatus
 // +kubebuilder:object:root=true
+// +kubebuilder:deprecatedversion:warning="kelos.dev/v1alpha1 is deprecated; use kelos.dev/v1alpha2"
 
 // AgentConfig is the Schema for the agentconfigs API.
 type AgentConfig struct {
