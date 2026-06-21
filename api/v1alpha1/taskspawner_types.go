@@ -1033,6 +1033,7 @@ type TaskSpawnerStatus struct {
 
 // +genclient
 // +kubebuilder:object:root=true
+// +kubebuilder:deprecatedversion:warning="kelos.dev/v1alpha1 is deprecated; use kelos.dev/v1alpha2"
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Workspace",type=string,JSONPath=`.spec.taskTemplate.workspaceRef.name`
 // +kubebuilder:printcolumn:name="Suspend",type=boolean,JSONPath=`.spec.suspend`

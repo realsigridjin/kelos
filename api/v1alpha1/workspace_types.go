@@ -82,6 +82,7 @@ type WorkspaceSpec struct {
 // +genclient
 // +genclient:noStatus
 // +kubebuilder:object:root=true
+// +kubebuilder:deprecatedversion:warning="kelos.dev/v1alpha1 is deprecated; use kelos.dev/v1alpha2"
 
 // Workspace is the Schema for the workspaces API.
 type Workspace struct {
