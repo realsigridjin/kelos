@@ -29,7 +29,9 @@ spec:
       conversionReviewVersions:
         - v1
   versions:
-  - name: v1alpha1
+  - deprecated: true
+    deprecationWarning: kelos.dev/v1alpha1 is deprecated; use kelos.dev/v1alpha2
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: AgentConfig is the Schema for the agentconfigs API.

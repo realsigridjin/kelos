@@ -326,6 +326,7 @@ type TaskStatus struct {
 
 // +genclient
 // +kubebuilder:object:root=true
+// +kubebuilder:deprecatedversion:warning="kelos.dev/v1alpha1 is deprecated; use kelos.dev/v1alpha2"
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Type",type=string,JSONPath=`.spec.type`
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
