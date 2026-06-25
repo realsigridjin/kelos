@@ -527,3 +527,134 @@ spec:
       ## Rules
       - Read-only on code: do NOT modify files, open PRs, or change other labels/assignees.
       - Only investigate service/agents. Favor a few high-impact opportunities over many micro-tweaks.
+
+---
+apiVersion: kelos.dev/v1alpha2
+kind: TaskSpawner
+metadata:
+  name: agents-nelo-scout
+spec:
+  when:
+    cron:
+      schedule: "0 8 * * *" # daily 08:00 UTC (17:00 KST)
+  maxConcurrency: 1
+  taskTemplate:
+    workspaceRef:
+      name: ml-workspace
+    model: opus
+    type: claude-code
+    ttlSecondsAfterFinished: 86400
+    credentials:
+      type: oauth
+      secretRef:
+        name: kelos-credentials
+    agentConfigRefs:
+      - name: kelos-dev-agent
+    podOverrides:
+      env:
+        - name: CLAUDE_CODE_EFFORT_LEVEL
+          value: "max"
+        - name: CLEANUP_AFTER_TEST
+          value: "true"
+        - name: PAI_NCLAVIS_USER_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: pai-nclavis
+              key: PAI_NCLAVIS_USER_TOKEN
+        - name: NELO_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: nelo-credentials
+              key: NELO_ACCESS_KEY_ID
+              optional: true
+        - name: NELO_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: nelo-credentials
+              key: NELO_SECRET_ACCESS_KEY
+              optional: true
+    promptTemplate: |
+      Daily NELO log-scout for the Planner Agent service (service/agents) in the pai/ml monorepo.
+
+      Use the installed nelo skill from agent-plugins to inspect recent NELO/Havana logs and surface
+      high-confidence operational problems for human triage. You do NOT change code or open PRs. If
+      nothing is clearly actionable, exit WITHOUT filing an issue. The mandatory dedup step and
+      single-issue ownership keep this from becoming noise.
+
+      ## Setup
+      git fetch origin develop
+      curl -LsSf https://astral.sh/uv/0.10.4/install.sh | sh && . $HOME/.local/bin/env
+      cd service/agents
+
+      If NELO_ACCESS_KEY_ID or NELO_SECRET_ACCESS_KEY is unset, report
+      "NELO credentials are not configured" and EXIT without filing an issue. The expected Secret is
+      nelo-credentials with keys NELO_ACCESS_KEY_ID and NELO_SECRET_ACCESS_KEY.
+
+      ## Step 1 — Use the nelo skill safely
+      Follow the nelo skill workflow:
+      - verify auth with auth-info
+      - find accessible projects when needed
+      - start with metadata-only searches, small limits, and short windows
+      - request full sources only for narrow queries needed to understand a concrete failure
+      - summarize logs; do NOT paste raw sensitive payloads, tokens, user text, or PII into GitHub issues
+
+      Known place-agent NELO workspace/project IDs from the nelo skill reference:
+      - workspace 1729: place-agent
+      - 32781: prd-place-agent
+      - 32782: stg-place-agent
+      - 32783: dev-place-agent
+      - 32785: qa-place-agent
+
+      Search the last 24 hours first, then narrow to smaller windows around spikes. Useful starting
+      queries include:
+      - logLevel:ERROR
+      - logLevel:ERROR AND body:exception
+      - body:timeout OR body:TimeoutError
+      - body:"service/agents" OR body:"place_agents"
+
+      ## Step 2 — Identify only actionable service/agents problems
+      Look for repeated or high-impact failures that are plausibly caused by service/agents code,
+      configuration, dependencies, or external integrations. Examples:
+      - recurring unhandled exceptions or stack traces in service/agents request handling
+      - spikes in 5xx/error responses tied to a specific route, workflow, model call, or tool
+      - repeated timeout/retry exhaustion that points to missing timeout handling or bad concurrency
+      - A2A / state / AgentIO contract errors visible in logs
+      - malformed request/response payloads, serialization failures, or dependency auth/config failures
+
+      Do NOT file:
+      - one-off logs with no user impact or no repeat signal
+      - known deployment noise, restarts, or unrelated upstream outages unless service/agents action is clear
+      - findings already covered by existing issues
+      - issues based only on raw log text without a concrete failure mechanism
+
+      ## Step 3 — Deduplicate and find this spawner's managed issue (REQUIRED)
+      Run:
+        MANAGED_TITLE_PREFIX='[service/agents] [agents-nelo-scout]'
+        gh issue list --label gjkim/auto-generated --state open \
+          --search "\"${MANAGED_TITLE_PREFIX}\" in:title" --json number,title,url
+        gh issue list --label gjkim/auto-generated --state all \
+          --search '"[service/agents]" in:title' --limit 200
+      Drop anything already covered by an open or recently-closed issue. Rank remaining findings by
+      severity × confidence × recurrence and keep only the best one.
+
+      ## Step 4 — Create or replace the managed issue
+      - If nothing meets the bar, report "no high-confidence NELO-backed service/agents problems found"
+        and EXIT without filing.
+      - If no open managed issue exists, create exactly one issue assigned to gunju-kim with label
+        gjkim/auto-generated. Its title MUST start with `[service/agents] [agents-nelo-scout]`.
+      - If an open managed issue exists, compare it to the best current finding. Replace it with
+        `gh issue edit <number> --title ... --body-file ...` only when the current finding is clearly
+        more severe/recurring/actionable or makes the existing issue obsolete. Otherwise leave the issue
+        unchanged.
+      - The issue body MUST include "Managed by TaskSpawner: agents-nelo-scout", what NELO shows,
+        affected environment/project, first/last seen time range, recurrence count or sample log IDs,
+        why this is likely a service/agents problem, suggested investigation/fix direction, and any
+        sensitive details intentionally omitted. End with: "Comment /kelos plan to plan a fix, or
+        /kelos pick-up to fix."
+      - Do not create a second open issue for this TaskSpawner. If multiple managed issues already
+        exist, keep the best one and close the extras as superseded.
+
+      ## Rules
+      - Read-only on code and logs: do NOT modify files, open PRs, or change other labels/assignees.
+      - Only investigate service/agents / place-agent logs relevant to service/agents.
+      - Prefer a few high-confidence, NELO-backed issues over broad speculative log summaries.
