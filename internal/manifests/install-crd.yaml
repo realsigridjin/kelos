@@ -604,10 +604,23 @@ spec:
                 description: |-
                   Skills defines skills.sh packages to install into the plugin volume.
                   Each entry references a package in owner/repo format from the skills.sh
-                  ecosystem, installed via "npx skills add" in an init container.
+                  ecosystem or a full HTTPS git URL, installed via "npx skills add" in an
+                  init container.
                 items:
                   description: SkillsShSpec defines a skills.sh package reference.
                   properties:
+                    secretRef:
+                      description: |-
+                        SecretRef references a Secret containing a GITHUB_TOKEN key for HTTPS
+                        token authentication when installing a private skills.sh package.
+                      properties:
+                        name:
+                          description: Name is the name of the secret.
+                          minLength: 1
+                          type: string
+                      required:
+                      - name
+                      type: object
                     skill:
                       description: |-
                         Skill selects a specific skill by name from the package.
@@ -616,7 +629,8 @@ spec:
                     source:
                       description: |-
                         Source is the skills.sh package in owner/repo format
-                        (e.g., "vercel-labs/agent-skills").
+                        (e.g., "vercel-labs/agent-skills") or a full HTTPS git URL for private
+                        or GitHub Enterprise Server repositories.
                       minLength: 1
                       type: string
                   required:

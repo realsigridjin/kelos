@@ -167,21 +167,29 @@ func parseMCPEnv(name string, raw json.RawMessage) ([]corev1.EnvVar, error) {
 }
 
 // parseSkillsShFlag parses a --skills-sh flag value in the format
-// "source" or "source:skill" into a SkillsShSpec.
+// "source" or "source:skill" into a SkillsShSpec. A colon only selects a
+// skill when it is the final separator and the suffix does not contain a
+// slash, so full URLs such as https://ghe.example.com:8443/org/repo.git stay
+// intact as sources.
 func parseSkillsShFlag(s string) (kelos.SkillsShSpec, error) {
 	if s == "" {
 		return kelos.SkillsShSpec{}, fmt.Errorf("invalid --skills-sh value: must not be empty")
 	}
-	parts := strings.SplitN(s, ":", 2)
-	if parts[0] == "" {
+	source := s
+	skill := ""
+	if idx := strings.LastIndex(s, ":"); idx >= 0 && !strings.Contains(s[idx+1:], "/") {
+		source = s[:idx]
+		skill = s[idx+1:]
+	}
+	if source == "" {
 		return kelos.SkillsShSpec{}, fmt.Errorf("invalid --skills-sh value %q: source must not be empty", s)
 	}
-	spec := kelos.SkillsShSpec{Source: parts[0]}
-	if len(parts) == 2 {
-		if parts[1] == "" {
+	spec := kelos.SkillsShSpec{Source: source}
+	if skill != "" || source != s {
+		if skill == "" {
 			return kelos.SkillsShSpec{}, fmt.Errorf("invalid --skills-sh value %q: skill name after colon must not be empty", s)
 		}
-		spec.Skill = parts[1]
+		spec.Skill = skill
 	}
 	return spec, nil
 }

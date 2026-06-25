@@ -97,6 +97,30 @@ func TestMergeAgentConfigs_SkillsAppended(t *testing.T) {
 	}
 }
 
+func TestMergeAgentConfigs_SkillsSecretRefPreserved(t *testing.T) {
+	configs := []kelos.AgentConfigSpec{
+		{Skills: []kelos.SkillsShSpec{{
+			Source:    "a/private-skills",
+			SecretRef: &kelos.SecretReference{Name: "skills-token-a"},
+		}}},
+		{Skills: []kelos.SkillsShSpec{{
+			Source:    "b/private-skills",
+			SecretRef: &kelos.SecretReference{Name: "skills-token-b"},
+		}}},
+	}
+
+	got := MergeAgentConfigs(configs)
+	if len(got.Skills) != 2 {
+		t.Fatalf("len(Skills) = %d, want 2", len(got.Skills))
+	}
+	if got.Skills[0].SecretRef == nil || got.Skills[0].SecretRef.Name != "skills-token-a" {
+		t.Errorf("Skills[0].SecretRef = %#v, want skills-token-a", got.Skills[0].SecretRef)
+	}
+	if got.Skills[1].SecretRef == nil || got.Skills[1].SecretRef.Name != "skills-token-b" {
+		t.Errorf("Skills[1].SecretRef = %#v, want skills-token-b", got.Skills[1].SecretRef)
+	}
+}
+
 func TestMergeAgentConfigs_MCPServersAppended(t *testing.T) {
 	configs := []kelos.AgentConfigSpec{
 		{MCPServers: []kelos.MCPServerSpec{{Name: "s1", Type: "stdio"}}},

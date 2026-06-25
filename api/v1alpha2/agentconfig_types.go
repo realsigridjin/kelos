@@ -22,7 +22,8 @@ type AgentConfigSpec struct {
 
 	// Skills defines skills.sh packages to install into the plugin volume.
 	// Each entry references a package in owner/repo format from the skills.sh
-	// ecosystem, installed via "npx skills add" in an init container.
+	// ecosystem or a full HTTPS git URL, installed via "npx skills add" in an
+	// init container.
 	// +optional
 	Skills []SkillsShSpec `json:"skills,omitempty"`
 
@@ -68,7 +69,8 @@ type AgentDefinition struct {
 // SkillsShSpec defines a skills.sh package reference.
 type SkillsShSpec struct {
 	// Source is the skills.sh package in owner/repo format
-	// (e.g., "vercel-labs/agent-skills").
+	// (e.g., "vercel-labs/agent-skills") or a full HTTPS git URL for private
+	// or GitHub Enterprise Server repositories.
 	// +kubebuilder:validation:MinLength=1
 	Source string `json:"source"`
 
@@ -76,6 +78,11 @@ type SkillsShSpec struct {
 	// If empty, all skills in the package are installed.
 	// +optional
 	Skill string `json:"skill,omitempty"`
+
+	// SecretRef references a Secret containing a GITHUB_TOKEN key for HTTPS
+	// token authentication when installing a private skills.sh package.
+	// +optional
+	SecretRef *SecretReference `json:"secretRef,omitempty"`
 }
 
 // MCPServerSpec defines an MCP server configuration.

@@ -137,11 +137,34 @@ jobs:
           bin/kelos install --version e2e --image-pull-policy Never --disable-heartbeat
           kubectl wait --for=condition=available deployment/kelos-controller-manager -n kelos-system --timeout=120s
 
+      - name: Check private skills auth
+        id: private-skills-auth
+        env:
+          APP_ID: ${{ secrets.KELOS_GITHUB_APP_ID }}
+          PRIVATE_KEY: ${{ secrets.KELOS_GITHUB_APP_PRIVATE_KEY }}
+        run: |
+          if [ -n "${APP_ID}" ] && [ -n "${PRIVATE_KEY}" ]; then
+            echo "enabled=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "enabled=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Mint private skills token
+        id: private-skills-token
+        if: steps.private-skills-auth.outputs.enabled == 'true'
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547
+        with:
+          app-id: ${{ secrets.KELOS_GITHUB_APP_ID }}
+          private-key: ${{ secrets.KELOS_GITHUB_APP_PRIVATE_KEY }}
+          owner: kelos-dev
+          repositories: e2e-skills-private
+
       - name: E2E Test
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
           GITHUB_TOKEN: ${{ github.token }}
+          E2E_SKILLS_GITHUB_TOKEN: ${{ steps.private-skills-token.outputs.token || secrets.E2E_SKILLS_GITHUB_TOKEN }}
           KELOS_BIN: ${{ github.workspace }}/bin/kelos
         run: make test-e2e
 

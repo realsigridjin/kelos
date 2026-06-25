@@ -625,17 +625,18 @@ func (b *JobBuilder) buildAgentJob(task *kelos.Task, workspace *kelos.WorkspaceS
 					return nil, fmt.Errorf("invalid plugin configuration: plugin name %q is reserved for skills.sh packages when spec.skills is set", SkillsShPluginName)
 				}
 			}
-			script, err := buildSkillsInstallScript(agentConfig.Skills)
+			authEnvs := collectSkillsAuthEnvs(agentConfig.Skills)
+			script, err := buildSkillsInstallScript(agentConfig.Skills, authEnvs)
 			if err != nil {
 				return nil, fmt.Errorf("invalid skills configuration: %w", err)
 			}
+			env := []corev1.EnvVar{{Name: "HOME", Value: PluginMountPath}}
+			env = append(env, skillsAuthEnvVars(authEnvs)...)
 			initContainers = append(initContainers, corev1.Container{
 				Name:    "skills-install",
 				Image:   NodeImage,
 				Command: []string{"sh", "-c", script},
-				Env: []corev1.EnvVar{
-					{Name: "HOME", Value: PluginMountPath},
-				},
+				Env:     env,
 				VolumeMounts: []corev1.VolumeMount{
 					{Name: PluginVolumeName, MountPath: PluginMountPath},
 				},
@@ -1036,16 +1037,81 @@ func buildPluginSetupScript(plugins []kelos.PluginSpec) (string, error) {
 	return strings.Join(lines, "\n"), nil
 }
 
+type skillsAuthEnv struct {
+	SecretName string
+	EnvName    string
+}
+
+func collectSkillsAuthEnvs(skills []kelos.SkillsShSpec) []skillsAuthEnv {
+	seen := map[string]string{}
+	var out []skillsAuthEnv
+	for _, skill := range skills {
+		if skill.SecretRef == nil {
+			continue
+		}
+		if _, ok := seen[skill.SecretRef.Name]; ok {
+			continue
+		}
+		envName := fmt.Sprintf("KELOS_SKILLS_GITHUB_TOKEN_%d", len(out))
+		seen[skill.SecretRef.Name] = envName
+		out = append(out, skillsAuthEnv{
+			SecretName: skill.SecretRef.Name,
+			EnvName:    envName,
+		})
+	}
+	return out
+}
+
+func skillsAuthEnvVars(authEnvs []skillsAuthEnv) []corev1.EnvVar {
+	if len(authEnvs) == 0 {
+		return nil
+	}
+	out := make([]corev1.EnvVar, 0, len(authEnvs))
+	for _, authEnv := range authEnvs {
+		out = append(out, corev1.EnvVar{
+			Name: authEnv.EnvName,
+			ValueFrom: &corev1.EnvVarSource{
+				SecretKeyRef: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{Name: authEnv.SecretName},
+					Key:                  GitHubTokenSecretKey,
+				},
+			},
+		})
+	}
+	return out
+}
+
+func skillsAuthEnvMap(authEnvs []skillsAuthEnv) map[string]string {
+	out := make(map[string]string, len(authEnvs))
+	for _, authEnv := range authEnvs {
+		out[authEnv.SecretName] = authEnv.EnvName
+	}
+	return out
+}
+
 // buildSkillsInstallScript generates a shell script that installs skills.sh
 // packages into the plugin volume using "npx skills add".
 // The script installs git (required by the skills CLI to clone repositories),
 // then relocates the installed skills into the <plugin>/skills/<skill>
 // layout that agent entrypoints discover, and ensures all output files are
 // owned by AgentUID.
-func buildSkillsInstallScript(skills []kelos.SkillsShSpec) (string, error) {
+func buildSkillsInstallScript(skills []kelos.SkillsShSpec, authEnvs []skillsAuthEnv) (string, error) {
 	lines := []string{
 		"set -eu",
 		"apk add --no-cache git >/dev/null 2>&1",
+	}
+	authEnvBySecret := skillsAuthEnvMap(authEnvs)
+	if len(authEnvBySecret) > 0 {
+		lines = append(lines,
+			"cat > /tmp/kelos-skills-askpass <<'EOF'",
+			"#!/bin/sh",
+			`case "$1" in`,
+			`  *Username*|*username*) printf '%s\n' "${KELOS_SKILLS_GIT_USERNAME:-x-access-token}" ;;`,
+			`  *) printf '%s\n' "$KELOS_SKILLS_GIT_TOKEN" ;;`,
+			"esac",
+			"EOF",
+			"chmod 700 /tmp/kelos-skills-askpass",
+		)
 	}
 
 	for _, s := range skills {
@@ -1060,6 +1126,13 @@ func buildSkillsInstallScript(skills []kelos.SkillsShSpec) (string, error) {
 		args := fmt.Sprintf("npx -y skills add %s -a universal -y -g", shellQuote(s.Source))
 		if s.Skill != "" {
 			args += fmt.Sprintf(" -s %s", shellQuote(s.Skill))
+		}
+		if s.SecretRef != nil {
+			tokenEnvName := authEnvBySecret[s.SecretRef.Name]
+			if tokenEnvName == "" {
+				return "", fmt.Errorf("skills.sh source %q references secret %q without a token env var", s.Source, s.SecretRef.Name)
+			}
+			args = authenticatedSkillsInstallCommand(s.Source, tokenEnvName, args)
 		}
 		lines = append(lines, args)
 	}
@@ -1078,6 +1151,30 @@ func buildSkillsInstallScript(skills []kelos.SkillsShSpec) (string, error) {
 	)
 
 	return strings.Join(lines, "\n"), nil
+}
+
+func authenticatedSkillsInstallCommand(source, tokenEnvName, command string) string {
+	envParts := []string{
+		envFromVar("GITHUB_TOKEN", tokenEnvName),
+		envFromVar("KELOS_SKILLS_GIT_TOKEN", tokenEnvName),
+		"KELOS_SKILLS_GIT_USERNAME=x-access-token",
+		"GIT_ASKPASS=/tmp/kelos-skills-askpass",
+		"GIT_TERMINAL_PROMPT=0",
+	}
+	host, _, _ := parseGitHubRepo(source)
+	if host != "" && host != "github.com" {
+		envParts = append(envParts,
+			fmt.Sprintf("GH_HOST=%s", shellQuote(host)),
+			envFromVar("GH_ENTERPRISE_TOKEN", tokenEnvName),
+		)
+	} else {
+		envParts = append(envParts, envFromVar("GH_TOKEN", tokenEnvName))
+	}
+	return strings.Join(envParts, " ") + " " + command
+}
+
+func envFromVar(name, valueVar string) string {
+	return fmt.Sprintf(`%s="${%s}"`, name, valueVar)
 }
 
 // mcpServerJSON represents a single MCP server entry in the .mcp.json

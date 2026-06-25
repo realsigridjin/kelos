@@ -560,6 +560,182 @@ var _ = Describe("Task Controller", func() {
 			}, timeout, interval).ShouldNot(BeNil())
 		})
 
+		It("Should create a Job with skills.sh token auth", func() {
+			By("Creating a namespace")
+			ns := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-task-skills-auth",
+				},
+			}
+			Expect(k8sClient.Create(ctx, ns)).Should(Succeed())
+
+			By("Creating a Secret with API key")
+			apiSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "anthropic-api-key",
+					Namespace: ns.Name,
+				},
+				StringData: map[string]string{
+					"ANTHROPIC_API_KEY": "test-api-key",
+				},
+			}
+			Expect(k8sClient.Create(ctx, apiSecret)).Should(Succeed())
+
+			By("Creating a Secret with a skills.sh GitHub token")
+			skillsSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "skills-token",
+					Namespace: ns.Name,
+				},
+				StringData: map[string]string{
+					"GITHUB_TOKEN": "ghp_test",
+				},
+			}
+			Expect(k8sClient.Create(ctx, skillsSecret)).Should(Succeed())
+
+			By("Creating an AgentConfig with authenticated skills.sh source")
+			agentConfig := &kelos.AgentConfig{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "skills-auth-config",
+					Namespace: ns.Name,
+				},
+				Spec: kelos.AgentConfigSpec{
+					Skills: []kelos.SkillsShSpec{{
+						Source:    "org/private-skills",
+						Skill:     "deploy",
+						SecretRef: &kelos.SecretReference{Name: "skills-token"},
+					}},
+				},
+			}
+			Expect(k8sClient.Create(ctx, agentConfig)).Should(Succeed())
+
+			By("Creating a Task referencing the AgentConfig")
+			task := &kelos.Task{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "task-skills-auth",
+					Namespace: ns.Name,
+				},
+				Spec: kelos.TaskSpec{
+					Type:   "claude-code",
+					Prompt: "Install private skills",
+					Credentials: kelos.Credentials{
+						Type:      kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{Name: "anthropic-api-key"},
+					},
+					AgentConfigRefs: []kelos.AgentConfigReference{{Name: "skills-auth-config"}},
+				},
+			}
+			Expect(k8sClient.Create(ctx, task)).Should(Succeed())
+
+			By("Verifying a Job is created")
+			createdJob := &batchv1.Job{}
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: task.Name, Namespace: ns.Name}, createdJob)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+
+			By("Verifying the skills-install init container uses the token Secret")
+			Expect(createdJob.Spec.Template.Spec.InitContainers).To(HaveLen(1))
+			initContainer := createdJob.Spec.Template.Spec.InitContainers[0]
+			Expect(initContainer.Name).To(Equal("skills-install"))
+			envByName := map[string]corev1.EnvVar{}
+			for _, env := range initContainer.Env {
+				envByName[env.Name] = env
+			}
+			Expect(envByName).To(HaveKey("KELOS_SKILLS_GITHUB_TOKEN_0"))
+			Expect(envByName["KELOS_SKILLS_GITHUB_TOKEN_0"].ValueFrom.SecretKeyRef.Name).To(Equal("skills-token"))
+			Expect(envByName["KELOS_SKILLS_GITHUB_TOKEN_0"].ValueFrom.SecretKeyRef.Key).To(Equal("GITHUB_TOKEN"))
+			Expect(initContainer.Command[2]).To(ContainSubstring("GIT_ASKPASS=/tmp/kelos-skills-askpass"))
+			Expect(initContainer.Command[2]).To(ContainSubstring(`GH_TOKEN="${KELOS_SKILLS_GITHUB_TOKEN_0}"`))
+			Expect(initContainer.Command[2]).NotTo(ContainSubstring("ghp_test"))
+		})
+
+		It("Should fail the Task when a skills.sh token key is missing", func() {
+			By("Creating a namespace")
+			ns := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-task-skills-auth-missing-key",
+				},
+			}
+			Expect(k8sClient.Create(ctx, ns)).Should(Succeed())
+
+			By("Creating a Secret with API key")
+			apiSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "anthropic-api-key",
+					Namespace: ns.Name,
+				},
+				StringData: map[string]string{
+					"ANTHROPIC_API_KEY": "test-api-key",
+				},
+			}
+			Expect(k8sClient.Create(ctx, apiSecret)).Should(Succeed())
+
+			By("Creating a Secret without GITHUB_TOKEN")
+			skillsSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "skills-token",
+					Namespace: ns.Name,
+				},
+				StringData: map[string]string{
+					"OTHER": "value",
+				},
+			}
+			Expect(k8sClient.Create(ctx, skillsSecret)).Should(Succeed())
+
+			By("Creating an AgentConfig with authenticated skills.sh source")
+			agentConfig := &kelos.AgentConfig{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "skills-auth-missing-key-config",
+					Namespace: ns.Name,
+				},
+				Spec: kelos.AgentConfigSpec{
+					Skills: []kelos.SkillsShSpec{{
+						Source:    "org/private-skills",
+						SecretRef: &kelos.SecretReference{Name: "skills-token"},
+					}},
+				},
+			}
+			Expect(k8sClient.Create(ctx, agentConfig)).Should(Succeed())
+
+			By("Creating a Task referencing the AgentConfig")
+			task := &kelos.Task{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "task-skills-auth-missing-key",
+					Namespace: ns.Name,
+				},
+				Spec: kelos.TaskSpec{
+					Type:   "claude-code",
+					Prompt: "Fail on missing skills auth key",
+					Credentials: kelos.Credentials{
+						Type:      kelos.CredentialTypeAPIKey,
+						SecretRef: &kelos.SecretReference{Name: "anthropic-api-key"},
+					},
+					AgentConfigRefs: []kelos.AgentConfigReference{{Name: "skills-auth-missing-key-config"}},
+				},
+			}
+			Expect(k8sClient.Create(ctx, task)).Should(Succeed())
+
+			By("Verifying the Task transitions to Failed")
+			taskLookupKey := types.NamespacedName{Name: task.Name, Namespace: ns.Name}
+			createdTask := &kelos.Task{}
+			Eventually(func() kelos.TaskPhase {
+				if err := k8sClient.Get(ctx, taskLookupKey, createdTask); err != nil {
+					return ""
+				}
+				return createdTask.Status.Phase
+			}, timeout, interval).Should(Equal(kelos.TaskPhaseFailed))
+
+			By("Verifying the error mentions the Secret and key")
+			Expect(createdTask.Status.Message).To(ContainSubstring("skills-token"))
+			Expect(createdTask.Status.Message).To(ContainSubstring("GITHUB_TOKEN"))
+
+			By("Verifying the SkillsAuthSecretFailed event is emitted")
+			Eventually(func() *corev1.Event {
+				return findEvent(ns.Name, task.Name, "SkillsAuthSecretFailed")
+			}, timeout, interval).ShouldNot(BeNil())
+		})
+
 		It("Should give secret values precedence over inline values", func() {
 			By("Creating a namespace")
 			ns := &corev1.Namespace{

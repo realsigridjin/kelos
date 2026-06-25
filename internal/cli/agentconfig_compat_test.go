@@ -139,6 +139,31 @@ func TestCreateAgentConfigRejectsValueFromWithoutV1alpha2(t *testing.T) {
 	}
 }
 
+func TestCreateAgentConfigRejectsSkillsSecretRefWithoutV1alpha2(t *testing.T) {
+	ctx := context.Background()
+	cl := agentConfigV1alpha1OnlyClient()
+	ac := &kelos.AgentConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "needs-v1alpha2", Namespace: "default"},
+		Spec: kelos.AgentConfigSpec{
+			Skills: []kelos.SkillsShSpec{{
+				Source:    "org/private-skills",
+				SecretRef: &kelos.SecretReference{Name: "skills-token"},
+			}},
+		},
+	}
+
+	err := createAgentConfig(ctx, cl, ac)
+	if err == nil {
+		t.Fatal("createAgentConfig returned nil, want v1alpha2 requirement error")
+	}
+	if !strings.Contains(err.Error(), "requires kelos.dev/v1alpha2 CRDs") {
+		t.Errorf("error = %v, want v1alpha2 requirement", err)
+	}
+	if !strings.Contains(err.Error(), "skills secretRef") {
+		t.Errorf("error = %v, want skills secretRef reason", err)
+	}
+}
+
 func TestDeleteAgentConfigFallsBackToV1alpha1(t *testing.T) {
 	ctx := context.Background()
 	cl := agentConfigV1alpha1OnlyClient(

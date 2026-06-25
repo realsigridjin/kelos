@@ -2949,6 +2949,95 @@ func TestBuildJob_AgentConfigSkills(t *testing.T) {
 	}
 }
 
+func TestBuildJob_AgentConfigSkillsWithSecretRef(t *testing.T) {
+	builder := NewJobBuilder()
+	task := &kelos.Task{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-skills-auth",
+			Namespace: "default",
+		},
+		Spec: kelos.TaskSpec{
+			Type:   AgentTypeClaudeCode,
+			Prompt: "Fix issue",
+			Credentials: kelos.Credentials{
+				Type:      kelos.CredentialTypeAPIKey,
+				SecretRef: &kelos.SecretReference{Name: "my-secret"},
+			},
+		},
+	}
+
+	agentConfig := &kelos.AgentConfigSpec{
+		Skills: []kelos.SkillsShSpec{
+			{Source: "org/private-skills", Skill: "deploy", SecretRef: &kelos.SecretReference{Name: "skills-token"}},
+			{Source: "org/private-tools", SecretRef: &kelos.SecretReference{Name: "skills-token"}},
+			{Source: "https://ghe.example.com:8443/team/private-skills.git", SecretRef: &kelos.SecretReference{Name: "ghe-skills-token"}},
+			{Source: "public/skills"},
+		},
+	}
+
+	job, err := builder.Build(task, nil, agentConfig, task.Spec.Prompt)
+	if err != nil {
+		t.Fatalf("Build() returned error: %v", err)
+	}
+
+	if len(job.Spec.Template.Spec.InitContainers) != 1 {
+		t.Fatalf("Expected 1 init container, got %d", len(job.Spec.Template.Spec.InitContainers))
+	}
+	initContainer := job.Spec.Template.Spec.InitContainers[0]
+	if initContainer.Name != "skills-install" {
+		t.Fatalf("Expected init container name %q, got %q", "skills-install", initContainer.Name)
+	}
+
+	envByName := map[string]corev1.EnvVar{}
+	for _, env := range initContainer.Env {
+		envByName[env.Name] = env
+	}
+	if envByName["HOME"].Value != PluginMountPath {
+		t.Errorf("HOME = %q, want %q", envByName["HOME"].Value, PluginMountPath)
+	}
+	for envName, secretName := range map[string]string{
+		"KELOS_SKILLS_GITHUB_TOKEN_0": "skills-token",
+		"KELOS_SKILLS_GITHUB_TOKEN_1": "ghe-skills-token",
+	} {
+		env, ok := envByName[envName]
+		if !ok {
+			t.Fatalf("Missing env %s", envName)
+		}
+		if env.ValueFrom == nil || env.ValueFrom.SecretKeyRef == nil {
+			t.Fatalf("%s should come from secretKeyRef, got %#v", envName, env.ValueFrom)
+		}
+		if env.ValueFrom.SecretKeyRef.Name != secretName {
+			t.Errorf("%s secret name = %q, want %q", envName, env.ValueFrom.SecretKeyRef.Name, secretName)
+		}
+		if env.ValueFrom.SecretKeyRef.Key != GitHubTokenSecretKey {
+			t.Errorf("%s secret key = %q, want %q", envName, env.ValueFrom.SecretKeyRef.Key, GitHubTokenSecretKey)
+		}
+	}
+	if _, ok := envByName["KELOS_SKILLS_GITHUB_TOKEN_2"]; ok {
+		t.Error("Expected duplicate skills-token references to share one env var")
+	}
+
+	script := initContainer.Command[2]
+	for _, want := range []string{
+		"cat > /tmp/kelos-skills-askpass",
+		"GIT_ASKPASS=/tmp/kelos-skills-askpass",
+		"GIT_TERMINAL_PROMPT=0",
+		`GITHUB_TOKEN="${KELOS_SKILLS_GITHUB_TOKEN_0}"`,
+		`GH_TOKEN="${KELOS_SKILLS_GITHUB_TOKEN_0}"`,
+		`GITHUB_TOKEN="${KELOS_SKILLS_GITHUB_TOKEN_1}"`,
+		"GH_HOST='ghe.example.com:8443'",
+		`GH_ENTERPRISE_TOKEN="${KELOS_SKILLS_GITHUB_TOKEN_1}"`,
+		"npx -y skills add 'public/skills' -a universal -y -g",
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("Expected script to contain %q, got: %s", want, script)
+		}
+	}
+	if strings.Contains(script, "skills-token") || strings.Contains(script, "ghe-skills-token") {
+		t.Errorf("Script should not contain Secret names, got: %s", script)
+	}
+}
+
 func TestBuildJob_AgentConfigSkillsWithPlugins(t *testing.T) {
 	builder := NewJobBuilder()
 	task := &kelos.Task{

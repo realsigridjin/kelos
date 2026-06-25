@@ -16,9 +16,10 @@ const (
 )
 
 var (
-	oauthToken    string
-	codexAuthJSON string
-	githubToken   string
+	oauthToken        string
+	codexAuthJSON     string
+	githubToken       string
+	skillsGithubToken string
 )
 
 type agentTestConfig struct {
@@ -66,6 +67,7 @@ var _ = BeforeSuite(func() {
 	oauthToken = os.Getenv("CLAUDE_CODE_OAUTH_TOKEN")
 	codexAuthJSON = os.Getenv("CODEX_AUTH_JSON")
 	githubToken = os.Getenv("GITHUB_TOKEN")
+	skillsGithubToken = os.Getenv("E2E_SKILLS_GITHUB_TOKEN")
 
 	// All listed agent credentials must be set to run the suite.
 	for _, cfg := range agentConfigs {
