@@ -2,7 +2,13 @@ package e2e
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -12,6 +18,13 @@ import (
 	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 	"github.com/kelos-dev/kelos/test/e2e/framework"
 )
+
+const privateSkillsMarker = "KELOS_E2E_PRIVATE_SKILL_MARKER_q4m8n2"
+
+type githubContentResponse struct {
+	Content  string `json:"content"`
+	Encoding string `json:"encoding"`
+}
 
 var _ = Describe("AgentConfig with skills.sh", func() {
 	f := framework.NewFramework("skills-sh")
@@ -125,7 +138,129 @@ var _ = Describe("Task with skills.sh AgentConfig", func() {
 		// installed skill's content actually reached the agent.
 		Expect(logs).To(ContainSubstring("KELOS_E2E_SKILL_MARKER_x7k2p9"))
 	})
+
+	It("should run a Task with authenticated skills.sh agentconfig to completion", func() {
+		if skillsGithubToken == "" {
+			Skip("E2E_SKILLS_GITHUB_TOKEN not set")
+		}
+
+		By("verifying the skills.sh GitHub token can read the private fixture skill")
+		expectPrivateSkillsFixtureAccess(skillsGithubToken)
+
+		By("creating OAuth credentials secret")
+		f.CreateSecret("claude-credentials",
+			"CLAUDE_CODE_OAUTH_TOKEN="+oauthToken)
+
+		By("creating skills.sh GitHub token secret")
+		f.CreateSecret("skills-github-token",
+			"GITHUB_TOKEN="+skillsGithubToken)
+
+		By("creating an AgentConfig with the private e2e fixture skill package")
+		// kelos-dev/e2e-skills-private is a private fixture repository whose
+		// kelos-e2e-private skill is only installable when token auth is wired
+		// into the skills-install init container.
+		_, err := f.KelosClientset.ApiV1alpha2().AgentConfigs(f.Namespace).Create(
+			context.TODO(),
+			&kelos.AgentConfig{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "private-skills-ac",
+					Namespace: f.Namespace,
+				},
+				Spec: kelos.AgentConfigSpec{
+					Skills: []kelos.SkillsShSpec{{
+						Source:    "kelos-dev/e2e-skills-private",
+						Skill:     "kelos-e2e-private",
+						SecretRef: &kelos.SecretReference{Name: "skills-github-token"},
+					}},
+				},
+			},
+			metav1.CreateOptions{},
+		)
+		Expect(err).NotTo(HaveOccurred())
+
+		By("creating a Task referencing the private AgentConfig")
+		f.CreateTask(&kelos.Task{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "private-skills-task",
+			},
+			Spec: kelos.TaskSpec{
+				Type:   "claude-code",
+				Model:  claudeCodeModel,
+				Prompt: "Use the kelos-e2e-private skill and show its output.",
+				Credentials: kelos.Credentials{
+					Type:      kelos.CredentialTypeOAuth,
+					SecretRef: &kelos.SecretReference{Name: "claude-credentials"},
+				},
+				AgentConfigRefs: []kelos.AgentConfigReference{{Name: "private-skills-ac"}},
+				PodOverrides: &kelos.PodOverrides{
+					ExtraInitContainers: []corev1.Container{{
+						Name:    "verify-private-skills-install",
+						Image:   "busybox:1.37",
+						Command: []string{"sh", "-c", "test -f /kelos/plugin/skills-sh/skills/kelos-e2e-private/SKILL.md"},
+						VolumeMounts: []corev1.VolumeMount{{
+							Name:      "kelos-plugin",
+							MountPath: "/kelos/plugin",
+						}},
+					}},
+				},
+			},
+		})
+
+		By("waiting for Job to be created")
+		f.WaitForJobCreation("private-skills-task")
+
+		By("waiting for Job to complete")
+		f.WaitForJobCompletion("private-skills-task")
+
+		By("verifying Task status is Succeeded")
+		f.WaitForTaskPhase("private-skills-task", "Succeeded")
+
+		By("verifying the agent used the installed private skill")
+		logs := f.GetJobLogs("private-skills-task")
+		GinkgoWriter.Printf("Job logs:\n%s\n", logs)
+		Expect(logs).To(ContainSubstring(privateSkillsMarker))
+	})
 })
+
+var _ = Describe("Private skills.sh fixture auth", func() {
+	It("should allow the e2e skills token to read the private fixture skill", func() {
+		if skillsGithubToken == "" {
+			Skip("E2E_SKILLS_GITHUB_TOKEN not set")
+		}
+
+		expectPrivateSkillsFixtureAccess(skillsGithubToken)
+	})
+})
+
+func expectPrivateSkillsFixtureAccess(token string) {
+	req, err := http.NewRequest(
+		http.MethodGet,
+		"https://api.github.com/repos/kelos-dev/e2e-skills-private/contents/kelos-e2e-private/SKILL.md?ref=main",
+		nil,
+	)
+	Expect(err).NotTo(HaveOccurred())
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	Expect(err).NotTo(HaveOccurred())
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusOK), "GitHub API response: %s", string(body))
+
+	var content githubContentResponse
+	Expect(json.Unmarshal(body, &content)).To(Succeed())
+	Expect(content.Encoding).To(Equal("base64"))
+
+	encoded := strings.ReplaceAll(content.Content, "\n", "")
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(string(decoded)).To(ContainSubstring(privateSkillsMarker))
+}
 
 func describePluginTaskTests(cfg agentTestConfig) {
 	Describe(fmt.Sprintf("Task with plugin AgentConfig [%s]", cfg.AgentType), func() {

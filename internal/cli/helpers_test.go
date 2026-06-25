@@ -26,6 +26,23 @@ func TestParseSkillsShFlag(t *testing.T) {
 			wantSkill:  "deploy",
 		},
 		{
+			name:       "https URL with port",
+			input:      "https://ghe.example.com:8443/org/private-skills.git",
+			wantSource: "https://ghe.example.com:8443/org/private-skills.git",
+		},
+		{
+			name:       "https URL with port and skill",
+			input:      "https://ghe.example.com:8443/org/private-skills.git:deploy",
+			wantSource: "https://ghe.example.com:8443/org/private-skills.git",
+			wantSkill:  "deploy",
+		},
+		{
+			name:       "ssh URL with skill",
+			input:      "git@ghe.example.com:org/private-skills.git:deploy",
+			wantSource: "git@ghe.example.com:org/private-skills.git",
+			wantSkill:  "deploy",
+		},
+		{
 			name:       "empty input",
 			input:      "",
 			wantErr:    true,

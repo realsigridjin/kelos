@@ -127,6 +127,10 @@ func (r *TaskReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		}
 	}
 
+	if !jobExists && isTerminalTaskPhase(task.Status.Phase) {
+		return r.applyTaskTTL(ctx, &task, ctrl.Result{})
+	}
+
 	// Create Job if it doesn't exist
 	if !jobExists {
 		if len(task.Spec.DependsOn) > 0 {
@@ -191,11 +195,16 @@ func (r *TaskReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		}
 	}
 
-	// Check TTL expiration for finished Tasks
-	if expired, requeueAfter := r.ttlExpired(&task); expired {
+	return r.applyTaskTTL(ctx, &task, result)
+}
+
+func (r *TaskReconciler) applyTaskTTL(ctx context.Context, task *kelos.Task, result ctrl.Result) (ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+
+	if expired, requeueAfter := r.ttlExpired(task); expired {
 		logger.Info("Deleting Task due to TTL expiration", "task", task.Name)
-		r.recordEvent(&task, corev1.EventTypeNormal, "TaskExpired", "Deleting Task due to TTL expiration")
-		if err := r.Delete(ctx, &task); err != nil {
+		r.recordEvent(task, corev1.EventTypeNormal, "TaskExpired", "Deleting Task due to TTL expiration")
+		if err := r.Delete(ctx, task); err != nil {
 			if apierrors.IsNotFound(err) {
 				return ctrl.Result{}, nil
 			}
@@ -204,7 +213,6 @@ func (r *TaskReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		}
 		return ctrl.Result{}, nil
 	} else if requeueAfter > 0 {
-		// Requeue to check TTL expiration later
 		if result.RequeueAfter == 0 || requeueAfter < result.RequeueAfter {
 			result.RequeueAfter = requeueAfter
 		}
@@ -271,16 +279,9 @@ func (r *TaskReconciler) createJob(ctx context.Context, task *kelos.Task) (ctrl.
 			resolvedWorkspace, err := r.resolveGitHubAppToken(ctx, task, workspace)
 			if err != nil {
 				logger.Error(err, "Unable to resolve GitHub App token")
-				r.recordEvent(task, corev1.EventTypeWarning, "GitHubTokenFailed", "Failed to resolve GitHub token: %v", err)
-				updateErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-					if getErr := r.Get(ctx, client.ObjectKeyFromObject(task), task); getErr != nil {
-						return getErr
-					}
-					task.Status.Phase = kelos.TaskPhaseFailed
-					task.Status.Message = fmt.Sprintf("Failed to resolve GitHub token: %v", err)
-					return r.Status().Update(ctx, task)
-				})
-				if updateErr != nil {
+				message := fmt.Sprintf("Failed to resolve GitHub token: %v", err)
+				r.recordEvent(task, corev1.EventTypeWarning, "GitHubTokenFailed", "%s", message)
+				if updateErr := r.failTaskBeforeJob(ctx, task, message); updateErr != nil {
 					logger.Error(updateErr, "Unable to update Task status")
 				}
 				return ctrl.Result{}, nil
@@ -310,20 +311,25 @@ func (r *TaskReconciler) createJob(ctx context.Context, task *kelos.Task) (ctrl.
 
 		agentConfig = MergeAgentConfigs(specs)
 
+		if len(agentConfig.Skills) > 0 {
+			if err := r.validateSkillsAuthSecrets(ctx, task.Namespace, agentConfig.Skills); err != nil {
+				logger.Error(err, "Unable to validate skills auth secrets")
+				message := fmt.Sprintf("Failed to validate skills auth secret: %v", err)
+				r.recordEvent(task, corev1.EventTypeWarning, "SkillsAuthSecretFailed", "%s", message)
+				if updateErr := r.failTaskBeforeJob(ctx, task, message); updateErr != nil {
+					logger.Error(updateErr, "Unable to update Task status")
+				}
+				return ctrl.Result{}, nil
+			}
+		}
+
 		if len(agentConfig.MCPServers) > 0 {
 			resolved, err := r.resolveMCPServerSecrets(ctx, task.Namespace, agentConfig.MCPServers)
 			if err != nil {
 				logger.Error(err, "Unable to resolve MCP server secrets")
-				r.recordEvent(task, corev1.EventTypeWarning, "MCPSecretFailed", "Failed to resolve MCP server secret: %v", err)
-				updateErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-					if getErr := r.Get(ctx, client.ObjectKeyFromObject(task), task); getErr != nil {
-						return getErr
-					}
-					task.Status.Phase = kelos.TaskPhaseFailed
-					task.Status.Message = fmt.Sprintf("Failed to resolve MCP server secret: %v", err)
-					return r.Status().Update(ctx, task)
-				})
-				if updateErr != nil {
+				message := fmt.Sprintf("Failed to resolve MCP server secret: %v", err)
+				r.recordEvent(task, corev1.EventTypeWarning, "MCPSecretFailed", "%s", message)
+				if updateErr := r.failTaskBeforeJob(ctx, task, message); updateErr != nil {
 					logger.Error(updateErr, "Unable to update Task status")
 				}
 				return ctrl.Result{}, nil
@@ -337,16 +343,9 @@ func (r *TaskReconciler) createJob(ctx context.Context, task *kelos.Task) (ctrl.
 	job, err := r.JobBuilder.Build(task, workspace, agentConfig, resolvedPrompt)
 	if err != nil {
 		logger.Error(err, "unable to build Job")
-		r.recordEvent(task, corev1.EventTypeWarning, "JobBuildFailed", "Failed to build Job: %v", err)
-		updateErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-			if getErr := r.Get(ctx, client.ObjectKeyFromObject(task), task); getErr != nil {
-				return getErr
-			}
-			task.Status.Phase = kelos.TaskPhaseFailed
-			task.Status.Message = fmt.Sprintf("Failed to build Job: %v", err)
-			return r.Status().Update(ctx, task)
-		})
-		if updateErr != nil {
+		message := fmt.Sprintf("Failed to build Job: %v", err)
+		r.recordEvent(task, corev1.EventTypeWarning, "JobBuildFailed", "%s", message)
+		if updateErr := r.failTaskBeforeJob(ctx, task, message); updateErr != nil {
 			logger.Error(updateErr, "Unable to update Task status")
 		}
 		return ctrl.Result{}, err
@@ -384,6 +383,59 @@ func (r *TaskReconciler) createJob(ctx context.Context, task *kelos.Task) (ctrl.
 	}
 
 	return ctrl.Result{Requeue: true}, nil
+}
+
+func (r *TaskReconciler) failTaskBeforeJob(ctx context.Context, task *kelos.Task, message string) error {
+	if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		if getErr := r.Get(ctx, client.ObjectKeyFromObject(task), task); getErr != nil {
+			return getErr
+		}
+		task.Status.Phase = kelos.TaskPhaseFailed
+		task.Status.Message = message
+		if task.Status.CompletionTime == nil {
+			now := metav1.Now()
+			task.Status.CompletionTime = &now
+		}
+		return r.Status().Update(ctx, task)
+	}); err != nil {
+		return err
+	}
+	if task.Spec.Branch != "" && r.BranchLocker != nil {
+		r.BranchLocker.Release(branchLockKey(task), task.Name)
+	}
+	return nil
+}
+
+func (r *TaskReconciler) validateSkillsAuthSecrets(ctx context.Context, namespace string, skills []kelos.SkillsShSpec) error {
+	checked := map[string]struct{}{}
+	for _, skill := range skills {
+		if skill.SecretRef == nil {
+			continue
+		}
+		if skill.SecretRef.Name == "" {
+			return fmt.Errorf("skills.sh source %q has secretRef with empty name", skill.Source)
+		}
+		if _, ok := checked[skill.SecretRef.Name]; ok {
+			continue
+		}
+		checked[skill.SecretRef.Name] = struct{}{}
+
+		var secret corev1.Secret
+		if err := r.Get(ctx, client.ObjectKey{
+			Namespace: namespace,
+			Name:      skill.SecretRef.Name,
+		}, &secret); err != nil {
+			return fmt.Errorf("fetching secret %q for skills.sh source %q: %w", skill.SecretRef.Name, skill.Source, err)
+		}
+		token, ok := secret.Data[GitHubTokenSecretKey]
+		if !ok {
+			return fmt.Errorf("secret %q has no key %q for skills.sh source %q", skill.SecretRef.Name, GitHubTokenSecretKey, skill.Source)
+		}
+		if len(token) == 0 {
+			return fmt.Errorf("secret %q has empty key %q for skills.sh source %q", skill.SecretRef.Name, GitHubTokenSecretKey, skill.Source)
+		}
+	}
+	return nil
 }
 
 // resolveGitHubAppToken checks if the workspace secret is a GitHub App secret,
@@ -934,7 +986,7 @@ func (r *TaskReconciler) ttlExpired(task *kelos.Task) (bool, time.Duration) {
 	if task.Spec.TTLSecondsAfterFinished == nil {
 		return false, 0
 	}
-	if task.Status.Phase != kelos.TaskPhaseSucceeded && task.Status.Phase != kelos.TaskPhaseFailed {
+	if !isTerminalTaskPhase(task.Status.Phase) {
 		return false, 0
 	}
 	if task.Status.CompletionTime == nil {
@@ -948,6 +1000,10 @@ func (r *TaskReconciler) ttlExpired(task *kelos.Task) (bool, time.Duration) {
 		return true, 0
 	}
 	return false, remaining
+}
+
+func isTerminalTaskPhase(phase kelos.TaskPhase) bool {
+	return phase == kelos.TaskPhaseSucceeded || phase == kelos.TaskPhaseFailed
 }
 
 // readOutputs reads Pod logs and extracts output markers and structured results.

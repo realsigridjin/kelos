@@ -521,6 +521,118 @@ func TestReconcile_RequeuesSoonAfterTokenRefreshFailure(t *testing.T) {
 	}
 }
 
+func TestReconcile_SkipsTerminalTaskWithoutJob(t *testing.T) {
+	scheme := runtime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(kelos.AddToScheme(scheme))
+
+	task := &kelos.Task{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "test-task",
+			Namespace:  "default",
+			Finalizers: []string{taskFinalizer},
+		},
+		Spec: kelos.TaskSpec{
+			Type:   AgentTypeCodex,
+			Prompt: "test",
+			AgentConfigRefs: []kelos.AgentConfigReference{
+				{Name: "missing-agent-config"},
+			},
+		},
+		Status: kelos.TaskStatus{
+			Phase:   kelos.TaskPhaseFailed,
+			Message: "Failed to validate skills auth secret: missing secret",
+		},
+	}
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(task).
+		WithObjects(task).
+		Build()
+
+	r := &TaskReconciler{
+		Client: cl,
+		Scheme: scheme,
+	}
+
+	result, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: client.ObjectKeyFromObject(task),
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error: %v", err)
+	}
+	if result != (ctrl.Result{}) {
+		t.Fatalf("Reconcile() result = %+v, want empty result", result)
+	}
+
+	var jobs batchv1.JobList
+	if err := cl.List(context.Background(), &jobs, client.InNamespace(task.Namespace)); err != nil {
+		t.Fatalf("listing Jobs: %v", err)
+	}
+	if len(jobs.Items) != 0 {
+		t.Fatalf("Jobs = %d, want none", len(jobs.Items))
+	}
+}
+
+func TestReconcile_RequeuesTerminalTaskWithoutJobUntilTTLExpires(t *testing.T) {
+	scheme := runtime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(kelos.AddToScheme(scheme))
+
+	ttlSeconds := int32(60)
+	completionTime := metav1.NewTime(time.Now())
+	task := &kelos.Task{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "test-task",
+			Namespace:  "default",
+			Finalizers: []string{taskFinalizer},
+		},
+		Spec: kelos.TaskSpec{
+			Type:                    AgentTypeCodex,
+			Prompt:                  "test",
+			TTLSecondsAfterFinished: &ttlSeconds,
+			AgentConfigRefs: []kelos.AgentConfigReference{
+				{Name: "missing-agent-config"},
+			},
+		},
+		Status: kelos.TaskStatus{
+			Phase:          kelos.TaskPhaseFailed,
+			Message:        "Failed to validate skills auth secret: missing secret",
+			CompletionTime: &completionTime,
+		},
+	}
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(task).
+		WithObjects(task).
+		Build()
+
+	r := &TaskReconciler{
+		Client: cl,
+		Scheme: scheme,
+	}
+
+	result, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: client.ObjectKeyFromObject(task),
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error: %v", err)
+	}
+	if result.RequeueAfter < 50*time.Second || result.RequeueAfter > 61*time.Second {
+		t.Fatalf("RequeueAfter = %v, want near task TTL", result.RequeueAfter)
+	}
+
+	var jobs batchv1.JobList
+	if err := cl.List(context.Background(), &jobs, client.InNamespace(task.Namespace)); err != nil {
+		t.Fatalf("listing Jobs: %v", err)
+	}
+	if len(jobs.Items) != 0 {
+		t.Fatalf("Jobs = %d, want none", len(jobs.Items))
+	}
+}
+
 func TestRefreshGitHubAppTokenIfNeeded_RemintsExpiringToken(t *testing.T) {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -699,6 +811,146 @@ func newReconcilerWithFakeClient(objs ...runtime.Object) *TaskReconciler {
 	return &TaskReconciler{
 		Client: cl,
 		Scheme: scheme,
+	}
+}
+
+func TestValidateSkillsAuthSecrets(t *testing.T) {
+	tests := []struct {
+		name       string
+		objects    []runtime.Object
+		skills     []kelos.SkillsShSpec
+		wantErrStr string
+	}{
+		{
+			name: "valid secret",
+			objects: []runtime.Object{&corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: "skills-token", Namespace: "default"},
+				Data:       map[string][]byte{GitHubTokenSecretKey: []byte("ghp_test")},
+			}},
+			skills: []kelos.SkillsShSpec{{
+				Source:    "org/private-skills",
+				SecretRef: &kelos.SecretReference{Name: "skills-token"},
+			}},
+		},
+		{
+			name: "public skills do not require secret",
+			skills: []kelos.SkillsShSpec{{
+				Source: "org/public-skills",
+			}},
+		},
+		{
+			name: "missing secret",
+			skills: []kelos.SkillsShSpec{{
+				Source:    "org/private-skills",
+				SecretRef: &kelos.SecretReference{Name: "missing-token"},
+			}},
+			wantErrStr: "missing-token",
+		},
+		{
+			name: "missing token key",
+			objects: []runtime.Object{&corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: "skills-token", Namespace: "default"},
+				Data:       map[string][]byte{"OTHER": []byte("value")},
+			}},
+			skills: []kelos.SkillsShSpec{{
+				Source:    "org/private-skills",
+				SecretRef: &kelos.SecretReference{Name: "skills-token"},
+			}},
+			wantErrStr: GitHubTokenSecretKey,
+		},
+		{
+			name: "empty token",
+			objects: []runtime.Object{&corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: "skills-token", Namespace: "default"},
+				Data:       map[string][]byte{GitHubTokenSecretKey: []byte("")},
+			}},
+			skills: []kelos.SkillsShSpec{{
+				Source:    "org/private-skills",
+				SecretRef: &kelos.SecretReference{Name: "skills-token"},
+			}},
+			wantErrStr: "empty",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := newReconcilerWithFakeClient(tt.objects...)
+			err := r.validateSkillsAuthSecrets(context.Background(), "default", tt.skills)
+			if tt.wantErrStr == "" {
+				if err != nil {
+					t.Fatalf("validateSkillsAuthSecrets() error = %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("validateSkillsAuthSecrets() error = nil, want %q", tt.wantErrStr)
+			}
+			if !strings.Contains(err.Error(), tt.wantErrStr) {
+				t.Errorf("error = %q, want it to mention %q", err, tt.wantErrStr)
+			}
+			if !strings.Contains(err.Error(), tt.skills[0].Source) {
+				t.Errorf("error = %q, want it to mention source %q", err, tt.skills[0].Source)
+			}
+		})
+	}
+}
+
+func TestFailTaskBeforeJobReleasesBranchLock(t *testing.T) {
+	scheme := runtime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(kelos.AddToScheme(scheme))
+
+	task := &kelos.Task{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "task-1",
+			Namespace: "default",
+		},
+		Spec: kelos.TaskSpec{
+			Type:   "claude-code",
+			Prompt: "test",
+			Branch: "feature-1",
+			WorkspaceRef: &kelos.WorkspaceReference{
+				Name: "workspace-1",
+			},
+		},
+	}
+	locker := NewBranchLocker()
+	lockKey := branchLockKey(task)
+	if ok, holder := locker.TryAcquire(lockKey, task.Name); !ok {
+		t.Fatalf("TryAcquire() failed, held by %q", holder)
+	}
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(task).
+		WithObjects(task).
+		Build()
+
+	r := &TaskReconciler{
+		Client:       cl,
+		Scheme:       scheme,
+		BranchLocker: locker,
+	}
+	const message = "Failed to validate skills auth secret: missing token"
+	if err := r.failTaskBeforeJob(context.Background(), task, message); err != nil {
+		t.Fatalf("failTaskBeforeJob() error = %v", err)
+	}
+
+	if holder := locker.Holder(lockKey); holder != "" {
+		t.Fatalf("branch lock holder = %q, want released", holder)
+	}
+	updated := &kelos.Task{}
+	if err := cl.Get(context.Background(), client.ObjectKeyFromObject(task), updated); err != nil {
+		t.Fatalf("getting updated task: %v", err)
+	}
+	if updated.Status.Phase != kelos.TaskPhaseFailed {
+		t.Fatalf("task phase = %q, want %q", updated.Status.Phase, kelos.TaskPhaseFailed)
+	}
+	if updated.Status.Message != message {
+		t.Fatalf("task message = %q, want %q", updated.Status.Message, message)
+	}
+	if updated.Status.CompletionTime == nil {
+		t.Fatal("task completionTime is nil, want set")
 	}
 }
 

@@ -11,12 +11,22 @@ import (
 	v1alpha2 "github.com/kelos-dev/kelos/api/v1alpha2"
 )
 
-const preservedMCPValueFromEnvAnnotation = "kelos.dev/v1alpha2-mcp-value-from-env"
+const (
+	preservedMCPValueFromEnvAnnotation = "kelos.dev/v1alpha2-mcp-value-from-env"
+	preservedSkillsSecretRefAnnotation = "kelos.dev/v1alpha2-skills-secret-ref"
+)
 
 type preservedMCPValueFromEnv struct {
 	Index int             `json:"index"`
 	Name  string          `json:"name"`
 	Env   []corev1.EnvVar `json:"env"`
+}
+
+type preservedSkillsSecretRef struct {
+	Index     int                      `json:"index"`
+	Source    string                   `json:"source"`
+	Skill     string                   `json:"skill,omitempty"`
+	SecretRef v1alpha2.SecretReference `json:"secretRef"`
 }
 
 func AgentConfigToV1alpha2(ctx context.Context, src *v1alpha1.AgentConfig, dst *v1alpha2.AgentConfig) error {
@@ -36,7 +46,11 @@ func agentConfigToHub(_ context.Context, src *v1alpha1.AgentConfig, dst *v1alpha
 	if err := restorePreservedMCPValueFromEnv(src.Annotations, dst.Spec.MCPServers); err != nil {
 		return err
 	}
+	if err := restorePreservedSkillsSecretRefs(src.Annotations, dst.Spec.Skills); err != nil {
+		return err
+	}
 	deleteAnnotation(dst.Annotations, preservedMCPValueFromEnvAnnotation)
+	deleteAnnotation(dst.Annotations, preservedSkillsSecretRefAnnotation)
 	return nil
 }
 
@@ -46,7 +60,10 @@ func agentConfigFromHub(_ context.Context, src *v1alpha2.AgentConfig, dst *v1alp
 	dst.Spec.Plugins = pluginsFromV1alpha2(src.Spec.Plugins)
 	dst.Spec.Skills = skillsFromV1alpha2(src.Spec.Skills)
 	dst.Spec.MCPServers = mcpServersFromV1alpha2(src.Spec.MCPServers)
-	return setPreservedMCPValueFromEnvAnnotation(dst, src.Spec.MCPServers)
+	if err := setPreservedMCPValueFromEnvAnnotation(dst, src.Spec.MCPServers); err != nil {
+		return err
+	}
+	return setPreservedSkillsSecretRefAnnotation(dst, src.Spec.Skills)
 }
 
 func mcpServersToV1alpha2(in []v1alpha1.MCPServerSpec) []v1alpha2.MCPServerSpec {
@@ -220,6 +237,86 @@ func restoreServerValueFromEnv(server *v1alpha2.MCPServerSpec, preserved []corev
 		server.Env = append(server.Env, *item.DeepCopy())
 		existing[item.Name] = struct{}{}
 	}
+}
+
+func setPreservedSkillsSecretRefAnnotation(dst *v1alpha1.AgentConfig, skills []v1alpha2.SkillsShSpec) error {
+	preserved := collectSkillsSecretRefs(skills)
+	if len(preserved) == 0 {
+		deleteAnnotation(dst.Annotations, preservedSkillsSecretRefAnnotation)
+		return nil
+	}
+	data, err := json.Marshal(preserved)
+	if err != nil {
+		return err
+	}
+	if dst.Annotations == nil {
+		dst.Annotations = map[string]string{}
+	}
+	dst.Annotations[preservedSkillsSecretRefAnnotation] = string(data)
+	return nil
+}
+
+func collectSkillsSecretRefs(skills []v1alpha2.SkillsShSpec) []preservedSkillsSecretRef {
+	var preserved []preservedSkillsSecretRef
+	for i, skill := range skills {
+		if skill.SecretRef == nil {
+			continue
+		}
+		preserved = append(preserved, preservedSkillsSecretRef{
+			Index:     i,
+			Source:    skill.Source,
+			Skill:     skill.Skill,
+			SecretRef: *skill.SecretRef,
+		})
+	}
+	return preserved
+}
+
+func restorePreservedSkillsSecretRefs(annotations map[string]string, skills []v1alpha2.SkillsShSpec) error {
+	raw := annotations[preservedSkillsSecretRefAnnotation]
+	if raw == "" {
+		return nil
+	}
+	var preserved []preservedSkillsSecretRef
+	if err := json.Unmarshal([]byte(raw), &preserved); err != nil {
+		return nil
+	}
+	for _, item := range preserved {
+		index, ok := preservedSkillIndex(skills, item)
+		if !ok {
+			continue
+		}
+		if skills[index].SecretRef == nil {
+			ref := item.SecretRef
+			skills[index].SecretRef = &ref
+		}
+	}
+	return nil
+}
+
+func preservedSkillIndex(skills []v1alpha2.SkillsShSpec, item preservedSkillsSecretRef) (int, bool) {
+	matches := func(skill v1alpha2.SkillsShSpec) bool {
+		return skill.Source == item.Source && skill.Skill == item.Skill
+	}
+	if item.Index >= 0 && item.Index < len(skills) && matches(skills[item.Index]) {
+		return item.Index, true
+	}
+	if item.Source == "" {
+		return 0, false
+	}
+	var found int
+	count := 0
+	for i, skill := range skills {
+		if !matches(skill) {
+			continue
+		}
+		found = i
+		count++
+	}
+	if count != 1 {
+		return 0, false
+	}
+	return found, true
 }
 
 func deleteAnnotation(annotations map[string]string, key string) {

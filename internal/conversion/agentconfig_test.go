@@ -77,6 +77,114 @@ func TestAgentConfigFromHub_EnvListToMap_DropsValueFrom(t *testing.T) {
 	}
 }
 
+func TestAgentConfigToHub_SkillsSecretRefNilForV1alpha1(t *testing.T) {
+	src := &v1alpha1.AgentConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "cfg", Namespace: "default"},
+		Spec: v1alpha1.AgentConfigSpec{
+			Skills: []v1alpha1.SkillsShSpec{{Source: "owner/repo", Skill: "deploy"}},
+		},
+	}
+
+	dst := &v1alpha2.AgentConfig{}
+	if err := agentConfigToHub(context.Background(), src, dst); err != nil {
+		t.Fatalf("agentConfigToHub() error = %v", err)
+	}
+
+	if len(dst.Spec.Skills) != 1 {
+		t.Fatalf("len(Skills) = %d, want 1", len(dst.Spec.Skills))
+	}
+	if dst.Spec.Skills[0].SecretRef != nil {
+		t.Errorf("Skills[0].SecretRef = %#v, want nil", dst.Spec.Skills[0].SecretRef)
+	}
+}
+
+func TestAgentConfigFromHub_PreservesSkillsSecretRefAnnotation(t *testing.T) {
+	src := &v1alpha2.AgentConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "cfg", Namespace: "default"},
+		Spec: v1alpha2.AgentConfigSpec{
+			Skills: []v1alpha2.SkillsShSpec{{
+				Source:    "owner/private-skills",
+				Skill:     "deploy",
+				SecretRef: &v1alpha2.SecretReference{Name: "skills-token"},
+			}},
+		},
+	}
+
+	dst := &v1alpha1.AgentConfig{}
+	if err := agentConfigFromHub(context.Background(), src, dst); err != nil {
+		t.Fatalf("agentConfigFromHub() error = %v", err)
+	}
+
+	if got := dst.Spec.Skills; len(got) != 1 || got[0].Source != "owner/private-skills" || got[0].Skill != "deploy" {
+		t.Errorf("Skills = %#v, want source and skill preserved", got)
+	}
+	if dst.Annotations[preservedSkillsSecretRefAnnotation] == "" {
+		t.Fatal("expected skills secretRef to be preserved in round-trip annotation")
+	}
+}
+
+func TestAgentConfigRoundTrip_PreservesSkillsSecretRef(t *testing.T) {
+	src := &v1alpha2.AgentConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "cfg", Namespace: "default"},
+		Spec: v1alpha2.AgentConfigSpec{
+			Skills: []v1alpha2.SkillsShSpec{{
+				Source:    "owner/private-skills",
+				Skill:     "deploy",
+				SecretRef: &v1alpha2.SecretReference{Name: "skills-token"},
+			}},
+		},
+	}
+
+	spoke := &v1alpha1.AgentConfig{}
+	if err := agentConfigFromHub(context.Background(), src, spoke); err != nil {
+		t.Fatalf("agentConfigFromHub() error = %v", err)
+	}
+	hub := &v1alpha2.AgentConfig{}
+	if err := agentConfigToHub(context.Background(), spoke, hub); err != nil {
+		t.Fatalf("agentConfigToHub() error = %v", err)
+	}
+
+	if len(hub.Spec.Skills) != 1 {
+		t.Fatalf("len(Skills) = %d, want 1", len(hub.Spec.Skills))
+	}
+	if hub.Spec.Skills[0].SecretRef == nil || hub.Spec.Skills[0].SecretRef.Name != "skills-token" {
+		t.Fatalf("Skills[0].SecretRef = %#v, want skills-token", hub.Spec.Skills[0].SecretRef)
+	}
+	if _, ok := hub.Annotations[preservedSkillsSecretRefAnnotation]; ok {
+		t.Errorf("hub annotation %q should be removed after restore", preservedSkillsSecretRefAnnotation)
+	}
+	if spoke.Annotations[preservedSkillsSecretRefAnnotation] == "" {
+		t.Errorf("source spoke annotation %q should not be mutated during restore", preservedSkillsSecretRefAnnotation)
+	}
+}
+
+func TestAgentConfigRoundTrip_DoesNotRestoreReorderedDuplicateSkill(t *testing.T) {
+	spoke := &v1alpha1.AgentConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{
+				preservedSkillsSecretRefAnnotation: `[{"index":2,"source":"owner/private-skills","skill":"deploy","secretRef":{"name":"skills-token"}}]`,
+			},
+		},
+		Spec: v1alpha1.AgentConfigSpec{
+			Skills: []v1alpha1.SkillsShSpec{
+				{Source: "owner/private-skills", Skill: "deploy"},
+				{Source: "owner/private-skills", Skill: "deploy"},
+			},
+		},
+	}
+
+	hub := &v1alpha2.AgentConfig{}
+	if err := agentConfigToHub(context.Background(), spoke, hub); err != nil {
+		t.Fatalf("agentConfigToHub() error = %v", err)
+	}
+
+	for i, skill := range hub.Spec.Skills {
+		if skill.SecretRef != nil {
+			t.Errorf("skill %d secretRef = %#v, want no ambiguous restore", i, skill.SecretRef)
+		}
+	}
+}
+
 func TestAgentConfigRoundTrip_PreservesValueFromEnv(t *testing.T) {
 	src := &v1alpha2.AgentConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: "cfg", Namespace: "default"},
