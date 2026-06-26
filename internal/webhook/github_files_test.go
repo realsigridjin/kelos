@@ -1,0 +1,248 @@
+package webhook
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/json"
+	"encoding/pem"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
+)
+
+func TestFetchPRChangedFiles_FallsBackToGlobalResolver(t *testing.T) {
+	origResolver := githubTokenResolver
+	defer func() { githubTokenResolver = origResolver }()
+
+	// Set up a test server that requires auth and returns file list.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		if auth != "token global-test-token" {
+			w.WriteHeader(http.StatusForbidden)
+			fmt.Fprint(w, `{"message":"Bad credentials"}`)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]githubFile{
+			{Filename: "pkg/main.go"},
+			{Filename: "README.md"},
+		})
+	}))
+	defer srv.Close()
+
+	// Spawner with no workspace ref — resolveGitHubTokenFromWorkspace returns "".
+	spawner := &kelos.TaskSpawner{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-spawner", Namespace: "default"},
+		Spec: kelos.TaskSpawnerSpec{
+			TaskTemplate: kelos.TaskTemplate{},
+		},
+	}
+
+	scheme := runtime.NewScheme()
+	_ = kelos.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+	cl := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	// Set global resolver.
+	githubTokenResolver = func(context.Context) (string, error) {
+		return "global-test-token", nil
+	}
+
+	files, err := fetchPRChangedFiles(context.Background(), cl, spawner, srv.URL, "org", "repo", 1)
+	if err != nil {
+		t.Fatalf("fetchPRChangedFiles() error = %v", err)
+	}
+	if len(files) != 2 {
+		t.Fatalf("expected 2 files, got %d", len(files))
+	}
+	if files[0] != "pkg/main.go" || files[1] != "README.md" {
+		t.Errorf("unexpected files: %v", files)
+	}
+}
+
+func TestFetchPRChangedFiles_PrefersWorkspaceToken(t *testing.T) {
+	origResolver := githubTokenResolver
+	defer func() { githubTokenResolver = origResolver }()
+
+	var receivedAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]githubFile{{Filename: "a.go"}})
+	}))
+	defer srv.Close()
+
+	// Set up workspace with a secret containing a token.
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "ws-secret", Namespace: "default"},
+		Data:       map[string][]byte{"GITHUB_TOKEN": []byte("workspace-token")},
+	}
+	ws := &kelos.Workspace{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-ws", Namespace: "default"},
+		Spec: kelos.WorkspaceSpec{
+			SecretRef: &kelos.SecretReference{Name: "ws-secret"},
+		},
+	}
+	spawner := &kelos.TaskSpawner{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-spawner", Namespace: "default"},
+		Spec: kelos.TaskSpawnerSpec{
+			TaskTemplate: kelos.TaskTemplate{
+				WorkspaceRef: &kelos.WorkspaceReference{Name: "test-ws"},
+			},
+		},
+	}
+
+	scheme := runtime.NewScheme()
+	_ = kelos.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret, ws).Build()
+
+	// Set global resolver — should NOT be used since workspace provides a token.
+	githubTokenResolver = func(context.Context) (string, error) {
+		return "global-token-should-not-be-used", nil
+	}
+
+	_, err := fetchPRChangedFiles(context.Background(), cl, spawner, srv.URL, "org", "repo", 1)
+	if err != nil {
+		t.Fatalf("fetchPRChangedFiles() error = %v", err)
+	}
+	if receivedAuth != "token workspace-token" {
+		t.Errorf("expected workspace token to be used, got Authorization: %q", receivedAuth)
+	}
+}
+
+func TestFetchPRChangedFiles_ResolvesGitHubAppFromWorkspace(t *testing.T) {
+	origResolver := githubTokenResolver
+	defer func() { githubTokenResolver = origResolver }()
+
+	// Generate a test RSA key for GitHub App auth.
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generating RSA key: %v", err)
+	}
+	keyPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(privateKey),
+	})
+
+	// Set up a test server that:
+	// 1. Responds to token creation (POST /app/installations/.../access_tokens)
+	// 2. Responds to the files endpoint with an auth check
+	var receivedAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/app/installations/67890/access_tokens" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"token":      "ghs_app_installation_token",
+				"expires_at": time.Now().Add(time.Hour).Format(time.RFC3339),
+			})
+			return
+		}
+		receivedAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]githubFile{{Filename: "app.go"}})
+	}))
+	defer srv.Close()
+
+	// Workspace secret with GitHub App credentials (no GITHUB_TOKEN).
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "app-secret", Namespace: "default"},
+		Data: map[string][]byte{
+			"appID":          []byte("12345"),
+			"installationID": []byte("67890"),
+			"privateKey":     keyPEM,
+		},
+	}
+	ws := &kelos.Workspace{
+		ObjectMeta: metav1.ObjectMeta{Name: "app-ws", Namespace: "default"},
+		Spec: kelos.WorkspaceSpec{
+			SecretRef: &kelos.SecretReference{Name: "app-secret"},
+		},
+	}
+	spawner := &kelos.TaskSpawner{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-spawner", Namespace: "default"},
+		Spec: kelos.TaskSpawnerSpec{
+			TaskTemplate: kelos.TaskTemplate{
+				WorkspaceRef: &kelos.WorkspaceReference{Name: "app-ws"},
+			},
+		},
+	}
+
+	scheme := runtime.NewScheme()
+	_ = kelos.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret, ws).Build()
+
+	// Global resolver should NOT be used since workspace has GitHub App credentials.
+	githubTokenResolver = func(context.Context) (string, error) {
+		return "global-token-should-not-be-used", nil
+	}
+
+	files, err := fetchPRChangedFiles(context.Background(), cl, spawner, srv.URL, "org", "repo", 1)
+	if err != nil {
+		t.Fatalf("fetchPRChangedFiles() error = %v", err)
+	}
+	if len(files) != 1 || files[0] != "app.go" {
+		t.Errorf("unexpected files: %v", files)
+	}
+	if receivedAuth != "token ghs_app_installation_token" {
+		t.Errorf("expected GitHub App installation token, got Authorization: %q", receivedAuth)
+	}
+}
+
+func TestFetchPRChangedFiles_ErrorsOnInvalidWorkspaceSecret(t *testing.T) {
+	origResolver := githubTokenResolver
+	defer func() { githubTokenResolver = origResolver }()
+
+	// Workspace secret exists but contains no GITHUB_TOKEN and no GitHub App keys.
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "bad-secret", Namespace: "default"},
+		Data:       map[string][]byte{"unrelated-key": []byte("some-value")},
+	}
+	ws := &kelos.Workspace{
+		ObjectMeta: metav1.ObjectMeta{Name: "bad-ws", Namespace: "default"},
+		Spec: kelos.WorkspaceSpec{
+			SecretRef: &kelos.SecretReference{Name: "bad-secret"},
+		},
+	}
+	spawner := &kelos.TaskSpawner{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-spawner", Namespace: "default"},
+		Spec: kelos.TaskSpawnerSpec{
+			TaskTemplate: kelos.TaskTemplate{
+				WorkspaceRef: &kelos.WorkspaceReference{Name: "bad-ws"},
+			},
+		},
+	}
+
+	scheme := runtime.NewScheme()
+	_ = kelos.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret, ws).Build()
+
+	// Global resolver should NOT be reached — the invalid secret must cause an error.
+	githubTokenResolver = func(context.Context) (string, error) {
+		t.Fatal("global resolver should not be called when workspace secret is invalid")
+		return "", nil
+	}
+
+	_, err := fetchPRChangedFiles(context.Background(), cl, spawner, "http://unused", "org", "repo", 1)
+	if err == nil {
+		t.Fatal("expected error for workspace secret with no valid credentials, got nil")
+	}
+	if !strings.Contains(err.Error(), "bad-secret") {
+		t.Errorf("error should reference the secret name, got: %v", err)
+	}
+}
