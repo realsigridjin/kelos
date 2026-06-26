@@ -13,6 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
+	"github.com/kelos-dev/kelos/internal/githubapp"
 )
 
 const (
@@ -27,11 +28,19 @@ type githubFile struct {
 
 // fetchPRChangedFiles fetches the list of changed files for a pull request
 // from the GitHub API. It resolves the GitHub token from the workspace's
-// secretRef.
+// secretRef, falling back to the global token resolver when the workspace
+// does not provide one.
 func fetchPRChangedFiles(ctx context.Context, cl client.Client, spawner *kelos.TaskSpawner, apiBaseURL, owner, repo string, number int) ([]string, error) {
-	token, err := resolveGitHubTokenFromWorkspace(ctx, cl, spawner)
+	token, err := resolveGitHubTokenFromWorkspace(ctx, cl, spawner, apiBaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("resolving GitHub token for PR files: %w", err)
+	}
+
+	if token == "" && githubTokenResolver != nil {
+		token, err = githubTokenResolver(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("resolving GitHub token for PR files: %w", err)
+		}
 	}
 
 	if apiBaseURL == "" {
@@ -66,10 +75,11 @@ func fetchPRChangedFiles(ctx context.Context, cl client.Client, spawner *kelos.T
 	return paths, nil
 }
 
-// resolveGitHubTokenFromWorkspace reads the GITHUB_TOKEN from the workspace's
-// secretRef. Returns an empty string (no auth) if no workspace or secret is
-// configured.
-func resolveGitHubTokenFromWorkspace(ctx context.Context, cl client.Client, spawner *kelos.TaskSpawner) (string, error) {
+// resolveGitHubTokenFromWorkspace resolves a GitHub token from the workspace's
+// secretRef. It supports both PAT (GITHUB_TOKEN key) and GitHub App credentials
+// (appID, installationID, privateKey keys). Returns an empty string if no
+// workspace or secret is configured.
+func resolveGitHubTokenFromWorkspace(ctx context.Context, cl client.Client, spawner *kelos.TaskSpawner, apiBaseURL string) (string, error) {
 	wsRef := spawner.Spec.TaskTemplate.WorkspaceRef
 	if wsRef == nil {
 		return "", nil
@@ -95,7 +105,28 @@ func resolveGitHubTokenFromWorkspace(ctx context.Context, cl client.Client, spaw
 		return "", fmt.Errorf("fetching secret %s: %w", ws.Spec.SecretRef.Name, err)
 	}
 
-	return string(secret.Data["GITHUB_TOKEN"]), nil
+	if pat := string(secret.Data["GITHUB_TOKEN"]); pat != "" {
+		return pat, nil
+	}
+
+	if githubapp.IsGitHubApp(secret.Data) {
+		creds, err := githubapp.ParseCredentials(secret.Data)
+		if err != nil {
+			return "", fmt.Errorf("parsing GitHub App credentials from secret %s: %w", ws.Spec.SecretRef.Name, err)
+		}
+		tc := githubapp.NewTokenClient()
+		if apiBaseURL != "" {
+			tc.BaseURL = apiBaseURL
+		}
+		tp := githubapp.NewTokenProvider(tc, creds)
+		token, err := tp.Token(ctx)
+		if err != nil {
+			return "", fmt.Errorf("generating GitHub App token from secret %s: %w", ws.Spec.SecretRef.Name, err)
+		}
+		return token, nil
+	}
+
+	return "", fmt.Errorf("secret %s referenced by workspace %s contains neither a GITHUB_TOKEN key nor valid GitHub App credentials (appID, installationID, privateKey)", ws.Spec.SecretRef.Name, wsRef.Name)
 }
 
 func fetchGitHubFilesPage(ctx context.Context, httpClient *http.Client, pageURL, token string, out *[]githubFile) (string, error) {

@@ -15890,8 +15890,10 @@ spec:
                               description: |-
                                 FilePatterns filters events by changed file paths.
                                 For push events, file paths are extracted directly from the payload.
-                                For pull_request events, the file list is fetched from the GitHub API
-                                using the workspace's secretRef for authentication.
+                                For pull_request events, the file list is fetched from the GitHub API.
+                                Authentication is resolved in order: workspace secretRef (PAT via
+                                GITHUB_TOKEN key, or GitHub App via appID/installationID/privateKey
+                                keys), then the webhook server's global GitHub token resolver.
                               properties:
                                 exclude:
                                   description: |-
