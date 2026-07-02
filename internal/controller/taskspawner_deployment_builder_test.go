@@ -1386,10 +1386,50 @@ func TestFindTaskSpawnersForSecret(t *testing.T) {
 			},
 		},
 	}
+	pool := &kelos.WorkerPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "pool", Namespace: "default"},
+		Spec: kelos.WorkerPoolSpec{
+			Worker: kelos.WorkerSpec{
+				WorkspaceRef: &kelos.WorkspaceReference{Name: "ws"},
+			},
+		},
+	}
+	ts4 := &kelos.TaskSpawner{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "spawner-4",
+			Namespace: "default",
+		},
+		Spec: kelos.TaskSpawnerSpec{
+			When: kelos.When{
+				GitHubIssues: &kelos.GitHubIssues{},
+			},
+			TaskTemplate: kelos.TaskTemplate{
+				Type:          "claude-code",
+				WorkerPoolRef: &kelos.WorkerPoolReference{Name: "pool"},
+			},
+		},
+	}
+	ts5 := &kelos.TaskSpawner{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "spawner-5",
+			Namespace: "default",
+		},
+		Spec: kelos.TaskSpawnerSpec{
+			When: kelos.When{
+				GitHubIssues: &kelos.GitHubIssues{},
+			},
+			TaskTemplate: kelos.TaskTemplate{
+				Type: "claude-code",
+				Worker: &kelos.WorkerSpec{
+					WorkspaceRef: &kelos.WorkspaceReference{Name: "ws"},
+				},
+			},
+		},
+	}
 
 	cl := fake.NewClientBuilder().
 		WithScheme(scheme).
-		WithObjects(secret, ws, wsOther, ts1, ts2, ts3).
+		WithObjects(secret, ws, wsOther, ts1, ts2, ts3, ts4, ts5, pool).
 		Build()
 
 	r := &TaskSpawnerReconciler{
@@ -1400,11 +1440,20 @@ func TestFindTaskSpawnersForSecret(t *testing.T) {
 	ctx := context.Background()
 	requests := r.findTaskSpawnersForSecret(ctx, secret)
 
-	if len(requests) != 1 {
-		t.Fatalf("expected 1 request, got %d: %v", len(requests), requests)
+	names := map[string]bool{}
+	for _, req := range requests {
+		names[req.Name] = true
 	}
-	if requests[0].Name != "spawner-1" {
-		t.Errorf("expected request for spawner-1, got %q", requests[0].Name)
+	if len(requests) != 3 || len(names) != 3 {
+		t.Fatalf("expected 3 requests, got %d: %v", len(requests), requests)
+	}
+	for _, name := range []string{"spawner-1", "spawner-4", "spawner-5"} {
+		if !names[name] {
+			t.Errorf("expected request for %s", name)
+		}
+	}
+	if names["spawner-2"] || names["spawner-3"] {
+		t.Errorf("unexpected requests: %v", requests)
 	}
 }
 
@@ -1472,10 +1521,50 @@ func TestFindTaskSpawnersForWorkspace(t *testing.T) {
 			},
 		},
 	}
+	pool := &kelos.WorkerPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "pool", Namespace: "default"},
+		Spec: kelos.WorkerPoolSpec{
+			Worker: kelos.WorkerSpec{
+				WorkspaceRef: &kelos.WorkspaceReference{Name: "ws"},
+			},
+		},
+	}
+	ts4 := &kelos.TaskSpawner{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "spawner-4",
+			Namespace: "default",
+		},
+		Spec: kelos.TaskSpawnerSpec{
+			When: kelos.When{
+				GitHubIssues: &kelos.GitHubIssues{},
+			},
+			TaskTemplate: kelos.TaskTemplate{
+				Type:          "claude-code",
+				WorkerPoolRef: &kelos.WorkerPoolReference{Name: "pool"},
+			},
+		},
+	}
+	ts5 := &kelos.TaskSpawner{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "spawner-5",
+			Namespace: "default",
+		},
+		Spec: kelos.TaskSpawnerSpec{
+			When: kelos.When{
+				GitHubIssues: &kelos.GitHubIssues{},
+			},
+			TaskTemplate: kelos.TaskTemplate{
+				Type: "claude-code",
+				Worker: &kelos.WorkerSpec{
+					WorkspaceRef: &kelos.WorkspaceReference{Name: "ws"},
+				},
+			},
+		},
+	}
 
 	cl := fake.NewClientBuilder().
 		WithScheme(scheme).
-		WithObjects(ws, ts1, ts2, ts3).
+		WithObjects(ws, ts1, ts2, ts3, ts4, ts5, pool).
 		Build()
 
 	r := &TaskSpawnerReconciler{
@@ -1486,8 +1575,8 @@ func TestFindTaskSpawnersForWorkspace(t *testing.T) {
 	ctx := context.Background()
 	requests := r.findTaskSpawnersForWorkspace(ctx, ws)
 
-	if len(requests) != 2 {
-		t.Fatalf("expected 2 requests, got %d: %v", len(requests), requests)
+	if len(requests) != 4 {
+		t.Fatalf("expected 4 requests, got %d: %v", len(requests), requests)
 	}
 
 	names := map[string]bool{}
@@ -1500,8 +1589,68 @@ func TestFindTaskSpawnersForWorkspace(t *testing.T) {
 	if !names["spawner-2"] {
 		t.Error("expected request for spawner-2")
 	}
+	if !names["spawner-4"] {
+		t.Error("expected request for spawner-4")
+	}
+	if !names["spawner-5"] {
+		t.Error("expected request for spawner-5")
+	}
 	if names["spawner-3"] {
 		t.Error("should not have request for spawner-3")
+	}
+}
+
+func TestFindTaskSpawnersForWorkerPool(t *testing.T) {
+	scheme := runtime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(appsv1.AddToScheme(scheme))
+	utilruntime.Must(kelos.AddToScheme(scheme))
+
+	pool := &kelos.WorkerPool{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "pool",
+			Namespace: "default",
+		},
+	}
+	ts1 := &kelos.TaskSpawner{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "spawner-1",
+			Namespace: "default",
+		},
+		Spec: kelos.TaskSpawnerSpec{
+			TaskTemplate: kelos.TaskTemplate{
+				WorkerPoolRef: &kelos.WorkerPoolReference{Name: "pool"},
+			},
+		},
+	}
+	ts2 := &kelos.TaskSpawner{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "spawner-2",
+			Namespace: "default",
+		},
+		Spec: kelos.TaskSpawnerSpec{
+			TaskTemplate: kelos.TaskTemplate{
+				WorkerPoolRef: &kelos.WorkerPoolReference{Name: "other-pool"},
+			},
+		},
+	}
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(pool, ts1, ts2).
+		Build()
+
+	r := &TaskSpawnerReconciler{
+		Client: cl,
+		Scheme: scheme,
+	}
+
+	requests := r.findTaskSpawnersForWorkerPool(context.Background(), pool)
+	if len(requests) != 1 {
+		t.Fatalf("expected 1 request, got %d: %v", len(requests), requests)
+	}
+	if requests[0].Name != "spawner-1" {
+		t.Errorf("expected request for spawner-1, got %q", requests[0].Name)
 	}
 }
 
@@ -1520,7 +1669,7 @@ func TestBuildCronJob_BasicSchedule(t *testing.T) {
 			},
 			TaskTemplate: kelos.TaskTemplate{
 				Type: "claude-code",
-				Credentials: kelos.Credentials{
+				Credentials: &kelos.Credentials{
 					Type:      kelos.CredentialTypeAPIKey,
 					SecretRef: &kelos.SecretReference{Name: "creds"},
 				},
@@ -1648,7 +1797,7 @@ func TestIsCronBased(t *testing.T) {
 			},
 			TaskTemplate: kelos.TaskTemplate{
 				Type: "claude-code",
-				Credentials: kelos.Credentials{
+				Credentials: &kelos.Credentials{
 					Type:      kelos.CredentialTypeAPIKey,
 					SecretRef: &kelos.SecretReference{Name: "creds"},
 				},

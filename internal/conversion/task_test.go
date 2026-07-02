@@ -66,6 +66,56 @@ func TestTaskToHub_FoldsAgentConfigRefIntoRefs(t *testing.T) {
 	}
 }
 
+func TestTaskFromHub_BackfillsLegacyFieldsFromWorker(t *testing.T) {
+	src := &v1alpha2.Task{
+		ObjectMeta: metav1.ObjectMeta{Name: "t", Namespace: "ns"},
+		Spec: v1alpha2.TaskSpec{
+			Prompt: "do the thing",
+			Worker: &v1alpha2.WorkerSpec{
+				Type: "codex",
+				Credentials: &v1alpha2.Credentials{
+					Type:      v1alpha2.CredentialTypeAPIKey,
+					SecretRef: &v1alpha2.SecretReference{Name: "creds"},
+				},
+				Model:        "gpt-5",
+				Effort:       "high",
+				Image:        "agent:latest",
+				WorkspaceRef: &v1alpha2.WorkspaceReference{Name: "workspace"},
+				AgentConfigRefs: []v1alpha2.AgentConfigReference{
+					{Name: "config"},
+				},
+				PodOverrides: &v1alpha2.PodOverrides{
+					Env: []corev1.EnvVar{{Name: "FOO", Value: "bar"}},
+				},
+			},
+		},
+	}
+
+	dst := &v1alpha1.Task{}
+	if err := taskFromHub(context.Background(), src, dst); err != nil {
+		t.Fatalf("taskFromHub() error = %v", err)
+	}
+
+	if dst.Spec.Type != "codex" {
+		t.Errorf("type = %q, want codex", dst.Spec.Type)
+	}
+	if dst.Spec.Credentials.Type != v1alpha1.CredentialTypeAPIKey || dst.Spec.Credentials.SecretRef == nil || dst.Spec.Credentials.SecretRef.Name != "creds" {
+		t.Errorf("credentials not backfilled: %#v", dst.Spec.Credentials)
+	}
+	if dst.Spec.Model != "gpt-5" || dst.Spec.Effort != "high" || dst.Spec.Image != "agent:latest" {
+		t.Errorf("model/effort/image not backfilled: %#v", dst.Spec)
+	}
+	if dst.Spec.WorkspaceRef == nil || dst.Spec.WorkspaceRef.Name != "workspace" {
+		t.Errorf("workspaceRef not backfilled: %#v", dst.Spec.WorkspaceRef)
+	}
+	if len(dst.Spec.AgentConfigRefs) != 1 || dst.Spec.AgentConfigRefs[0].Name != "config" {
+		t.Errorf("agentConfigRefs not backfilled: %#v", dst.Spec.AgentConfigRefs)
+	}
+	if dst.Spec.PodOverrides == nil || len(dst.Spec.PodOverrides.Env) != 1 || dst.Spec.PodOverrides.Env[0].Name != "FOO" {
+		t.Errorf("podOverrides not backfilled: %#v", dst.Spec.PodOverrides)
+	}
+}
+
 func TestWorkspaceConvert_IdentityRoundTrip(t *testing.T) {
 	orig := &v1alpha1.Workspace{
 		ObjectMeta: metav1.ObjectMeta{Name: "w", Namespace: "ns"},

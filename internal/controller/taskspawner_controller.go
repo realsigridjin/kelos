@@ -45,6 +45,7 @@ type TaskSpawnerReconciler struct {
 // +kubebuilder:rbac:groups=kelos.dev,resources=taskspawners/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kelos.dev,resources=taskspawners/finalizers,verbs=update
 // +kubebuilder:rbac:groups=kelos.dev,resources=workspaces,verbs=get;list;watch
+// +kubebuilder:rbac:groups=kelos.dev,resources=workerpools,verbs=get;list;watch
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=batch,resources=cronjobs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
@@ -187,6 +188,91 @@ func (r *TaskSpawnerReconciler) countActiveTasks(ctx context.Context, taskSpawne
 	return activeTasks, nil
 }
 
+func (r *TaskSpawnerReconciler) resolveTaskSpawnerWorkspace(ctx context.Context, ts *kelos.TaskSpawner) (*kelos.WorkspaceSpec, *kelos.WorkspaceReference, bool, ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+
+	workspaceRef, result, err := r.resolveTaskSpawnerWorkspaceRef(ctx, ts)
+	if err != nil || result != (ctrl.Result{}) || workspaceRef == nil {
+		return nil, workspaceRef, false, result, err
+	}
+
+	var ws kelos.Workspace
+	if err := r.Get(ctx, client.ObjectKey{
+		Namespace: ts.Namespace,
+		Name:      workspaceRef.Name,
+	}, &ws); err != nil {
+		if apierrors.IsNotFound(err) {
+			logger.Info("Workspace not found yet, requeuing", "workspace", workspaceRef.Name)
+			r.recordEvent(ts, corev1.EventTypeNormal, "WorkspaceNotFound", "Workspace %s not found, requeuing", workspaceRef.Name)
+			return nil, workspaceRef, false, ctrl.Result{RequeueAfter: 2 * time.Second}, nil
+		}
+		logger.Error(err, "Unable to fetch Workspace for TaskSpawner", "workspace", workspaceRef.Name)
+		return nil, workspaceRef, false, ctrl.Result{}, err
+	}
+
+	workspace := &ws.Spec
+	isGitHubApp := false
+	if workspace.SecretRef != nil {
+		var secret corev1.Secret
+		if err := r.Get(ctx, client.ObjectKey{
+			Namespace: ts.Namespace,
+			Name:      workspace.SecretRef.Name,
+		}, &secret); err != nil {
+			if !apierrors.IsNotFound(err) {
+				logger.Error(err, "Unable to fetch workspace secret", "secret", workspace.SecretRef.Name)
+				return nil, workspaceRef, false, ctrl.Result{}, err
+			}
+		} else {
+			isGitHubApp = githubapp.IsGitHubApp(secret.Data)
+			if isGitHubApp {
+				logger.Info("Detected GitHub App secret for TaskSpawner", "secret", workspace.SecretRef.Name)
+			}
+		}
+	}
+
+	return workspace, workspaceRef, isGitHubApp, ctrl.Result{}, nil
+}
+
+func (r *TaskSpawnerReconciler) resolveTaskSpawnerWorkspaceRef(ctx context.Context, ts *kelos.TaskSpawner) (*kelos.WorkspaceReference, ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+	template := ts.Spec.TaskTemplate
+	if template.WorkspaceRef != nil {
+		return template.WorkspaceRef, ctrl.Result{}, nil
+	}
+	if template.Worker != nil && template.Worker.WorkspaceRef != nil {
+		return template.Worker.WorkspaceRef, ctrl.Result{}, nil
+	}
+	if template.WorkerPoolRef == nil {
+		return nil, ctrl.Result{}, nil
+	}
+
+	var pool kelos.WorkerPool
+	if err := r.Get(ctx, client.ObjectKey{
+		Namespace: ts.Namespace,
+		Name:      template.WorkerPoolRef.Name,
+	}, &pool); err != nil {
+		if apierrors.IsNotFound(err) {
+			logger.Info("WorkerPool not found yet, requeuing", "workerpool", template.WorkerPoolRef.Name)
+			r.recordEvent(ts, corev1.EventTypeNormal, "WorkerPoolNotFound", "WorkerPool %s not found, requeuing", template.WorkerPoolRef.Name)
+			return nil, ctrl.Result{RequeueAfter: 2 * time.Second}, nil
+		}
+		logger.Error(err, "Unable to fetch WorkerPool for TaskSpawner", "workerpool", template.WorkerPoolRef.Name)
+		return nil, ctrl.Result{}, err
+	}
+
+	return pool.Spec.Worker.WorkspaceRef, ctrl.Result{}, nil
+}
+
+func taskSpawnerWithEffectiveWorkspaceRef(ts *kelos.TaskSpawner, workspaceRef *kelos.WorkspaceReference) *kelos.TaskSpawner {
+	if workspaceRef == nil || ts.Spec.TaskTemplate.WorkspaceRef != nil {
+		return ts
+	}
+
+	copy := ts.DeepCopy()
+	copy.Spec.TaskTemplate.WorkspaceRef = &kelos.WorkspaceReference{Name: workspaceRef.Name}
+	return copy
+}
+
 // reconcileDeployment handles the Deployment lifecycle for polling-based TaskSpawners.
 func (r *TaskSpawnerReconciler) reconcileDeployment(ctx context.Context, req ctrl.Request, ts *kelos.TaskSpawner, isSuspended bool) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
@@ -224,45 +310,14 @@ func (r *TaskSpawnerReconciler) reconcileDeployment(ctx context.Context, req ctr
 		}
 	}
 
-	// Resolve workspace if workspaceRef is set in taskTemplate
-	var workspace *kelos.WorkspaceSpec
-	var isGitHubApp bool
-	if ts.Spec.TaskTemplate.WorkspaceRef != nil {
-		workspaceRefName := ts.Spec.TaskTemplate.WorkspaceRef.Name
-		var ws kelos.Workspace
-		if err := r.Get(ctx, client.ObjectKey{
-			Namespace: ts.Namespace,
-			Name:      workspaceRefName,
-		}, &ws); err != nil {
-			if apierrors.IsNotFound(err) {
-				logger.Info("Workspace not found yet, requeuing", "workspace", workspaceRefName)
-				r.recordEvent(ts, corev1.EventTypeNormal, "WorkspaceNotFound", "Workspace %s not found, requeuing", workspaceRefName)
-				return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
-			}
-			logger.Error(err, "Unable to fetch Workspace for TaskSpawner", "workspace", workspaceRefName)
-			return ctrl.Result{}, err
-		}
-		workspace = &ws.Spec
-
-		// Detect GitHub App auth
-		if workspace.SecretRef != nil {
-			var secret corev1.Secret
-			if err := r.Get(ctx, client.ObjectKey{
-				Namespace: ts.Namespace,
-				Name:      workspace.SecretRef.Name,
-			}, &secret); err != nil {
-				if !apierrors.IsNotFound(err) {
-					logger.Error(err, "Unable to fetch workspace secret", "secret", workspace.SecretRef.Name)
-					return ctrl.Result{}, err
-				}
-			} else {
-				isGitHubApp = githubapp.IsGitHubApp(secret.Data)
-				if isGitHubApp {
-					logger.Info("Detected GitHub App secret for TaskSpawner", "secret", workspace.SecretRef.Name)
-				}
-			}
-		}
+	workspace, workspaceRef, isGitHubApp, result, err := r.resolveTaskSpawnerWorkspace(ctx, ts)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
+	if result != (ctrl.Result{}) {
+		return result, nil
+	}
+	buildTS := taskSpawnerWithEffectiveWorkspaceRef(ts, workspaceRef)
 	if err := validateWorkspaceGHProxyRepoOverride(ts, workspace); err != nil {
 		if deployExists {
 			if deleteErr := r.Delete(ctx, &deploy); deleteErr != nil && !apierrors.IsNotFound(deleteErr) {
@@ -296,11 +351,11 @@ func (r *TaskSpawnerReconciler) reconcileDeployment(ctx context.Context, req ctr
 
 	// Create Deployment if it doesn't exist
 	if !deployExists {
-		return r.createDeployment(ctx, ts, workspace, isGitHubApp, desiredReplicas)
+		return r.createDeployment(ctx, buildTS, workspace, isGitHubApp, desiredReplicas)
 	}
 
 	// Update Deployment if spec changed
-	if err := r.updateDeployment(ctx, ts, &deploy, workspace, isGitHubApp, desiredReplicas); err != nil {
+	if err := r.updateDeployment(ctx, buildTS, &deploy, workspace, isGitHubApp, desiredReplicas); err != nil {
 		logger.Error(err, "unable to update Deployment")
 		return ctrl.Result{}, err
 	}
@@ -361,45 +416,14 @@ func (r *TaskSpawnerReconciler) reconcileCronJob(ctx context.Context, req ctrl.R
 		}
 	}
 
-	// Resolve workspace if workspaceRef is set in taskTemplate
-	var workspace *kelos.WorkspaceSpec
-	var isGitHubApp bool
-	if ts.Spec.TaskTemplate.WorkspaceRef != nil {
-		workspaceRefName := ts.Spec.TaskTemplate.WorkspaceRef.Name
-		var ws kelos.Workspace
-		if err := r.Get(ctx, client.ObjectKey{
-			Namespace: ts.Namespace,
-			Name:      workspaceRefName,
-		}, &ws); err != nil {
-			if apierrors.IsNotFound(err) {
-				logger.Info("Workspace not found yet, requeuing", "workspace", workspaceRefName)
-				r.recordEvent(ts, corev1.EventTypeNormal, "WorkspaceNotFound", "Workspace %s not found, requeuing", workspaceRefName)
-				return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
-			}
-			logger.Error(err, "Unable to fetch Workspace for TaskSpawner", "workspace", workspaceRefName)
-			return ctrl.Result{}, err
-		}
-		workspace = &ws.Spec
-
-		// Detect GitHub App auth
-		if workspace.SecretRef != nil {
-			var secret corev1.Secret
-			if err := r.Get(ctx, client.ObjectKey{
-				Namespace: ts.Namespace,
-				Name:      workspace.SecretRef.Name,
-			}, &secret); err != nil {
-				if !apierrors.IsNotFound(err) {
-					logger.Error(err, "Unable to fetch workspace secret", "secret", workspace.SecretRef.Name)
-					return ctrl.Result{}, err
-				}
-			} else {
-				isGitHubApp = githubapp.IsGitHubApp(secret.Data)
-				if isGitHubApp {
-					logger.Info("Detected GitHub App secret for TaskSpawner", "secret", workspace.SecretRef.Name)
-				}
-			}
-		}
+	workspace, workspaceRef, isGitHubApp, result, err := r.resolveTaskSpawnerWorkspace(ctx, ts)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
+	if result != (ctrl.Result{}) {
+		return result, nil
+	}
+	buildTS := taskSpawnerWithEffectiveWorkspaceRef(ts, workspaceRef)
 	if err := validateWorkspaceGHProxyRepoOverride(ts, workspace); err != nil {
 		if cronJobExists {
 			if deleteErr := r.Delete(ctx, &cronJob); deleteErr != nil && !apierrors.IsNotFound(deleteErr) {
@@ -426,10 +450,10 @@ func (r *TaskSpawnerReconciler) reconcileCronJob(ctx context.Context, req ctrl.R
 	}
 
 	if !cronJobExists {
-		return r.createCronJob(ctx, ts, workspace, isGitHubApp, isSuspended)
+		return r.createCronJob(ctx, buildTS, workspace, isGitHubApp, isSuspended)
 	}
 
-	if err := r.updateCronJob(ctx, ts, &cronJob, workspace, isGitHubApp, isSuspended); err != nil {
+	if err := r.updateCronJob(ctx, buildTS, &cronJob, workspace, isGitHubApp, isSuspended); err != nil {
 		logger.Error(err, "Unable to update CronJob")
 		return ctrl.Result{}, err
 	}
@@ -855,6 +879,7 @@ func (r *TaskSpawnerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&batchv1.CronJob{}).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.findTaskSpawnersForSecret)).
 		Watches(&kelos.Workspace{}, handler.EnqueueRequestsFromMapFunc(r.findTaskSpawnersForWorkspace)).
+		Watches(&kelos.WorkerPool{}, handler.EnqueueRequestsFromMapFunc(r.findTaskSpawnersForWorkerPool)).
 		Watches(&kelos.Task{}, handler.EnqueueRequestsFromMapFunc(r.findTaskSpawnersForTask),
 			builder.WithPredicates(predicate.NewPredicateFuncs(func(obj client.Object) bool {
 				_, hasLabel := obj.GetLabels()["kelos.dev/taskspawner"]
@@ -898,9 +923,10 @@ func (r *TaskSpawnerReconciler) findTaskSpawnersForSecret(ctx context.Context, o
 		wsNameSet[name] = true
 	}
 
+	poolWorkspaceNames := workerPoolWorkspaceNames(ctx, r.Client, secret.Namespace)
 	var requests []reconcile.Request
 	for _, ts := range tsList.Items {
-		if ts.Spec.TaskTemplate.WorkspaceRef != nil && wsNameSet[ts.Spec.TaskTemplate.WorkspaceRef.Name] {
+		if wsNameSet[taskSpawnerEffectiveWorkspaceName(&ts, poolWorkspaceNames)] {
 			requests = append(requests, reconcile.Request{
 				NamespacedName: types.NamespacedName{
 					Namespace: ts.Namespace,
@@ -913,7 +939,7 @@ func (r *TaskSpawnerReconciler) findTaskSpawnersForSecret(ctx context.Context, o
 }
 
 // findTaskSpawnersForWorkspace maps a Workspace change to the TaskSpawners
-// that reference it via taskTemplate.workspaceRef.
+// that reference it directly or through a WorkerPool.
 func (r *TaskSpawnerReconciler) findTaskSpawnersForWorkspace(ctx context.Context, obj client.Object) []reconcile.Request {
 	ws, ok := obj.(*kelos.Workspace)
 	if !ok {
@@ -925,9 +951,10 @@ func (r *TaskSpawnerReconciler) findTaskSpawnersForWorkspace(ctx context.Context
 		return nil
 	}
 
+	poolWorkspaceNames := workerPoolWorkspaceNames(ctx, r.Client, ws.Namespace)
 	var requests []reconcile.Request
 	for _, ts := range tsList.Items {
-		if ts.Spec.TaskTemplate.WorkspaceRef != nil && ts.Spec.TaskTemplate.WorkspaceRef.Name == ws.Name {
+		if taskSpawnerEffectiveWorkspaceName(&ts, poolWorkspaceNames) == ws.Name {
 			requests = append(requests, reconcile.Request{
 				NamespacedName: types.NamespacedName{
 					Namespace: ts.Namespace,
@@ -937,6 +964,60 @@ func (r *TaskSpawnerReconciler) findTaskSpawnersForWorkspace(ctx context.Context
 		}
 	}
 	return requests
+}
+
+func (r *TaskSpawnerReconciler) findTaskSpawnersForWorkerPool(ctx context.Context, obj client.Object) []reconcile.Request {
+	pool, ok := obj.(*kelos.WorkerPool)
+	if !ok {
+		return nil
+	}
+
+	var tsList kelos.TaskSpawnerList
+	if err := r.List(ctx, &tsList, client.InNamespace(pool.Namespace)); err != nil {
+		return nil
+	}
+
+	var requests []reconcile.Request
+	for _, ts := range tsList.Items {
+		if ts.Spec.TaskTemplate.WorkerPoolRef != nil && ts.Spec.TaskTemplate.WorkerPoolRef.Name == pool.Name {
+			requests = append(requests, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Namespace: ts.Namespace,
+					Name:      ts.Name,
+				},
+			})
+		}
+	}
+	return requests
+}
+
+func taskSpawnerEffectiveWorkspaceName(ts *kelos.TaskSpawner, poolWorkspaceNames map[string]string) string {
+	template := ts.Spec.TaskTemplate
+	if template.WorkspaceRef != nil {
+		return template.WorkspaceRef.Name
+	}
+	if template.Worker != nil && template.Worker.WorkspaceRef != nil {
+		return template.Worker.WorkspaceRef.Name
+	}
+	if template.WorkerPoolRef == nil {
+		return ""
+	}
+	return poolWorkspaceNames[template.WorkerPoolRef.Name]
+}
+
+func workerPoolWorkspaceNames(ctx context.Context, cl client.Client, namespace string) map[string]string {
+	var poolList kelos.WorkerPoolList
+	if err := cl.List(ctx, &poolList, client.InNamespace(namespace)); err != nil {
+		return nil
+	}
+
+	names := make(map[string]string, len(poolList.Items))
+	for _, pool := range poolList.Items {
+		if pool.Spec.Worker.WorkspaceRef != nil {
+			names[pool.Name] = pool.Spec.Worker.WorkspaceRef.Name
+		}
+	}
+	return names
 }
 
 // findTaskSpawnersForTask maps a Task change to the TaskSpawner that owns it.

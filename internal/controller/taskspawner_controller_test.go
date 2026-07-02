@@ -114,6 +114,102 @@ func TestIsWebhookBased(t *testing.T) {
 	}
 }
 
+func TestReconcileDeploymentResolvesEffectiveWorkspace(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, kelos.AddToScheme(scheme))
+	require.NoError(t, appsv1.AddToScheme(scheme))
+	require.NoError(t, batchv1.AddToScheme(scheme))
+
+	tests := []struct {
+		name     string
+		template kelos.TaskTemplate
+		extraObj client.Object
+		wantURL  string
+	}{
+		{
+			name: "worker workspaceRef",
+			template: kelos.TaskTemplate{
+				Worker: &kelos.WorkerSpec{
+					WorkspaceRef: &kelos.WorkspaceReference{Name: "worker-workspace"},
+				},
+			},
+			wantURL: WorkspaceGHProxyServiceURL("default", "worker-workspace"),
+		},
+		{
+			name: "workerPoolRef workspace",
+			template: kelos.TaskTemplate{
+				WorkerPoolRef: &kelos.WorkerPoolReference{Name: "pool"},
+			},
+			extraObj: &kelos.WorkerPool{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "pool",
+					Namespace: "default",
+				},
+				Spec: kelos.WorkerPoolSpec{
+					Worker: kelos.WorkerSpec{
+						WorkspaceRef: &kelos.WorkspaceReference{Name: "worker-workspace"},
+					},
+				},
+			},
+			wantURL: WorkspaceGHProxyServiceURL("default", "worker-workspace"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ts := &kelos.TaskSpawner{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "spawner",
+					Namespace: "default",
+				},
+				Spec: kelos.TaskSpawnerSpec{
+					When: kelos.When{
+						GitHubIssues: &kelos.GitHubIssues{},
+					},
+					TaskTemplate: tt.template,
+				},
+			}
+			ws := &kelos.Workspace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "worker-workspace",
+					Namespace: "default",
+				},
+				Spec: kelos.WorkspaceSpec{
+					Repo: "https://github.com/example/repo.git",
+				},
+			}
+			objects := []client.Object{ts, ws}
+			if tt.extraObj != nil {
+				objects = append(objects, tt.extraObj)
+			}
+
+			cl := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithStatusSubresource(&kelos.TaskSpawner{}).
+				WithObjects(objects...).
+				Build()
+			r := &TaskSpawnerReconciler{
+				Client:            cl,
+				Scheme:            scheme,
+				DeploymentBuilder: NewDeploymentBuilder(),
+			}
+
+			_, err := r.reconcileDeployment(context.Background(), ctrl.Request{
+				NamespacedName: types.NamespacedName{Name: "spawner", Namespace: "default"},
+			}, ts, false)
+			require.NoError(t, err)
+
+			var deploy appsv1.Deployment
+			err = cl.Get(context.Background(), types.NamespacedName{Name: "spawner", Namespace: "default"}, &deploy)
+			require.NoError(t, err)
+			args := deploy.Spec.Template.Spec.Containers[0].Args
+			assert.Contains(t, args, "--github-owner=example")
+			assert.Contains(t, args, "--github-repo=repo")
+			assert.Contains(t, args, "--gh-proxy-url="+tt.wantURL)
+		})
+	}
+}
+
 func TestReconcileWebhook(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, kelos.AddToScheme(scheme))

@@ -607,6 +607,24 @@ func (tr *SlackTaskReporter) persistSlackReportingState(ctx context.Context, tas
 	return nil
 }
 
+func (tr *SlackTaskReporter) resolveAgentType(ctx context.Context, task *kelos.Task) string {
+	if task.Spec.Worker != nil && task.Spec.Worker.Type != "" {
+		return task.Spec.Worker.Type
+	}
+	if task.Spec.Type != "" {
+		return task.Spec.Type
+	}
+	if task.Spec.WorkerPoolRef == nil || tr.Client == nil {
+		return ""
+	}
+
+	var pool kelos.WorkerPool
+	if err := tr.Client.Get(ctx, client.ObjectKey{Name: task.Spec.WorkerPoolRef.Name, Namespace: task.Namespace}, &pool); err != nil {
+		return ""
+	}
+	return pool.Spec.Worker.Type
+}
+
 // updateProgress reads the agent's pod logs and updates the progress message
 // in the Slack thread. On the first call for a task, it posts a new reply and
 // records the message timestamp. Subsequent calls edit the same message
@@ -633,7 +651,7 @@ func (tr *SlackTaskReporter) updateProgress(ctx context.Context, task *kelos.Tas
 
 	containerName := kelos.AgentContainerName
 
-	text := tr.ProgressReader.ReadProgress(ctx, task.Namespace, podName, containerName, task.Spec.Type)
+	text := tr.ProgressReader.ReadProgress(ctx, task.Namespace, podName, containerName, tr.resolveAgentType(ctx, task))
 	if text == "" {
 		return nil
 	}
@@ -795,7 +813,7 @@ func (tr *SlackTaskReporter) UpdateActivityIndicator(ctx context.Context, task *
 
 	containerName := kelos.AgentContainerName
 
-	text := tr.ActivityReader.ReadActivity(ctx, task.Namespace, podName, containerName, task.Spec.Type)
+	text := tr.ActivityReader.ReadActivity(ctx, task.Namespace, podName, containerName, tr.resolveAgentType(ctx, task))
 
 	tr.mu.Lock()
 	state := tr.activity[task.UID]

@@ -769,6 +769,9 @@ func TestInstallCommand_DryRun_ImagePullPolicy(t *testing.T) {
 	if !strings.Contains(output, "--spawner-image-pull-policy=Always") {
 		t.Errorf("expected --spawner-image-pull-policy=Always in dry-run output, got:\n%s", output[:min(len(output), 500)])
 	}
+	if !strings.Contains(output, "--worker-runner-image-pull-policy=Always") {
+		t.Errorf("expected --worker-runner-image-pull-policy=Always in dry-run output, got:\n%s", output[:min(len(output), 500)])
+	}
 }
 
 func TestRunCommand_DryRun_CodexOAuthToken(t *testing.T) {

@@ -29,6 +29,7 @@ func newGetCommand(cfg *ClientConfig) *cobra.Command {
 	cmd.AddCommand(newGetTaskSpawnerCommand(cfg, &allNamespaces))
 	cmd.AddCommand(newGetWorkspaceCommand(cfg, &allNamespaces))
 	cmd.AddCommand(newGetAgentConfigCommand(cfg, &allNamespaces))
+	cmd.AddCommand(newGetWorkerPoolCommand(cfg, &allNamespaces))
 
 	return cmd
 }
@@ -154,10 +155,12 @@ func newGetTaskCommand(cfg *ClientConfig, allNamespaces *bool) *cobra.Command {
 				case "json":
 					return printJSON(os.Stdout, task)
 				default:
+					displayTask := task.DeepCopy()
+					hydrateTaskWorkerPoolFields(ctx, cl, displayTask)
 					if detail {
-						printTaskDetail(os.Stdout, task)
+						printTaskDetail(os.Stdout, displayTask)
 					} else {
-						printTaskTable(os.Stdout, []kelos.Task{*task}, false)
+						printTaskTable(os.Stdout, []kelos.Task{*displayTask}, false)
 					}
 					return nil
 				}
@@ -184,6 +187,9 @@ func newGetTaskCommand(cfg *ClientConfig, allNamespaces *bool) *cobra.Command {
 			case "json":
 				return printJSON(os.Stdout, taskList)
 			default:
+				for i := range taskList.Items {
+					hydrateTaskWorkerPoolFields(ctx, cl, &taskList.Items[i])
+				}
 				printTaskTable(os.Stdout, taskList.Items, *allNamespaces)
 				return nil
 			}
@@ -202,6 +208,42 @@ func newGetTaskCommand(cfg *ClientConfig, allNamespaces *bool) *cobra.Command {
 	))
 
 	return cmd
+}
+
+func hydrateTaskWorkerPoolFields(ctx context.Context, cl client.Client, task *kelos.Task) {
+	if task.Spec.WorkerPoolRef == nil {
+		return
+	}
+
+	var pool kelos.WorkerPool
+	if err := cl.Get(ctx, client.ObjectKey{Name: task.Spec.WorkerPoolRef.Name, Namespace: task.Namespace}, &pool); err != nil {
+		return
+	}
+
+	if task.Spec.Worker == nil {
+		task.Spec.Worker = &kelos.WorkerSpec{}
+	}
+	if task.Spec.Worker.Type == "" {
+		task.Spec.Worker.Type = pool.Spec.Worker.Type
+	}
+	if task.Spec.Worker.Credentials == nil {
+		task.Spec.Worker.Credentials = pool.Spec.Worker.Credentials
+	}
+	if task.Spec.Worker.Model == "" {
+		task.Spec.Worker.Model = pool.Spec.Worker.Model
+	}
+	if task.Spec.Worker.Image == "" {
+		task.Spec.Worker.Image = pool.Spec.Worker.Image
+	}
+	if task.Spec.Worker.WorkspaceRef == nil {
+		task.Spec.Worker.WorkspaceRef = pool.Spec.Worker.WorkspaceRef
+	}
+	if len(task.Spec.Worker.AgentConfigRefs) == 0 {
+		task.Spec.Worker.AgentConfigRefs = pool.Spec.Worker.AgentConfigRefs
+	}
+	if task.Spec.Worker.PodOverrides == nil {
+		task.Spec.Worker.PodOverrides = pool.Spec.Worker.PodOverrides
+	}
 }
 
 func newGetWorkspaceCommand(cfg *ClientConfig, allNamespaces *bool) *cobra.Command {

@@ -80,7 +80,10 @@ func fetchPRChangedFiles(ctx context.Context, cl client.Client, spawner *kelos.T
 // (appID, installationID, privateKey keys). Returns an empty string if no
 // workspace or secret is configured.
 func resolveGitHubTokenFromWorkspace(ctx context.Context, cl client.Client, spawner *kelos.TaskSpawner, apiBaseURL string) (string, error) {
-	wsRef := spawner.Spec.TaskTemplate.WorkspaceRef
+	wsRef, err := resolveTaskSpawnerWorkspaceRef(ctx, cl, spawner)
+	if err != nil {
+		return "", err
+	}
 	if wsRef == nil {
 		return "", nil
 	}
@@ -127,6 +130,28 @@ func resolveGitHubTokenFromWorkspace(ctx context.Context, cl client.Client, spaw
 	}
 
 	return "", fmt.Errorf("secret %s referenced by workspace %s contains neither a GITHUB_TOKEN key nor valid GitHub App credentials (appID, installationID, privateKey)", ws.Spec.SecretRef.Name, wsRef.Name)
+}
+
+func resolveTaskSpawnerWorkspaceRef(ctx context.Context, cl client.Client, spawner *kelos.TaskSpawner) (*kelos.WorkspaceReference, error) {
+	template := spawner.Spec.TaskTemplate
+	if template.WorkspaceRef != nil {
+		return template.WorkspaceRef, nil
+	}
+	if template.Worker != nil && template.Worker.WorkspaceRef != nil {
+		return template.Worker.WorkspaceRef, nil
+	}
+	if template.WorkerPoolRef == nil {
+		return nil, nil
+	}
+
+	var pool kelos.WorkerPool
+	if err := cl.Get(ctx, types.NamespacedName{
+		Name:      template.WorkerPoolRef.Name,
+		Namespace: spawner.Namespace,
+	}, &pool); err != nil {
+		return nil, fmt.Errorf("fetching workerpool %s: %w", template.WorkerPoolRef.Name, err)
+	}
+	return pool.Spec.Worker.WorkspaceRef, nil
 }
 
 func fetchGitHubFilesPage(ctx context.Context, httpClient *http.Client, pageURL, token string, out *[]githubFile) (string, error) {

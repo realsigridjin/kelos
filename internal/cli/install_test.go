@@ -257,6 +257,7 @@ func TestRenderChart_ImageArgs(t *testing.T) {
 		"--gemini-image=ghcr.io/kelos-dev/gemini:v0.3.0",
 		"--opencode-image=ghcr.io/kelos-dev/opencode:v0.3.0",
 		"--spawner-image=ghcr.io/kelos-dev/kelos-spawner:v0.3.0",
+		"--worker-runner-image=ghcr.io/kelos-dev/kelos-worker-runner:v0.3.0",
 	}
 	for _, arg := range versionedArgs {
 		if !bytes.Contains(data, []byte(arg)) {
@@ -280,6 +281,7 @@ func TestRenderChart_ImagePullPolicy(t *testing.T) {
 		"--gemini-image-pull-policy=Always",
 		"--opencode-image-pull-policy=Always",
 		"--spawner-image-pull-policy=Always",
+		"--worker-runner-image-pull-policy=Always",
 	} {
 		if !bytes.Contains(data, []byte(arg)) {
 			t.Errorf("expected %q in rendered output", arg)

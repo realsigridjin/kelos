@@ -131,7 +131,7 @@ func newTaskWithAnnotations(name, namespace string, phase kelos.TaskPhase, annot
 		Spec: kelos.TaskSpec{
 			Type:   "claude-code",
 			Prompt: "test",
-			Credentials: kelos.Credentials{
+			Credentials: &kelos.Credentials{
 				Type:      kelos.CredentialTypeOAuth,
 				SecretRef: &kelos.SecretReference{Name: "creds"},
 			},
@@ -1288,7 +1288,7 @@ func TestReportTaskStatus_NilAnnotations(t *testing.T) {
 		Spec: kelos.TaskSpec{
 			Type:   "claude-code",
 			Prompt: "test",
-			Credentials: kelos.Credentials{
+			Credentials: &kelos.Credentials{
 				Type:      kelos.CredentialTypeOAuth,
 				SecretRef: &kelos.SecretReference{Name: "creds"},
 			},
@@ -1326,7 +1326,7 @@ func TestSlackTaskReporter_PostsThreadReply(t *testing.T) {
 		Spec: kelos.TaskSpec{
 			Type:   "claude-code",
 			Prompt: "test",
-			Credentials: kelos.Credentials{
+			Credentials: &kelos.Credentials{
 				Type:      kelos.CredentialTypeOAuth,
 				SecretRef: &kelos.SecretReference{Name: "creds"},
 			},
@@ -1388,7 +1388,7 @@ func TestSlackTaskReporter_PostsNewReplyOnPhaseChange(t *testing.T) {
 		Spec: kelos.TaskSpec{
 			Type:   "claude-code",
 			Prompt: "test",
-			Credentials: kelos.Credentials{
+			Credentials: &kelos.Credentials{
 				Type:      kelos.CredentialTypeOAuth,
 				SecretRef: &kelos.SecretReference{Name: "creds"},
 			},
@@ -1582,11 +1582,73 @@ func TestSlackTaskReporter_PhaseMapping(t *testing.T) {
 }
 
 type fakeProgressReader struct {
-	text string
+	text      string
+	agentType string
 }
 
 func (f *fakeProgressReader) ReadProgress(ctx context.Context, namespace, podName, container, agentType string) string {
+	f.agentType = agentType
 	return f.text
+}
+
+func TestSlackTaskReporterResolveAgentType(t *testing.T) {
+	tests := []struct {
+		name string
+		task *kelos.Task
+		pool *kelos.WorkerPool
+		want string
+	}{
+		{
+			name: "worker type",
+			task: &kelos.Task{
+				ObjectMeta: metav1.ObjectMeta{Name: "task", Namespace: "default"},
+				Spec: kelos.TaskSpec{
+					Worker: &kelos.WorkerSpec{Type: "codex"},
+				},
+			},
+			want: "codex",
+		},
+		{
+			name: "legacy type",
+			task: &kelos.Task{
+				ObjectMeta: metav1.ObjectMeta{Name: "task", Namespace: "default"},
+				Spec:       kelos.TaskSpec{Type: "gemini"},
+			},
+			want: "gemini",
+		},
+		{
+			name: "worker pool type",
+			task: &kelos.Task{
+				ObjectMeta: metav1.ObjectMeta{Name: "task", Namespace: "default"},
+				Spec: kelos.TaskSpec{
+					WorkerPoolRef: &kelos.WorkerPoolReference{Name: "pool"},
+				},
+			},
+			pool: &kelos.WorkerPool{
+				ObjectMeta: metav1.ObjectMeta{Name: "pool", Namespace: "default"},
+				Spec: kelos.WorkerPoolSpec{
+					Worker: kelos.WorkerSpec{Type: "opencode"},
+				},
+			},
+			want: "opencode",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			objects := []client.Object{tt.task}
+			if tt.pool != nil {
+				objects = append(objects, tt.pool)
+			}
+			cl := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(objects...).Build()
+			tr := &SlackTaskReporter{Client: cl}
+
+			got := tr.resolveAgentType(context.Background(), tt.task)
+			if got != tt.want {
+				t.Fatalf("resolveAgentType() = %q, want %q", got, tt.want)
+			}
+		})
+	}
 }
 
 func TestSlackTaskReporter_PostsProgressReply(t *testing.T) {
@@ -1606,7 +1668,7 @@ func TestSlackTaskReporter_PostsProgressReply(t *testing.T) {
 		Spec: kelos.TaskSpec{
 			Type:   "claude-code",
 			Prompt: "test",
-			Credentials: kelos.Credentials{
+			Credentials: &kelos.Credentials{
 				Type:      kelos.CredentialTypeOAuth,
 				SecretRef: &kelos.SecretReference{Name: "creds"},
 			},
@@ -1796,7 +1858,7 @@ func TestSlackTaskReporter_DeduplicatesProgress(t *testing.T) {
 		Spec: kelos.TaskSpec{
 			Type:   "claude-code",
 			Prompt: "test",
-			Credentials: kelos.Credentials{
+			Credentials: &kelos.Credentials{
 				Type:      kelos.CredentialTypeOAuth,
 				SecretRef: &kelos.SecretReference{Name: "creds"},
 			},
@@ -1857,7 +1919,7 @@ func TestSlackTaskReporter_EditsProgressOnNewText(t *testing.T) {
 		Spec: kelos.TaskSpec{
 			Type:   "claude-code",
 			Prompt: "test",
-			Credentials: kelos.Credentials{
+			Credentials: &kelos.Credentials{
 				Type:      kelos.CredentialTypeOAuth,
 				SecretRef: &kelos.SecretReference{Name: "creds"},
 			},
@@ -1952,7 +2014,7 @@ func TestSlackTaskReporter_ClearsProgressTSOnUpdateFailure(t *testing.T) {
 		Spec: kelos.TaskSpec{
 			Type:   "claude-code",
 			Prompt: "test",
-			Credentials: kelos.Credentials{
+			Credentials: &kelos.Credentials{
 				Type:      kelos.CredentialTypeOAuth,
 				SecretRef: &kelos.SecretReference{Name: "creds"},
 			},
@@ -2028,7 +2090,7 @@ func TestSlackTaskReporter_ClearsProgressCacheOnTerminal(t *testing.T) {
 		Spec: kelos.TaskSpec{
 			Type:   "claude-code",
 			Prompt: "test",
-			Credentials: kelos.Credentials{
+			Credentials: &kelos.Credentials{
 				Type:      kelos.CredentialTypeOAuth,
 				SecretRef: &kelos.SecretReference{Name: "creds"},
 			},
@@ -2279,7 +2341,7 @@ func newRunningTaskWithAnnotations(name string, uid types.UID, annotations map[s
 		Spec: kelos.TaskSpec{
 			Type:   "claude-code",
 			Prompt: "test",
-			Credentials: kelos.Credentials{
+			Credentials: &kelos.Credentials{
 				Type:      kelos.CredentialTypeOAuth,
 				SecretRef: &kelos.SecretReference{Name: "creds"},
 			},
@@ -2552,7 +2614,7 @@ func TestSlackTaskReporter_AcceptedPostSetsActivityTarget(t *testing.T) {
 		Spec: kelos.TaskSpec{
 			Type:   "claude-code",
 			Prompt: "test",
-			Credentials: kelos.Credentials{
+			Credentials: &kelos.Credentials{
 				Type:      kelos.CredentialTypeOAuth,
 				SecretRef: &kelos.SecretReference{Name: "creds"},
 			},
