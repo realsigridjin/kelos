@@ -142,6 +142,38 @@ func TestPrintTaskTable(t *testing.T) {
 	}
 }
 
+func TestPrintTaskTableCanonicalWorkerFields(t *testing.T) {
+	now := time.Now()
+	tasks := []kelos.Task{
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:              "task-one",
+				CreationTimestamp: metav1.NewTime(now.Add(-1 * time.Hour)),
+			},
+			Spec: kelos.TaskSpec{
+				Worker: &kelos.WorkerSpec{
+					Type: "codex",
+					WorkspaceRef: &kelos.WorkspaceReference{
+						Name: "worker-ws",
+					},
+					AgentConfigRefs: []kelos.AgentConfigReference{{Name: "worker-config"}},
+				},
+			},
+			Status: kelos.TaskStatus{Phase: kelos.TaskPhaseRunning},
+		},
+	}
+
+	var buf bytes.Buffer
+	printTaskTable(&buf, tasks, false)
+	output := buf.String()
+
+	for _, expected := range []string{"task-one", "codex", "worker-ws", "worker-config"} {
+		if !strings.Contains(output, expected) {
+			t.Errorf("expected %q in output, got %q", expected, output)
+		}
+	}
+}
+
 func TestPrintTaskTableAllNamespaces(t *testing.T) {
 	now := time.Now()
 	startTime := metav1.NewTime(now.Add(-90 * time.Minute))
@@ -1080,7 +1112,7 @@ func TestPrintTaskDetail(t *testing.T) {
 		Spec: kelos.TaskSpec{
 			Type:   "claude-code",
 			Prompt: "Fix the bug",
-			Credentials: kelos.Credentials{
+			Credentials: &kelos.Credentials{
 				Type:      kelos.CredentialTypeAPIKey,
 				SecretRef: &kelos.SecretReference{Name: "my-secret"},
 			},
@@ -1133,6 +1165,54 @@ func TestPrintTaskDetail(t *testing.T) {
 		"Task completed successfully",
 		"https://github.com/org/repo/pull/1",
 		"pr=1",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Errorf("expected %q in output, got:\n%s", expected, output)
+		}
+	}
+}
+
+func TestPrintTaskDetailCanonicalWorkerFields(t *testing.T) {
+	timeout := int64(7200)
+	task := &kelos.Task{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "worker-task",
+			Namespace: "default",
+		},
+		Spec: kelos.TaskSpec{
+			Prompt: "Fix the bug",
+			Worker: &kelos.WorkerSpec{
+				Type: "codex",
+				Credentials: &kelos.Credentials{
+					Type:      kelos.CredentialTypeAPIKey,
+					SecretRef: &kelos.SecretReference{Name: "worker-secret"},
+				},
+				Model: "gpt-5",
+				Image: "custom-codex:latest",
+				WorkspaceRef: &kelos.WorkspaceReference{
+					Name: "worker-ws",
+				},
+				AgentConfigRefs: []kelos.AgentConfigReference{{Name: "worker-config"}},
+				PodOverrides: &kelos.PodOverrides{
+					ActiveDeadlineSeconds: &timeout,
+				},
+			},
+		},
+		Status: kelos.TaskStatus{Phase: kelos.TaskPhaseRunning},
+	}
+
+	var buf bytes.Buffer
+	printTaskDetail(&buf, task)
+	output := buf.String()
+
+	for _, expected := range []string{
+		"codex",
+		"worker-secret",
+		"gpt-5",
+		"custom-codex:latest",
+		"worker-ws",
+		"worker-config",
+		"7200s",
 	} {
 		if !strings.Contains(output, expected) {
 			t.Errorf("expected %q in output, got:\n%s", expected, output)
@@ -1332,7 +1412,7 @@ func TestPrintTaskDetailMinimal(t *testing.T) {
 		Spec: kelos.TaskSpec{
 			Type:   "claude-code",
 			Prompt: "Do something",
-			Credentials: kelos.Credentials{
+			Credentials: &kelos.Credentials{
 				Type:      kelos.CredentialTypeAPIKey,
 				SecretRef: &kelos.SecretReference{Name: "secret"},
 			},

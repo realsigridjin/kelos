@@ -1,8 +1,11 @@
 package cli
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -103,6 +106,38 @@ func TestIsTerminalTaskPhase(t *testing.T) {
 		if got := isTerminalTaskPhase(tt.phase); got != tt.want {
 			t.Fatalf("isTerminalTaskPhase(%q) = %v, want %v", tt.phase, got, tt.want)
 		}
+	}
+}
+
+func TestFilterTaskLogSegment(t *testing.T) {
+	input := strings.Join([]string{
+		"before",
+		"---KELOS_TASK_START--- task-a",
+		"task a output",
+		"---KELOS_TASK_END--- task-a",
+		"---KELOS_TASK_START--- task-b",
+		"task b output 1",
+		"task b output 2",
+		"---KELOS_TASK_END--- task-b",
+		"after",
+	}, "\n")
+
+	var out bytes.Buffer
+	if err := filterTaskLogSegment(strings.NewReader(input), &out, "task-b"); err != nil {
+		t.Fatalf("filterTaskLogSegment() error = %v", err)
+	}
+
+	got := out.String()
+	if got != "task b output 1\ntask b output 2\n" {
+		t.Fatalf("filtered logs = %q", got)
+	}
+}
+
+func TestFilterTaskLogSegmentMissingTask(t *testing.T) {
+	var out bytes.Buffer
+	err := filterTaskLogSegment(strings.NewReader("no matching markers\n"), &out, "task-b")
+	if !errors.Is(err, errTaskLogSegmentNotFound) {
+		t.Fatalf("filterTaskLogSegment() error = %v, want errTaskLogSegmentNotFound", err)
 	}
 }
 

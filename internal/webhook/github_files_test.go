@@ -123,6 +123,66 @@ func TestFetchPRChangedFiles_PrefersWorkspaceToken(t *testing.T) {
 	}
 }
 
+func TestFetchPRChangedFiles_UsesWorkerPoolWorkspaceToken(t *testing.T) {
+	origResolver := githubTokenResolver
+	defer func() { githubTokenResolver = origResolver }()
+
+	var receivedAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]githubFile{{Filename: "pool.go"}})
+	}))
+	defer srv.Close()
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "ws-secret", Namespace: "default"},
+		Data:       map[string][]byte{"GITHUB_TOKEN": []byte("pool-workspace-token")},
+	}
+	ws := &kelos.Workspace{
+		ObjectMeta: metav1.ObjectMeta{Name: "pool-ws", Namespace: "default"},
+		Spec: kelos.WorkspaceSpec{
+			SecretRef: &kelos.SecretReference{Name: "ws-secret"},
+		},
+	}
+	pool := &kelos.WorkerPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "pool", Namespace: "default"},
+		Spec: kelos.WorkerPoolSpec{
+			Worker: kelos.WorkerSpec{
+				WorkspaceRef: &kelos.WorkspaceReference{Name: "pool-ws"},
+			},
+		},
+	}
+	spawner := &kelos.TaskSpawner{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-spawner", Namespace: "default"},
+		Spec: kelos.TaskSpawnerSpec{
+			TaskTemplate: kelos.TaskTemplate{
+				WorkerPoolRef: &kelos.WorkerPoolReference{Name: "pool"},
+			},
+		},
+	}
+
+	scheme := runtime.NewScheme()
+	_ = kelos.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret, ws, pool).Build()
+
+	githubTokenResolver = func(context.Context) (string, error) {
+		return "global-token-should-not-be-used", nil
+	}
+
+	files, err := fetchPRChangedFiles(context.Background(), cl, spawner, srv.URL, "org", "repo", 1)
+	if err != nil {
+		t.Fatalf("fetchPRChangedFiles() error = %v", err)
+	}
+	if len(files) != 1 || files[0] != "pool.go" {
+		t.Errorf("unexpected files: %v", files)
+	}
+	if receivedAuth != "token pool-workspace-token" {
+		t.Errorf("expected pool workspace token to be used, got Authorization: %q", receivedAuth)
+	}
+}
+
 func TestFetchPRChangedFiles_ResolvesGitHubAppFromWorkspace(t *testing.T) {
 	origResolver := githubTokenResolver
 	defer func() { githubTokenResolver = origResolver }()

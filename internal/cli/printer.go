@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/util/duration"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/yaml"
 
 	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
@@ -23,6 +24,63 @@ func taskDuration(status *kelos.TaskStatus) string {
 		return duration.HumanDuration(status.CompletionTime.Time.Sub(status.StartTime.Time))
 	}
 	return duration.HumanDuration(time.Since(status.StartTime.Time))
+}
+
+func taskDisplayType(t *kelos.Task) string {
+	if t.Spec.Worker != nil && t.Spec.Worker.Type != "" {
+		return t.Spec.Worker.Type
+	}
+	return t.Spec.Type
+}
+
+func taskDisplayCredentials(t *kelos.Task) *kelos.Credentials {
+	if t.Spec.Worker != nil && t.Spec.Worker.Credentials != nil {
+		return t.Spec.Worker.Credentials
+	}
+	return t.Spec.Credentials
+}
+
+func taskDisplayModel(t *kelos.Task) string {
+	if t.Spec.Worker != nil && t.Spec.Worker.Model != "" {
+		return t.Spec.Worker.Model
+	}
+	return t.Spec.Model
+}
+
+func taskDisplayImage(t *kelos.Task) string {
+	if t.Spec.Worker != nil && t.Spec.Worker.Image != "" {
+		return t.Spec.Worker.Image
+	}
+	return t.Spec.Image
+}
+
+func taskDisplayWorkspaceRef(t *kelos.Task) *kelos.WorkspaceReference {
+	if t.Spec.Worker != nil && t.Spec.Worker.WorkspaceRef != nil {
+		return t.Spec.Worker.WorkspaceRef
+	}
+	return t.Spec.WorkspaceRef
+}
+
+func taskDisplayAgentConfigRefs(t *kelos.Task) []kelos.AgentConfigReference {
+	if t.Spec.Worker != nil && len(t.Spec.Worker.AgentConfigRefs) > 0 {
+		return t.Spec.Worker.AgentConfigRefs
+	}
+	return t.Spec.AgentConfigRefs
+}
+
+func taskDisplayPodOverrides(t *kelos.Task) *kelos.PodOverrides {
+	if t.Spec.Worker != nil && t.Spec.Worker.PodOverrides != nil {
+		return t.Spec.Worker.PodOverrides
+	}
+	return t.Spec.PodOverrides
+}
+
+func agentConfigRefNames(refs []kelos.AgentConfigReference) []string {
+	names := make([]string, len(refs))
+	for i, ref := range refs {
+		names[i] = ref.Name
+	}
+	return names
 }
 
 func printTaskTable(w io.Writer, tasks []kelos.Task, allNamespaces bool) {
@@ -39,24 +97,21 @@ func printTaskTable(w io.Writer, tasks []kelos.Task, allNamespaces bool) {
 			branch = t.Spec.Branch
 		}
 		workspace := "-"
-		if t.Spec.WorkspaceRef != nil {
-			workspace = t.Spec.WorkspaceRef.Name
+		if ref := taskDisplayWorkspaceRef(&t); ref != nil {
+			workspace = ref.Name
 		}
 		agentConfig := "-"
-		if len(t.Spec.AgentConfigRefs) > 0 {
-			names := make([]string, len(t.Spec.AgentConfigRefs))
-			for i, ref := range t.Spec.AgentConfigRefs {
-				names[i] = ref.Name
-			}
+		if refs := taskDisplayAgentConfigRefs(&t); len(refs) > 0 {
+			names := agentConfigRefNames(refs)
 			agentConfig = strings.Join(names, ",")
 		}
 		dur := taskDuration(&t.Status)
 		if allNamespaces {
 			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-				t.Namespace, t.Name, t.Spec.Type, t.Status.Phase, branch, workspace, agentConfig, dur, age)
+				t.Namespace, t.Name, taskDisplayType(&t), t.Status.Phase, branch, workspace, agentConfig, dur, age)
 		} else {
 			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-				t.Name, t.Spec.Type, t.Status.Phase, branch, workspace, agentConfig, dur, age)
+				t.Name, taskDisplayType(&t), t.Status.Phase, branch, workspace, agentConfig, dur, age)
 		}
 	}
 	tw.Flush()
@@ -65,18 +120,20 @@ func printTaskTable(w io.Writer, tasks []kelos.Task, allNamespaces bool) {
 func printTaskDetail(w io.Writer, t *kelos.Task) {
 	printField(w, "Name", t.Name)
 	printField(w, "Namespace", t.Namespace)
-	printField(w, "Type", t.Spec.Type)
+	printField(w, "Type", taskDisplayType(t))
 	printField(w, "Phase", string(t.Status.Phase))
 	printField(w, "Prompt", t.Spec.Prompt)
-	if t.Spec.Credentials.SecretRef != nil {
-		printField(w, "Secret", t.Spec.Credentials.SecretRef.Name)
+	if creds := taskDisplayCredentials(t); creds != nil {
+		if creds.SecretRef != nil {
+			printField(w, "Secret", creds.SecretRef.Name)
+		}
+		printField(w, "Credential Type", string(creds.Type))
 	}
-	printField(w, "Credential Type", string(t.Spec.Credentials.Type))
-	if t.Spec.Model != "" {
-		printField(w, "Model", t.Spec.Model)
+	if model := taskDisplayModel(t); model != "" {
+		printField(w, "Model", model)
 	}
-	if t.Spec.Image != "" {
-		printField(w, "Image", t.Spec.Image)
+	if image := taskDisplayImage(t); image != "" {
+		printField(w, "Image", image)
 	}
 	if t.Spec.Branch != "" {
 		printField(w, "Branch", t.Spec.Branch)
@@ -84,21 +141,21 @@ func printTaskDetail(w io.Writer, t *kelos.Task) {
 	if len(t.Spec.DependsOn) > 0 {
 		printField(w, "Depends On", strings.Join(t.Spec.DependsOn, ", "))
 	}
-	if t.Spec.WorkspaceRef != nil {
-		printField(w, "Workspace", t.Spec.WorkspaceRef.Name)
+	if ref := taskDisplayWorkspaceRef(t); ref != nil {
+		printField(w, "Workspace", ref.Name)
 	}
-	if len(t.Spec.AgentConfigRefs) > 0 {
-		names := make([]string, len(t.Spec.AgentConfigRefs))
-		for i, ref := range t.Spec.AgentConfigRefs {
-			names[i] = ref.Name
-		}
+	if t.Spec.WorkerPoolRef != nil {
+		printField(w, "Worker Pool", t.Spec.WorkerPoolRef.Name)
+	}
+	if refs := taskDisplayAgentConfigRefs(t); len(refs) > 0 {
+		names := agentConfigRefNames(refs)
 		printField(w, "Agent Configs", strings.Join(names, ", "))
 	}
 	if t.Spec.TTLSecondsAfterFinished != nil {
 		printField(w, "TTL", fmt.Sprintf("%ds", *t.Spec.TTLSecondsAfterFinished))
 	}
-	if t.Spec.PodOverrides != nil && t.Spec.PodOverrides.ActiveDeadlineSeconds != nil {
-		printField(w, "Timeout", fmt.Sprintf("%ds", *t.Spec.PodOverrides.ActiveDeadlineSeconds))
+	if overrides := taskDisplayPodOverrides(t); overrides != nil && overrides.ActiveDeadlineSeconds != nil {
+		printField(w, "Timeout", fmt.Sprintf("%ds", *overrides.ActiveDeadlineSeconds))
 	}
 	if t.Status.JobName != "" {
 		printField(w, "Job", t.Status.JobName)
@@ -291,6 +348,44 @@ func printTaskSpawnerDetail(w io.Writer, ts *kelos.TaskSpawner) {
 	}
 	if ts.Status.Message != "" {
 		printField(w, "Message", ts.Status.Message)
+	}
+}
+
+func printWorkerPoolTable(w io.Writer, pools []kelos.WorkerPool, allNamespaces bool) {
+	tw := tabwriter.NewWriter(w, 0, 0, 3, ' ', 0)
+	if allNamespaces {
+		fmt.Fprintln(tw, "NAMESPACE\tNAME\tTYPE\tREPLICAS\tREADY\tPHASE\tAGE")
+	} else {
+		fmt.Fprintln(tw, "NAME\tTYPE\tREPLICAS\tREADY\tPHASE\tAGE")
+	}
+	for _, wp := range pools {
+		age := duration.HumanDuration(time.Since(wp.CreationTimestamp.Time))
+		if allNamespaces {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%d\t%s\t%s\n",
+				wp.Namespace, wp.Name, wp.Spec.Worker.Type, ptr.Deref(wp.Spec.Replicas, 1), wp.Status.ReadyReplicas, wp.Status.Phase, age)
+		} else {
+			fmt.Fprintf(tw, "%s\t%s\t%d\t%d\t%s\t%s\n",
+				wp.Name, wp.Spec.Worker.Type, ptr.Deref(wp.Spec.Replicas, 1), wp.Status.ReadyReplicas, wp.Status.Phase, age)
+		}
+	}
+	tw.Flush()
+}
+
+func printWorkerPoolDetail(w io.Writer, wp *kelos.WorkerPool) {
+	printField(w, "Name", wp.Name)
+	printField(w, "Namespace", wp.Namespace)
+	printField(w, "Type", wp.Spec.Worker.Type)
+	printField(w, "Phase", string(wp.Status.Phase))
+	printField(w, "Replicas", fmt.Sprintf("%d", ptr.Deref(wp.Spec.Replicas, 1)))
+	printField(w, "Ready Replicas", fmt.Sprintf("%d", wp.Status.ReadyReplicas))
+	if wp.Status.StatefulSetName != "" {
+		printField(w, "StatefulSet", wp.Status.StatefulSetName)
+	}
+	if wp.Status.ServiceName != "" {
+		printField(w, "Service", wp.Status.ServiceName)
+	}
+	if wp.Status.Message != "" {
+		printField(w, "Message", wp.Status.Message)
 	}
 }
 

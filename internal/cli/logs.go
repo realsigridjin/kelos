@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -16,6 +18,13 @@ import (
 
 	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 )
+
+const (
+	taskStartMarker = "---KELOS_TASK_START---"
+	taskEndMarker   = "---KELOS_TASK_END---"
+)
+
+var errTaskLogSegmentNotFound = errors.New("task log segment not found")
 
 func newLogsCommand(cfg *ClientConfig) *cobra.Command {
 	var follow bool
@@ -88,7 +97,11 @@ func newLogsCommand(cfg *ClientConfig) *cobra.Command {
 			if follow {
 				fmt.Fprintf(os.Stderr, "Streaming container (%s) logs...\n", containerName)
 			}
-			return streamAgentLogs(ctx, cs, ns, podName, containerName, task.Spec.Type, follow)
+			agentType := resolveAgentType(ctx, cl, ns, task)
+			if task.Spec.WorkerPoolRef != nil {
+				return streamWorkerPoolTaskAgentLogs(ctx, cs, ns, podName, containerName, agentType, task.Name, follow)
+			}
+			return streamAgentLogs(ctx, cs, ns, podName, containerName, agentType, follow)
 		},
 	}
 
@@ -129,13 +142,14 @@ func waitForPod(ctx context.Context, cl client.Client, name, namespace string) (
 }
 
 func resolveTaskPodName(ctx context.Context, cl client.Client, namespace string, task *kelos.Task) (string, error) {
+	if task.Spec.WorkerPoolRef != nil && task.Status.PodName != "" {
+		return task.Status.PodName, nil
+	}
+
 	var pods corev1.PodList
 	if err := cl.List(ctx, &pods, client.InNamespace(namespace), client.MatchingLabels{
 		"kelos.dev/task": task.Name,
 	}); err != nil {
-		if task.Status.PodName != "" {
-			return task.Status.PodName, nil
-		}
 		return "", fmt.Errorf("listing task pods: %w", err)
 	}
 
@@ -200,20 +214,118 @@ func streamAgentLogs(ctx context.Context, cs *kubernetes.Clientset, namespace, p
 		}
 		defer stream.Close()
 
-		switch agentType {
-		case "codex":
-			return ParseAndFormatCodexLogs(stream, os.Stdout, os.Stderr)
-		case "gemini":
-			return ParseAndFormatGeminiLogs(stream, os.Stdout, os.Stderr)
-		case "opencode":
-			return ParseAndFormatOpenCodeLogs(stream, os.Stdout, os.Stderr)
-		default:
-			return ParseAndFormatLogs(stream, os.Stdout, os.Stderr)
+		return parseAgentLogs(agentType, stream)
+	}
+}
+
+func streamWorkerPoolTaskAgentLogs(ctx context.Context, cs *kubernetes.Clientset, namespace, podName, container, agentType, taskName string, follow bool) error {
+	opts := &corev1.PodLogOptions{
+		Follow:    follow,
+		Container: container,
+	}
+
+	for {
+		stream, err := cs.CoreV1().Pods(namespace).GetLogs(podName, opts).Stream(ctx)
+		if err != nil {
+			if follow && isContainerNotReady(err) {
+				time.Sleep(2 * time.Second)
+				continue
+			}
+			return fmt.Errorf("streaming logs: %w", err)
+		}
+		defer stream.Close()
+
+		filtered, wait := filteredTaskLogReader(stream, taskName)
+		parseErr := parseAgentLogs(agentType, filtered)
+		filterErr := wait()
+		if errors.Is(parseErr, errTaskLogSegmentNotFound) || errors.Is(filterErr, errTaskLogSegmentNotFound) {
+			return fmt.Errorf("task %q logs not found in worker pod %s", taskName, podName)
+		}
+		if parseErr != nil {
+			return parseErr
+		}
+		return filterErr
+	}
+}
+
+func parseAgentLogs(agentType string, stream io.Reader) error {
+	switch agentType {
+	case "codex":
+		return ParseAndFormatCodexLogs(stream, os.Stdout, os.Stderr)
+	case "gemini":
+		return ParseAndFormatGeminiLogs(stream, os.Stdout, os.Stderr)
+	case "opencode":
+		return ParseAndFormatOpenCodeLogs(stream, os.Stdout, os.Stderr)
+	default:
+		return ParseAndFormatLogs(stream, os.Stdout, os.Stderr)
+	}
+}
+
+func filteredTaskLogReader(stream io.Reader, taskName string) (io.Reader, func() error) {
+	pr, pw := io.Pipe()
+	errCh := make(chan error, 1)
+	go func() {
+		err := filterTaskLogSegment(stream, pw, taskName)
+		if err != nil {
+			_ = pw.CloseWithError(err)
+		} else {
+			_ = pw.Close()
+		}
+		errCh <- err
+	}()
+	return pr, func() error { return <-errCh }
+}
+
+func filterTaskLogSegment(stream io.Reader, out io.Writer, taskName string) error {
+	startMarker := fmt.Sprintf("%s %s", taskStartMarker, taskName)
+	endMarker := fmt.Sprintf("%s %s", taskEndMarker, taskName)
+	scanner := bufio.NewScanner(stream)
+	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
+
+	inSegment := false
+	found := false
+	for scanner.Scan() {
+		line := scanner.Text()
+		switch {
+		case !inSegment && line == startMarker:
+			inSegment = true
+			found = true
+		case inSegment && line == endMarker:
+			return nil
+		case inSegment:
+			if _, err := fmt.Fprintln(out, line); err != nil {
+				return err
+			}
 		}
 	}
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+	if !found {
+		return errTaskLogSegmentNotFound
+	}
+	return nil
 }
 
 func isContainerNotReady(err error) bool {
 	msg := err.Error()
 	return strings.Contains(msg, "is waiting to start") || strings.Contains(msg, "PodInitializing")
+}
+
+// resolveAgentType determines the effective agent type for log parsing,
+// checking spec.worker.type, legacy spec.type, and the referenced WorkerPool.
+func resolveAgentType(ctx context.Context, cl client.Client, namespace string, task *kelos.Task) string {
+	if task.Spec.Worker != nil && task.Spec.Worker.Type != "" {
+		return task.Spec.Worker.Type
+	}
+	if task.Spec.Type != "" {
+		return task.Spec.Type
+	}
+	if task.Spec.WorkerPoolRef != nil {
+		var pool kelos.WorkerPool
+		if err := cl.Get(ctx, client.ObjectKey{Name: task.Spec.WorkerPoolRef.Name, Namespace: namespace}, &pool); err == nil {
+			return pool.Spec.Worker.Type
+		}
+	}
+	return ""
 }

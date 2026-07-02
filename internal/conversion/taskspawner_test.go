@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1alpha1 "github.com/kelos-dev/kelos/api/v1alpha1"
@@ -139,6 +140,58 @@ func TestTaskSpawnerToHub_FoldsTaskTemplateAgentConfigRefIntoRefs(t *testing.T) 
 	}
 	if dst.Spec.TaskTemplate.AgentConfigRefs[0].Name != "legacy-config" {
 		t.Errorf("taskTemplate.agentConfigRefs[0].name = %q, want legacy-config", dst.Spec.TaskTemplate.AgentConfigRefs[0].Name)
+	}
+}
+
+func TestTaskSpawnerFromHub_BackfillsLegacyTaskTemplateFieldsFromWorker(t *testing.T) {
+	src := &v1alpha2.TaskSpawner{
+		ObjectMeta: metav1.ObjectMeta{Name: "ts", Namespace: "default"},
+		Spec: v1alpha2.TaskSpawnerSpec{
+			TaskTemplate: v1alpha2.TaskTemplate{
+				Worker: &v1alpha2.WorkerSpec{
+					Type: "codex",
+					Credentials: &v1alpha2.Credentials{
+						Type:      v1alpha2.CredentialTypeAPIKey,
+						SecretRef: &v1alpha2.SecretReference{Name: "creds"},
+					},
+					Model:        "gpt-5",
+					Effort:       "high",
+					Image:        "agent:latest",
+					WorkspaceRef: &v1alpha2.WorkspaceReference{Name: "workspace"},
+					AgentConfigRefs: []v1alpha2.AgentConfigReference{
+						{Name: "config"},
+					},
+					PodOverrides: &v1alpha2.PodOverrides{
+						Env: []corev1.EnvVar{{Name: "FOO", Value: "bar"}},
+					},
+				},
+			},
+		},
+	}
+
+	dst := &v1alpha1.TaskSpawner{}
+	if err := taskSpawnerFromHub(context.Background(), src, dst); err != nil {
+		t.Fatalf("taskSpawnerFromHub() error = %v", err)
+	}
+
+	template := dst.Spec.TaskTemplate
+	if template.Type != "codex" {
+		t.Errorf("type = %q, want codex", template.Type)
+	}
+	if template.Credentials.Type != v1alpha1.CredentialTypeAPIKey || template.Credentials.SecretRef == nil || template.Credentials.SecretRef.Name != "creds" {
+		t.Errorf("credentials not backfilled: %#v", template.Credentials)
+	}
+	if template.Model != "gpt-5" || template.Effort != "high" || template.Image != "agent:latest" {
+		t.Errorf("model/effort/image not backfilled: %#v", template)
+	}
+	if template.WorkspaceRef == nil || template.WorkspaceRef.Name != "workspace" {
+		t.Errorf("workspaceRef not backfilled: %#v", template.WorkspaceRef)
+	}
+	if len(template.AgentConfigRefs) != 1 || template.AgentConfigRefs[0].Name != "config" {
+		t.Errorf("agentConfigRefs not backfilled: %#v", template.AgentConfigRefs)
+	}
+	if template.PodOverrides == nil || len(template.PodOverrides.Env) != 1 || template.PodOverrides.Env[0].Name != "FOO" {
+		t.Errorf("podOverrides not backfilled: %#v", template.PodOverrides)
 	}
 }
 

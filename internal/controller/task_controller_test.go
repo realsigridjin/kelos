@@ -22,6 +22,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 	"github.com/kelos-dev/kelos/internal/githubapp"
@@ -72,7 +73,7 @@ func TestTTLExpired(t *testing.T) {
 			wantZeroRequeue: true,
 		},
 		{
-			name: "CompletionTime not set",
+			name: "CompletionTime not set requeues to wait for status to settle",
 			task: &kelos.Task{
 				Spec: kelos.TaskSpec{
 					TTLSecondsAfterFinished: int32Ptr(60),
@@ -82,8 +83,9 @@ func TestTTLExpired(t *testing.T) {
 					CompletionTime: nil,
 				},
 			},
-			wantExpired:     false,
-			wantZeroRequeue: true,
+			wantExpired:    false,
+			wantRequeueMin: 4 * time.Second,
+			wantRequeueMax: 6 * time.Second,
 		},
 		{
 			name: "TTL=0 and completed",
@@ -633,6 +635,52 @@ func TestReconcile_RequeuesTerminalTaskWithoutJobUntilTTLExpires(t *testing.T) {
 	}
 }
 
+func TestReconcile_RequeuesTerminalTaskWithTTLButNoCompletionTime(t *testing.T) {
+	scheme := runtime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(kelos.AddToScheme(scheme))
+
+	ttlSeconds := int32(60)
+	task := &kelos.Task{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "test-task",
+			Namespace:  "default",
+			Finalizers: []string{taskFinalizer},
+		},
+		Spec: kelos.TaskSpec{
+			Type:                    AgentTypeCodex,
+			Prompt:                  "test",
+			TTLSecondsAfterFinished: &ttlSeconds,
+		},
+		Status: kelos.TaskStatus{
+			Phase:   kelos.TaskPhaseFailed,
+			Message: "Something went wrong",
+			// CompletionTime intentionally nil
+		},
+	}
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(task).
+		WithObjects(task).
+		Build()
+
+	r := &TaskReconciler{
+		Client: cl,
+		Scheme: scheme,
+	}
+
+	result, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: client.ObjectKeyFromObject(task),
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error: %v", err)
+	}
+	if result.RequeueAfter == 0 {
+		t.Fatal("RequeueAfter = 0, want non-zero requeue for terminal task with TTL but no CompletionTime")
+	}
+}
+
 func TestRefreshGitHubAppTokenIfNeeded_RemintsExpiringToken(t *testing.T) {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -951,6 +999,90 @@ func TestFailTaskBeforeJobReleasesBranchLock(t *testing.T) {
 	}
 	if updated.Status.CompletionTime == nil {
 		t.Fatal("task completionTime is nil, want set")
+	}
+}
+
+func TestReconcile_PoolBackedTaskDeletionRequestsCancellation(t *testing.T) {
+	scheme := runtime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(kelos.AddToScheme(scheme))
+
+	now := metav1.Now()
+	task := &kelos.Task{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "pool-task-1",
+			Namespace:         "default",
+			DeletionTimestamp: &now,
+			Finalizers:        []string{taskFinalizer},
+		},
+		Spec: kelos.TaskSpec{
+			Prompt:        "test",
+			WorkerPoolRef: &kelos.WorkerPoolReference{Name: "my-pool"},
+		},
+		Status: kelos.TaskStatus{
+			Phase:   kelos.TaskPhaseRunning,
+			PodName: "my-pool-0",
+		},
+	}
+
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "my-pool-0",
+			Namespace: "default",
+			Annotations: map[string]string{
+				kelos.AnnotationWorkerAssignedTask:   "pool-task-1",
+				kelos.AnnotationWorkerTaskStatus:     "running",
+				kelos.AnnotationWorkerTasksCompleted: "2",
+			},
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+	}
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(task).
+		WithObjects(task, pod).
+		Build()
+
+	r := &TaskReconciler{
+		Client:       cl,
+		Scheme:       scheme,
+		BranchLocker: NewBranchLocker(),
+	}
+
+	result, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: client.ObjectKeyFromObject(task),
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if result.RequeueAfter == 0 {
+		t.Fatal("expected reconcile to requeue while waiting for worker release")
+	}
+
+	updatedPod := &corev1.Pod{}
+	if err := cl.Get(context.Background(), client.ObjectKeyFromObject(pod), updatedPod); err != nil {
+		t.Fatalf("getting updated pod: %v", err)
+	}
+	if got := updatedPod.Annotations[kelos.AnnotationWorkerAssignedTask]; got != "pool-task-1" {
+		t.Errorf("assigned-task = %q, want %q", got, "pool-task-1")
+	}
+	if got := updatedPod.Annotations[kelos.AnnotationWorkerTaskStatus]; got != "running" {
+		t.Errorf("task-status = %q, want %q", got, "running")
+	}
+	if got := updatedPod.Annotations[kelos.AnnotationWorkerCancelTask]; got != "pool-task-1" {
+		t.Errorf("cancel-task = %q, want %q", got, "pool-task-1")
+	}
+	if v := updatedPod.Annotations[kelos.AnnotationWorkerTasksCompleted]; v != "2" {
+		t.Errorf("tasks-completed = %q, want %q", v, "2")
+	}
+
+	updatedTask := &kelos.Task{}
+	if err := cl.Get(context.Background(), client.ObjectKeyFromObject(task), updatedTask); err != nil {
+		t.Fatalf("getting updated task: %v", err)
+	}
+	if !controllerutil.ContainsFinalizer(updatedTask, taskFinalizer) {
+		t.Error("expected finalizer to remain until worker releases the task")
 	}
 }
 
@@ -1574,7 +1706,7 @@ func TestUpdateStatusRefreshesPodName(t *testing.T) {
 		Spec: kelos.TaskSpec{
 			Type:   "codex",
 			Prompt: "test",
-			Credentials: kelos.Credentials{
+			Credentials: &kelos.Credentials{
 				Type: kelos.CredentialTypeAPIKey,
 				SecretRef: &kelos.SecretReference{
 					Name: "creds",
@@ -1631,7 +1763,7 @@ func TestUpdateStatusClearsStalePodNameWhenNoLivePodsRemain(t *testing.T) {
 		Spec: kelos.TaskSpec{
 			Type:   "codex",
 			Prompt: "test",
-			Credentials: kelos.Credentials{
+			Credentials: &kelos.Credentials{
 				Type: kelos.CredentialTypeAPIKey,
 				SecretRef: &kelos.SecretReference{
 					Name: "creds",

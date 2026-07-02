@@ -34,6 +34,8 @@ spawner:
   resources:
     requests: ""
     limits: ""
+workerRunner:
+  image: ghcr.io/kelos-dev/kelos-worker-runner
 controller:
   resources:
     requests: {}
