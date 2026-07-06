@@ -70,6 +70,42 @@ func TestAgentEntrypointsHandleKelosEffort(t *testing.T) {
 	}
 }
 
+func TestOpenCodeEntrypointMapsZAIProviderKey(t *testing.T) {
+	tests := []struct {
+		name  string
+		model string
+	}{
+		{name: "zai", model: "zai/glm-5.2"},
+		{name: "zai coding plan", model: "zai-coding-plan/glm-5.2"},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			tmp := t.TempDir()
+			section := extractEntrypointSection(t, "../..//opencode/kelos_entrypoint.sh", "# Map OPENCODE_API_KEY to the correct provider environment variable", "ARGS=(")
+			script := filepath.Join(tmp, "map-opencode-key.sh")
+			writeFile(t, script, "#!/usr/bin/env bash\nset -euo pipefail\n"+section+"\nprintf '%s' \"${ZHIPU_API_KEY:-}\"\n")
+			if err := os.Chmod(script, 0o755); err != nil {
+				t.Fatalf("chmod script: %v", err)
+			}
+
+			cmd := exec.Command("bash", script)
+			cmd.Env = append(os.Environ(),
+				"KELOS_MODEL="+tt.model,
+				"OPENCODE_API_KEY=test-zai-key",
+			)
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("running OpenCode provider key mapping: %v\n%s", err, output)
+			}
+			if got := string(output); got != "test-zai-key" {
+				t.Fatalf("ZHIPU_API_KEY = %q, want test-zai-key", got)
+			}
+		})
+	}
+}
+
 func TestAgentEntrypointsPreserveSkillReferenceFiles(t *testing.T) {
 	tests := []struct {
 		name       string

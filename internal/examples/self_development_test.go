@@ -32,6 +32,8 @@ func TestSelfDevelopmentGitHubSpawnersUseWebhooks(t *testing.T) {
 		{file: "kelos-planner.yaml", events: []string{"issue_comment"}},
 		{file: "kelos-reviewer.yaml", events: []string{"issue_comment", "pull_request_review"}},
 		{file: "kelos-api-reviewer.yaml", events: []string{"issue_comment", "pull_request_review"}},
+		{file: "kelos-glm-reviewer.yaml", events: []string{"issue_comment", "pull_request_review"}},
+		{file: "kelos-glm-api-reviewer.yaml", events: []string{"issue_comment", "pull_request_review"}},
 		{file: "kelos-pr-responder.yaml", events: []string{"issue_comment", "pull_request_review"}},
 		{file: "kelos-squash-commits.yaml", events: []string{"issue_comment", "pull_request_review"}},
 		{file: "kelos-triage.yaml", events: []string{"issues"}},
@@ -78,6 +80,8 @@ func TestDevelopmentTaskSpawnersIgnoreDisruptions(t *testing.T) {
 		{dir: "self-development", file: "kelos-config-update.yaml"},
 		{dir: "self-development", file: "kelos-fake-strategist.yaml"},
 		{dir: "self-development", file: "kelos-fake-user.yaml"},
+		{dir: "self-development", file: "kelos-glm-api-reviewer.yaml"},
+		{dir: "self-development", file: "kelos-glm-reviewer.yaml"},
 		{dir: "self-development", file: "kelos-image-update.yaml"},
 		{dir: "self-development", file: "kelos-planner.yaml"},
 		{dir: "self-development", file: "kelos-pr-responder.yaml"},
@@ -121,6 +125,8 @@ func TestDevelopmentCommandPatternsMatchCommandLines(t *testing.T) {
 		{dir: "self-development", file: "kelos-planner.yaml", command: "/kelos plan"},
 		{dir: "self-development", file: "kelos-reviewer.yaml", command: "/kelos review"},
 		{dir: "self-development", file: "kelos-api-reviewer.yaml", command: "/kelos api-review"},
+		{dir: "self-development", file: "kelos-glm-reviewer.yaml", command: "/kelos glm-review"},
+		{dir: "self-development", file: "kelos-glm-api-reviewer.yaml", command: "/kelos glm-api-review"},
 		{dir: "self-development", file: "kelos-pr-responder.yaml", command: "/kelos pick-up"},
 		{dir: "self-development", file: "kelos-squash-commits.yaml", command: "/kelos squash-commits"},
 		{dir: "self-development/kanon", file: "kanon-workers.yaml", command: "/kelos pick-up"},
@@ -358,6 +364,16 @@ func TestKanonReviewerTriggerableByBot(t *testing.T) {
 	assertReviewerTriggerableByBot(t, "self-development/kanon", "kanon-reviewer.yaml", "kelos-dev/kanon", "/kelos review")
 }
 
+func TestKelosGLMReviewerTriggerableByBot(t *testing.T) {
+	t.Parallel()
+	assertReviewerTriggerableByBot(t, "self-development", "kelos-glm-reviewer.yaml", "kelos-dev/kelos", "/kelos glm-review")
+}
+
+func TestKelosGLMAPIReviewerTriggerableByBot(t *testing.T) {
+	t.Parallel()
+	assertReviewerTriggerableByBot(t, "self-development", "kelos-glm-api-reviewer.yaml", "kelos-dev/kelos", "/kelos glm-api-review")
+}
+
 func TestAgoraReviewerTriggerableByBot(t *testing.T) {
 	t.Parallel()
 	assertReviewerTriggerableByBot(t, "self-development/agora", "agora-reviewer.yaml", "kelos-dev/agora", "/kelos review")
@@ -488,6 +504,8 @@ func TestDevelopmentTaskSpawnersSetExpectedEffort(t *testing.T) {
 		{dir: "self-development", file: "kelos-workers.yaml", effort: "xhigh"},
 		{dir: "self-development", file: "kelos-planner.yaml", effort: "xhigh"},
 		{dir: "self-development", file: "kelos-reviewer.yaml", effort: "xhigh"},
+		{dir: "self-development", file: "kelos-glm-reviewer.yaml", effort: "xhigh"},
+		{dir: "self-development", file: "kelos-glm-api-reviewer.yaml", effort: "xhigh"},
 		{dir: "self-development", file: "kelos-self-update.yaml", effort: "xhigh"},
 		{dir: "self-development", file: "kelos-fake-strategist.yaml", effort: "xhigh"},
 		{dir: "self-development", file: "kelos-triage.yaml", effort: "high"},
@@ -519,6 +537,80 @@ func TestDevelopmentTaskSpawnersSetExpectedEffort(t *testing.T) {
 			}
 			if ts.Spec.TaskTemplate.Worker.Effort != tt.effort {
 				t.Fatalf("TaskTemplate.Worker.Effort = %q, want %q", ts.Spec.TaskTemplate.Worker.Effort, tt.effort)
+			}
+		})
+	}
+}
+
+func TestKelosGLMReviewersUseOpenCodeGLM52(t *testing.T) {
+	t.Parallel()
+
+	tests := []string{
+		"kelos-glm-reviewer.yaml",
+		"kelos-glm-api-reviewer.yaml",
+	}
+
+	for _, file := range tests {
+		file := file
+		t.Run(file, func(t *testing.T) {
+			t.Parallel()
+
+			ts := readTaskSpawnerFromDir(t, "self-development", file)
+			if ts.Spec.TaskTemplate.Worker == nil {
+				t.Fatal("TaskTemplate.Worker is nil")
+			}
+			worker := ts.Spec.TaskTemplate.Worker
+			if worker.Type != "opencode" {
+				t.Fatalf("TaskTemplate.Worker.Type = %q, want opencode", worker.Type)
+			}
+			if worker.Model != "zai/glm-5.2" {
+				t.Fatalf("TaskTemplate.Worker.Model = %q, want zai/glm-5.2", worker.Model)
+			}
+			if worker.Credentials == nil {
+				t.Fatal("TaskTemplate.Worker.Credentials is nil")
+			}
+			if worker.Credentials.Type != kelos.CredentialTypeAPIKey {
+				t.Fatalf("TaskTemplate.Worker.Credentials.Type = %q, want %q", worker.Credentials.Type, kelos.CredentialTypeAPIKey)
+			}
+		})
+	}
+}
+
+func TestKelosGLMReviewersDoNotMatchCodexReviewCommands(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		file         string
+		codexCommand string
+	}{
+		{file: "kelos-glm-reviewer.yaml", codexCommand: "/kelos review"},
+		{file: "kelos-glm-api-reviewer.yaml", codexCommand: "/kelos api-review"},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.file, func(t *testing.T) {
+			t.Parallel()
+
+			ts := readTaskSpawnerFromDir(t, "self-development", tt.file)
+			spawner := ts.Spec.When.GitHubWebhook
+			if spawner == nil {
+				t.Fatalf("expected %s to use githubWebhook", tt.file)
+			}
+			for _, filter := range spawner.Filters {
+				filter := filter
+				payload := developmentWebhookPayload(t, spawner.Repository, filter, tt.codexCommand)
+				eventData, err := webhook.ParseGitHubWebhook(filter.Event, payload)
+				if err != nil {
+					t.Fatalf("ParseGitHubWebhook() error = %v", err)
+				}
+				got, err := webhook.MatchesGitHubEvent(spawner, filter.Event, eventData)
+				if err != nil {
+					t.Fatalf("MatchesGitHubEvent() error = %v", err)
+				}
+				if got {
+					t.Fatalf("%s matched Codex command %q for %s/%s", tt.file, tt.codexCommand, filter.Event, filter.Author)
+				}
 			}
 		})
 	}

@@ -31,7 +31,9 @@ while a worker or PR responder is handling an explicitly requested issue or PR.
 | **kelos-workers** | Webhook: issue comment `/kelos pick-up` | Codex | Picks up issues, creates or updates PRs, self-reviews, and ensures CI passes |
 | **kelos-planner** | Webhook: issue comment `/kelos plan` | Codex | Investigates an issue and posts a structured implementation plan — advisory only, no code changes |
 | **kelos-reviewer** | Webhook: PR comment `/kelos review` | Codex | Reviews PRs on demand — analyzes code, checks conventions, and updates a sticky review comment |
+| **kelos-glm-reviewer** | Webhook: PR comment `/kelos glm-review` | GLM-5.2 | Runs a second code review path with Z.AI GLM-5.2 through OpenCode |
 | **kelos-api-reviewer** | Webhook: issue/PR comment `/kelos api-review` | Codex | Reviews Kubernetes API design on issues or PRs — naming, compatibility, CRD validation |
+| **kelos-glm-api-reviewer** | Webhook: issue/PR comment `/kelos glm-api-review` | GLM-5.2 | Runs a second Kubernetes API design review path with Z.AI GLM-5.2 through OpenCode |
 | **kelos-pr-responder** | Webhook: PR review/comment on `generated-by-kelos` PRs | Codex | Re-engages on PR review feedback and updates the existing branch incrementally |
 | **kelos-triage** | Webhook: issue opened/labeled/reopened (`needs-actor`) | Codex | Classifies issues by kind/priority, detects duplicates, and recommends an actor |
 | **kelos-fake-user** | Cron (daily 09:00 UTC) | Codex | Tests DX as a new user and maintains one unassigned issue slot for the highest-impact problem found |
@@ -118,6 +120,28 @@ Reviews open pull requests on demand when a maintainer posts `/kelos review` or 
 kubectl apply -f self-development/kelos-reviewer.yaml
 ```
 
+### kelos-glm-reviewer.yaml
+
+Runs a GLM-5.2 review when a maintainer posts `/kelos glm-review`, using
+Z.AI GLM-5.2 through the OpenCode runner. It uses a separate trigger from
+`kelos-reviewer`, which continues to handle `/kelos review`.
+
+| | |
+|---|---|
+| **Trigger** | GitHub PR comment webhook with `/kelos glm-review` from a maintainer or Kelos worker handoff |
+| **Agent** | GLM-5.2 via OpenCode |
+| **Concurrency** | 3 |
+
+**Key features:**
+- Uses the same code review checklist and structured `gh pr review` output as `kelos-reviewer`
+- Provides an independent model-family review without replacing the Codex reviewer
+- Read-only agent — does not push code or modify files
+
+**Deploy:**
+```bash
+kubectl apply -f self-development/kelos-glm-reviewer.yaml
+```
+
 ### kelos-api-reviewer.yaml
 
 Reviews issues and pull requests for Kubernetes API design conventions, compatibility, and best practices when a maintainer posts `/kelos api-review` or when a Kelos worker posts `/kelos api-review` after pushing generated API changes and confirming CI passes.
@@ -146,6 +170,30 @@ Reviews issues and pull requests for Kubernetes API design conventions, compatib
 **Deploy:**
 ```bash
 kubectl apply -f self-development/kelos-api-reviewer.yaml
+```
+
+### kelos-glm-api-reviewer.yaml
+
+Runs a GLM-5.2 API design review when a maintainer posts
+`/kelos glm-api-review`, using Z.AI GLM-5.2 through the OpenCode runner. It
+uses a separate trigger from `kelos-api-reviewer`, which continues to handle
+`/kelos api-review`.
+
+| | |
+|---|---|
+| **Trigger** | GitHub issue/PR comment webhook with `/kelos glm-api-review` from a maintainer or Kelos worker handoff |
+| **Agent** | GLM-5.2 via OpenCode |
+| **Concurrency** | 3 |
+
+**Key features:**
+- Uses the same Kubernetes API design checklist and structured output as `kelos-api-reviewer`
+- Works on both issues (API design proposals) and pull requests (API implementation review)
+- Provides an independent model-family review without replacing the Codex API reviewer
+- Read-only agent — does not push code or modify files
+
+**Deploy:**
+```bash
+kubectl apply -f self-development/kelos-glm-api-reviewer.yaml
 ```
 
 ### kelos-pr-responder.yaml
@@ -402,17 +450,22 @@ retrigger it with a fresh comment or relabel after deployment.
 
 ### 4. Agent Credentials Secret
 
-Create a secret with your Codex credentials. The checked-in spawners use OAuth:
+Create a secret with your agent credentials. Most checked-in spawners use
+Codex OAuth. The GLM reviewer spawners use OpenCode with Z.AI GLM-5.2 and read
+the Z.AI key from `OPENCODE_API_KEY` in the same Secret:
 
 ```bash
 kubectl create secret generic kelos-credentials \
-  --from-file=CODEX_AUTH_JSON=$HOME/.codex/auth.json
+  --from-file=CODEX_AUTH_JSON=$HOME/.codex/auth.json \
+  --from-literal=OPENCODE_API_KEY=<your-zai-api-key>
 kubectl label secret kelos-credentials kelos.dev/codex-oauth-refresh=true
 ```
 
 Labeling the OAuth Secret opts it into controller-managed Codex OAuth refresh.
 Kelos creates one CronJob per labeled Secret with a non-empty `CODEX_AUTH_JSON`
-key, and skips unlabeled Secrets and API-key credentials.
+key, skips unlabeled Secrets and API-key credentials, and preserves other keys
+such as `OPENCODE_API_KEY`. The OpenCode entrypoint maps `OPENCODE_API_KEY` to
+Z.AI's `ZHIPU_API_KEY` for `zai/*` models.
 
 For API-key auth, change the task template credential type to `api-key` and
 create the secret without the OAuth refresh label:
@@ -514,7 +567,7 @@ The key pattern in these examples is webhook-triggered handoff plus runtime re-v
 2. The matching TaskSpawner creates a Task immediately from that event
 3. The agent re-reads the latest issue or PR state with `gh` before acting, so asynchronous label updates are respected
 4. If the agent needs human input, it posts a plain-English status comment describing what happened
-5. A fresh `/kelos pick-up`, `/kelos plan`, `/kelos review`, `/kelos api-review`, `/kelos squash-commits`, or relabel event retriggers automation later
+5. A fresh `/kelos pick-up`, `/kelos plan`, `/kelos review`, `/kelos glm-review`, `/kelos api-review`, `/kelos glm-api-review`, `/kelos squash-commits`, or relabel event retriggers automation later
 
 Each run is a discrete webhook event, so no "pause" comment is needed to prevent re-pickup of stale state. Bot status and review replies should not include trigger commands accidentally, but explicit worker handoff comments can intentionally retrigger reviewer spawners when those spawners include a matching bot-author filter.
 
