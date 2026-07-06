@@ -83,8 +83,8 @@ spec:
     - Every issue body you create or update MUST include this marker on its
       own line:
       <!-- kelos-taskspawner=kelos-fake-strategist -->
-    - Use `gh issue edit <number> --title "<title>" --body-file /tmp/issue-body.md`
-      to update the unassigned slot, or `gh issue create --title "<title>" --body-file /tmp/issue-body.md --label generated-by-kelos`
+    - Use `gh issue edit <number> --title "<title>" --body-file /tmp/issue-body.md --add-label triage-accepted`
+      to update the unassigned slot, or `gh issue create --title "<title>" --body-file /tmp/issue-body.md --label generated-by-kelos --label triage-accepted`
       to create the first slot.
     - Do NOT create PRs. Only create or update this issue slot
     - Prefer well-researched issues with clear proposals over broad, vague suggestions
