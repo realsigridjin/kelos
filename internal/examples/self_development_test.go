@@ -278,6 +278,47 @@ func TestAgoraIssueCreatorsUseTriageAcceptedLabel(t *testing.T) {
 	}
 }
 
+func TestStickyIssueSlotCommandsUseTriageAcceptedLabel(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		dir  string
+		file string
+	}{
+		{dir: "self-development", file: "kelos-fake-strategist.yaml"},
+		{dir: "self-development", file: "kelos-fake-user.yaml"},
+		{dir: "self-development", file: "kelos-self-update.yaml"},
+		{dir: "self-development/agora", file: "agora-fake-strategist.yaml"},
+		{dir: "self-development/agora", file: "agora-fake-user.yaml"},
+		{dir: "self-development/agora", file: "agora-self-update.yaml"},
+		{dir: "self-development/kanon", file: "kanon-fake-strategist.yaml"},
+		{dir: "self-development/kanon", file: "kanon-fake-user.yaml"},
+		{dir: "self-development/kanon", file: "kanon-self-update.yaml"},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.dir+"/"+tt.file, func(t *testing.T) {
+			t.Parallel()
+
+			ts := readTaskSpawnerFromDir(t, tt.dir, tt.file)
+			assertStickyIssueCommandsUseTriageAccepted(t, tt.dir+"/"+tt.file, ts.Spec.TaskTemplate.PromptTemplate)
+		})
+	}
+}
+
+func TestManualFakeStrategistTaskUsesTriageAcceptedLabel(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join("..", "..", "self-development", "tasks", "fake-strategist-task.yaml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading %s: %v", path, err)
+	}
+
+	assertStickyIssueCommandsUseTriageAccepted(t, path, string(data))
+}
+
 func TestAgoraPlannerOnlyTriggersForIssues(t *testing.T) {
 	t.Parallel()
 
@@ -475,6 +516,19 @@ func readTaskSpawnerFromDir(t *testing.T, dir, file string) *kelos.TaskSpawner {
 
 	t.Fatalf("no TaskSpawner found in %s", path)
 	return nil
+}
+
+func assertStickyIssueCommandsUseTriageAccepted(t *testing.T, name, prompt string) {
+	t.Helper()
+
+	wantUpdate := `gh issue edit <number> --title "<title>" --body-file /tmp/issue-body.md --add-label triage-accepted`
+	wantCreate := `gh issue create --title "<title>" --body-file /tmp/issue-body.md --label generated-by-kelos --label triage-accepted`
+	if !strings.Contains(prompt, wantUpdate) {
+		t.Fatalf("%s prompt does not add triage-accepted when updating a sticky issue slot", name)
+	}
+	if !strings.Contains(prompt, wantCreate) {
+		t.Fatalf("%s prompt does not add triage-accepted when creating a sticky issue slot", name)
+	}
 }
 
 func developmentWebhookPayload(t *testing.T, repository string, filter kelos.GitHubWebhookFilter, body string) []byte {
