@@ -96,10 +96,6 @@ jobs:
           spawner:
             resources:
               requests: "cpu=100m,memory=128Mi"
-          ghproxy:
-            cacheTTL: 50s
-            resources:
-              requests: "cpu=10m,memory=64Mi"
           controller:
             resources:
               requests:
@@ -129,10 +125,8 @@ jobs:
           bin/kelos install -f /tmp/kelos-dev-values.yaml
           kubectl rollout restart deployment/kelos-controller-manager -n kelos-system
           kubectl rollout status deployment/kelos-controller-manager -n kelos-system --timeout=120s
-          kubectl rollout restart deployment -l kelos.dev/component=ghproxy -n "${KELOS_NAMESPACE}"
           kubectl rollout restart deployment -l kelos.dev/component=spawner -n "${KELOS_NAMESPACE}"
           kubectl rollout restart deployment/kelos-webhook-github -n kelos-system
-          kubectl rollout status deployment -l kelos.dev/component=ghproxy -n "${KELOS_NAMESPACE}" --timeout=120s
           kubectl rollout status deployment -l kelos.dev/component=spawner -n "${KELOS_NAMESPACE}" --timeout=120s
           kubectl rollout status deployment/kelos-webhook-github -n kelos-system --timeout=120s
 

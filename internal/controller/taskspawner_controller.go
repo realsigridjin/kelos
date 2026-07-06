@@ -218,10 +218,13 @@ func (r *TaskSpawnerReconciler) resolveTaskSpawnerWorkspace(ctx context.Context,
 			Namespace: ts.Namespace,
 			Name:      workspace.SecretRef.Name,
 		}, &secret); err != nil {
-			if !apierrors.IsNotFound(err) {
-				logger.Error(err, "Unable to fetch workspace secret", "secret", workspace.SecretRef.Name)
-				return nil, workspaceRef, false, ctrl.Result{}, err
+			if apierrors.IsNotFound(err) {
+				logger.Info("Workspace secret not found yet, requeuing", "workspace", workspaceRef.Name, "secret", workspace.SecretRef.Name)
+				r.recordEvent(ts, corev1.EventTypeNormal, "WorkspaceSecretNotFound", "Workspace secret %s not found, requeuing", workspace.SecretRef.Name)
+				return nil, workspaceRef, false, ctrl.Result{RequeueAfter: 2 * time.Second}, nil
 			}
+			logger.Error(err, "Unable to fetch workspace secret", "secret", workspace.SecretRef.Name)
+			return nil, workspaceRef, false, ctrl.Result{}, err
 		} else {
 			isGitHubApp = githubapp.IsGitHubApp(secret.Data)
 			if isGitHubApp {
@@ -318,29 +321,31 @@ func (r *TaskSpawnerReconciler) reconcileDeployment(ctx context.Context, req ctr
 		return result, nil
 	}
 	buildTS := taskSpawnerWithEffectiveWorkspaceRef(ts, workspaceRef)
-	if err := validateWorkspaceGHProxyRepoOverride(ts, workspace); err != nil {
-		if deployExists {
-			if deleteErr := r.Delete(ctx, &deploy); deleteErr != nil && !apierrors.IsNotFound(deleteErr) {
-				logger.Error(deleteErr, "Unable to delete Deployment for invalid repo override", "deployment", deploy.Name)
-				return ctrl.Result{}, deleteErr
+	if workspaceUsesGHProxy(workspace) {
+		if err := validateWorkspaceGHProxyRepoOverride(ts, workspace); err != nil {
+			if deployExists {
+				if deleteErr := r.Delete(ctx, &deploy); deleteErr != nil && !apierrors.IsNotFound(deleteErr) {
+					logger.Error(deleteErr, "Unable to delete Deployment for invalid repo override", "deployment", deploy.Name)
+					return ctrl.Result{}, deleteErr
+				}
+				deployExists = false
 			}
-			deployExists = false
-		}
-		r.recordEvent(ts, corev1.EventTypeWarning, "InvalidGitHubRepoOverride", "%s", err.Error())
-		if statusErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-			if getErr := r.Get(ctx, req.NamespacedName, ts); getErr != nil {
-				return getErr
+			r.recordEvent(ts, corev1.EventTypeWarning, "InvalidGitHubRepoOverride", "%s", err.Error())
+			if statusErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				if getErr := r.Get(ctx, req.NamespacedName, ts); getErr != nil {
+					return getErr
+				}
+				ts.Status.Phase = kelos.TaskSpawnerPhaseFailed
+				ts.Status.Message = err.Error()
+				ts.Status.DeploymentName = ""
+				ts.Status.CronJobName = ""
+				return r.Status().Update(ctx, ts)
+			}); statusErr != nil {
+				logger.Error(statusErr, "Unable to update TaskSpawner status for invalid repo override")
+				return ctrl.Result{}, statusErr
 			}
-			ts.Status.Phase = kelos.TaskSpawnerPhaseFailed
-			ts.Status.Message = err.Error()
-			ts.Status.DeploymentName = ""
-			ts.Status.CronJobName = ""
-			return r.Status().Update(ctx, ts)
-		}); statusErr != nil {
-			logger.Error(statusErr, "Unable to update TaskSpawner status for invalid repo override")
-			return ctrl.Result{}, statusErr
+			return ctrl.Result{}, nil
 		}
-		return ctrl.Result{}, nil
 	}
 
 	// Determine desired replica count based on suspend state
@@ -424,29 +429,31 @@ func (r *TaskSpawnerReconciler) reconcileCronJob(ctx context.Context, req ctrl.R
 		return result, nil
 	}
 	buildTS := taskSpawnerWithEffectiveWorkspaceRef(ts, workspaceRef)
-	if err := validateWorkspaceGHProxyRepoOverride(ts, workspace); err != nil {
-		if cronJobExists {
-			if deleteErr := r.Delete(ctx, &cronJob); deleteErr != nil && !apierrors.IsNotFound(deleteErr) {
-				logger.Error(deleteErr, "Unable to delete CronJob for invalid repo override", "cronJob", cronJob.Name)
-				return ctrl.Result{}, deleteErr
+	if workspaceUsesGHProxy(workspace) {
+		if err := validateWorkspaceGHProxyRepoOverride(ts, workspace); err != nil {
+			if cronJobExists {
+				if deleteErr := r.Delete(ctx, &cronJob); deleteErr != nil && !apierrors.IsNotFound(deleteErr) {
+					logger.Error(deleteErr, "Unable to delete CronJob for invalid repo override", "cronJob", cronJob.Name)
+					return ctrl.Result{}, deleteErr
+				}
+				cronJobExists = false
 			}
-			cronJobExists = false
-		}
-		r.recordEvent(ts, corev1.EventTypeWarning, "InvalidGitHubRepoOverride", "%s", err.Error())
-		if statusErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-			if getErr := r.Get(ctx, req.NamespacedName, ts); getErr != nil {
-				return getErr
+			r.recordEvent(ts, corev1.EventTypeWarning, "InvalidGitHubRepoOverride", "%s", err.Error())
+			if statusErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				if getErr := r.Get(ctx, req.NamespacedName, ts); getErr != nil {
+					return getErr
+				}
+				ts.Status.Phase = kelos.TaskSpawnerPhaseFailed
+				ts.Status.Message = err.Error()
+				ts.Status.DeploymentName = ""
+				ts.Status.CronJobName = ""
+				return r.Status().Update(ctx, ts)
+			}); statusErr != nil {
+				logger.Error(statusErr, "Unable to update TaskSpawner status for invalid repo override")
+				return ctrl.Result{}, statusErr
 			}
-			ts.Status.Phase = kelos.TaskSpawnerPhaseFailed
-			ts.Status.Message = err.Error()
-			ts.Status.DeploymentName = ""
-			ts.Status.CronJobName = ""
-			return r.Status().Update(ctx, ts)
-		}); statusErr != nil {
-			logger.Error(statusErr, "Unable to update TaskSpawner status for invalid repo override")
-			return ctrl.Result{}, statusErr
+			return ctrl.Result{}, nil
 		}
-		return ctrl.Result{}, nil
 	}
 
 	if !cronJobExists {

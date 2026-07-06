@@ -77,13 +77,13 @@ func (b *DeploymentBuilder) buildPodParts(ts *kelos.TaskSpawner, workspace *kelo
 			"--github-owner="+owner,
 			"--github-repo="+repo,
 		)
-		if ts.Spec.TaskTemplate.WorkspaceRef != nil {
+		if workspaceUsesGHProxy(workspace) && ts.Spec.TaskTemplate.WorkspaceRef != nil {
 			args = append(args, "--gh-proxy-url="+WorkspaceGHProxyServiceURL(ts.Namespace, ts.Spec.TaskTemplate.WorkspaceRef.Name))
 		}
 		if apiBaseURL := gitHubAPIBaseURL(host); apiBaseURL != "" {
 			args = append(args, "--github-api-base-url="+apiBaseURL)
 		}
-		if workspace.SecretRef != nil && taskSpawnerNeedsGitHubToken(ts) {
+		if workspace.SecretRef != nil && taskSpawnerNeedsGitHubToken(ts, workspaceUsesGHProxy(workspace)) {
 			if isGitHubApp {
 				// GitHub App: inject credentials as env vars for in-process token generation
 				envVars = append(envVars,
@@ -353,14 +353,22 @@ func githubSourceRepoOverride(ts *kelos.TaskSpawner) string {
 	return ""
 }
 
-func taskSpawnerNeedsGitHubToken(ts *kelos.TaskSpawner) bool {
-	if ts.Spec.When.GitHubIssues != nil && ts.Spec.When.GitHubIssues.Reporting != nil && ts.Spec.When.GitHubIssues.Reporting.Enabled {
-		return true
+func taskSpawnerNeedsGitHubToken(ts *kelos.TaskSpawner, ghProxyConfigured bool) bool {
+	if ts.Spec.When.GitHubIssues != nil {
+		return !ghProxyConfigured || gitHubReportingNeedsToken(ts.Spec.When.GitHubIssues.Reporting)
 	}
-	if ts.Spec.When.GitHubPullRequests != nil && ts.Spec.When.GitHubPullRequests.Reporting != nil && ts.Spec.When.GitHubPullRequests.Reporting.Enabled {
-		return true
+	if ts.Spec.When.GitHubPullRequests != nil {
+		return !ghProxyConfigured || gitHubReportingNeedsToken(ts.Spec.When.GitHubPullRequests.Reporting)
 	}
 	return false
+}
+
+func gitHubReportingNeedsToken(reporting *kelos.GitHubReporting) bool {
+	return reporting != nil && (reporting.Enabled || reporting.Checks != nil)
+}
+
+func workspaceUsesGHProxy(workspace *kelos.WorkspaceSpec) bool {
+	return workspace != nil && workspace.GHProxy != nil
 }
 
 func validateWorkspaceGHProxyRepoOverride(ts *kelos.TaskSpawner, workspace *kelos.WorkspaceSpec) error {

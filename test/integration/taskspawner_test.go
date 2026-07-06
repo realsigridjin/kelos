@@ -120,7 +120,6 @@ var _ = Describe("TaskSpawner Controller", func() {
 				"--taskspawner-namespace="+ns.Name,
 				"--github-owner=kelos-dev",
 				"--github-repo=kelos",
-				"--gh-proxy-url="+controller.WorkspaceGHProxyServiceURL(ns.Name, "test-workspace"),
 			))
 
 			By("Verifying the ServiceAccount")

@@ -8,6 +8,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
@@ -36,7 +37,7 @@ type WorkspaceReconciler struct {
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
-// Reconcile ensures each Workspace has a ghproxy Deployment and Service.
+// Reconcile ensures each Workspace has the requested ghproxy resources.
 func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
@@ -48,6 +49,14 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		logger.Error(err, "Unable to fetch Workspace")
 		reconcileErrorsTotal.WithLabelValues("workspace").Inc()
 		return ctrl.Result{}, err
+	}
+
+	if !workspaceUsesGHProxy(&workspace.Spec) {
+		if err := r.deleteProxyResources(ctx, &workspace); err != nil {
+			logger.Error(err, "Unable to delete disabled workspace proxy resources", "workspace", workspace.Name)
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
 	}
 
 	isGitHubApp := false
@@ -75,6 +84,32 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	return ctrl.Result{}, nil
+}
+
+func (r *WorkspaceReconciler) deleteProxyResources(ctx context.Context, workspace *kelos.Workspace) error {
+	name := WorkspaceGHProxyName(workspace.Name)
+
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: workspace.Namespace,
+		},
+	}
+	if err := r.Delete(ctx, deploy); err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: workspace.Namespace,
+		},
+	}
+	if err := r.Delete(ctx, svc); err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+
+	return nil
 }
 
 func (r *WorkspaceReconciler) reconcileService(ctx context.Context, workspace *kelos.Workspace) error {

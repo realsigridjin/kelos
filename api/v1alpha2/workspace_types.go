@@ -28,6 +28,9 @@ type WorkspaceFile struct {
 	Content string `json:"content"`
 }
 
+// WorkspaceGHProxy configures the workspace-scoped ghproxy.
+type WorkspaceGHProxy struct{}
+
 // WorkspaceSpec defines the desired state of Workspace.
 type WorkspaceSpec struct {
 	// Repo is the git repository URL to clone.
@@ -44,6 +47,10 @@ type WorkspaceSpec struct {
 	// authentication and GitHub CLI (gh) operations.
 	// +optional
 	SecretRef *SecretReference `json:"secretRef,omitempty"`
+
+	// GHProxy configures and enables the workspace-scoped ghproxy when set.
+	// +optional
+	GHProxy *WorkspaceGHProxy `json:"ghproxy,omitempty"`
 
 	// Remotes are additional git remotes to configure after cloning.
 	// The credential from SecretRef applies to all remotes.
