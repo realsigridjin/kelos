@@ -205,6 +205,10 @@ spec:
                   - path
                   type: object
                 type: array
+              ghproxy:
+                description: GHProxy configures and enables the workspace-scoped ghproxy
+                  when set.
+                type: object
               ref:
                 description: |-
                   Ref is the git reference to checkout (branch, tag, or commit SHA).

@@ -8,6 +8,8 @@ spec:
   ref: main
   secretRef:
     name: github-token
+  # Optional: enable a workspace-scoped ghproxy for GitHub API reads.
+  # ghproxy: {}
   # Alternative: use a GitHub App secret instead of a PAT (recommended for production)
   # Create the secret with:
   #   kubectl create secret generic github-app-creds \

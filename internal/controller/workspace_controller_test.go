@@ -8,6 +8,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -38,7 +39,8 @@ func TestWorkspaceReconciler_CreatesGitHubAppProxyResources(t *testing.T) {
 			Namespace: "default",
 		},
 		Spec: kelos.WorkspaceSpec{
-			Repo: "https://github.example.com/my-org/my-repo.git",
+			Repo:    "https://github.example.com/my-org/my-repo.git",
+			GHProxy: &kelos.WorkspaceGHProxy{},
 			SecretRef: &kelos.SecretReference{
 				Name: "github-app-creds",
 			},
@@ -114,6 +116,89 @@ func TestWorkspaceReconciler_CreatesGitHubAppProxyResources(t *testing.T) {
 	if len(svc.OwnerReferences) != 1 || svc.OwnerReferences[0].Name != "example-workspace" {
 		t.Fatalf("expected Service ownerReference to Workspace, got %v", svc.OwnerReferences)
 	}
+}
+
+func TestWorkspaceReconciler_SkipsProxyResourcesByDefault(t *testing.T) {
+	scheme := newWorkspaceControllerTestScheme()
+	workspace := &kelos.Workspace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "example-workspace",
+			Namespace: "default",
+		},
+		Spec: kelos.WorkspaceSpec{
+			Repo: "https://github.example.com/my-org/my-repo.git",
+			SecretRef: &kelos.SecretReference{
+				Name: "missing-secret",
+			},
+		},
+	}
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(workspace).
+		Build()
+	r := &WorkspaceReconciler{
+		Client:       cl,
+		Scheme:       scheme,
+		ProxyBuilder: NewWorkspaceGHProxyBuilder(),
+	}
+
+	result, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Namespace: "default", Name: "example-workspace"},
+	})
+	if err != nil {
+		t.Fatalf("Reconcile error: %v", err)
+	}
+	if result.Requeue || result.RequeueAfter != 0 {
+		t.Fatalf("expected no requeue, got %#v", result)
+	}
+
+	assertNoWorkspaceProxyResources(t, cl, "default", "example-workspace")
+}
+
+func TestWorkspaceReconciler_DeletesProxyResourcesWhenDisabled(t *testing.T) {
+	scheme := newWorkspaceControllerTestScheme()
+	workspace := &kelos.Workspace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "example-workspace",
+			Namespace: "default",
+		},
+		Spec: kelos.WorkspaceSpec{
+			Repo: "https://github.com/org/repo.git",
+		},
+	}
+	name := WorkspaceGHProxyName(workspace.Name)
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: workspace.Namespace,
+		},
+	}
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: workspace.Namespace,
+		},
+	}
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(workspace, deploy, svc).
+		Build()
+	r := &WorkspaceReconciler{
+		Client:       cl,
+		Scheme:       scheme,
+		ProxyBuilder: NewWorkspaceGHProxyBuilder(),
+	}
+
+	_, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Namespace: "default", Name: "example-workspace"},
+	})
+	if err != nil {
+		t.Fatalf("Reconcile error: %v", err)
+	}
+
+	assertNoWorkspaceProxyResources(t, cl, "default", "example-workspace")
 }
 
 func TestWorkspaceGHProxyName_TruncatesLongWorkspaceNames(t *testing.T) {
@@ -192,4 +277,27 @@ func containsArg(args []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func assertNoWorkspaceProxyResources(t *testing.T, cl client.Client, namespace, workspaceName string) {
+	t.Helper()
+
+	name := WorkspaceGHProxyName(workspaceName)
+	var deploy appsv1.Deployment
+	err := cl.Get(context.Background(), client.ObjectKey{Namespace: namespace, Name: name}, &deploy)
+	if err == nil {
+		t.Fatalf("expected no proxy Deployment %s/%s", namespace, name)
+	}
+	if !apierrors.IsNotFound(err) {
+		t.Fatalf("getting proxy Deployment: %v", err)
+	}
+
+	var svc corev1.Service
+	err = cl.Get(context.Background(), client.ObjectKey{Namespace: namespace, Name: name}, &svc)
+	if err == nil {
+		t.Fatalf("expected no proxy Service %s/%s", namespace, name)
+	}
+	if !apierrors.IsNotFound(err) {
+		t.Fatalf("getting proxy Service: %v", err)
+	}
 }

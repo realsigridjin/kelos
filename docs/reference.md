@@ -211,11 +211,14 @@ A WorkerPool manages a fleet of persistent worker pods backed by a StatefulSet. 
 | `spec.repo` | Git repository URL to clone (HTTPS, git://, or SSH) | Yes |
 | `spec.ref` | Branch, tag, or commit SHA to checkout (defaults to repo's default branch) | No |
 | `spec.secretRef.name` | Secret containing credentials for git auth and `gh` CLI (see [authentication methods](#workspace-authentication) below) | No |
+| `spec.ghproxy` | Enables the workspace-scoped ghproxy when set to `{}`; omitted or `null` disables it | No |
 | `spec.remotes[].name` | Git remote name to add after cloning (must not be `"origin"`) | Yes (per remote) |
 | `spec.remotes[].url` | Git remote URL | Yes (per remote) |
 | `spec.files[].path` | Relative file path inside the repository (e.g., `CLAUDE.md`) | Yes (per file) |
 | `spec.files[].content` | File content to write | Yes (per file) |
 | `spec.setupCommand` | Exec-form command run in `/workspace/repo` after the repo is cloned, the ref is checked out, remotes are configured, and files are written, but before the agent process starts. Runs as the agent UID with all injected env vars; a non-zero exit fails the Task. Use `["sh", "-c", "<script>"]` for shell pipelines (see [Setup Command](#workspace-setup-command) below) | No |
+
+Set `spec.ghproxy: {}` only for Workspaces that should run a workspace-scoped ghproxy. Existing Workspaces that need to keep ghproxy after upgrading must add that field; omitting it removes workspace ghproxy resources.
 
 ### Workspace Setup Command
 

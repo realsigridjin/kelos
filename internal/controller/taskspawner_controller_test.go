@@ -3,11 +3,13 @@ package controller
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -119,6 +121,7 @@ func TestReconcileDeploymentResolvesEffectiveWorkspace(t *testing.T) {
 	require.NoError(t, kelos.AddToScheme(scheme))
 	require.NoError(t, appsv1.AddToScheme(scheme))
 	require.NoError(t, batchv1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
 
 	tests := []struct {
 		name     string
@@ -175,7 +178,8 @@ func TestReconcileDeploymentResolvesEffectiveWorkspace(t *testing.T) {
 					Namespace: "default",
 				},
 				Spec: kelos.WorkspaceSpec{
-					Repo: "https://github.com/example/repo.git",
+					Repo:    "https://github.com/example/repo.git",
+					GHProxy: &kelos.WorkspaceGHProxy{},
 				},
 			}
 			objects := []client.Object{ts, ws}
@@ -208,6 +212,62 @@ func TestReconcileDeploymentResolvesEffectiveWorkspace(t *testing.T) {
 			assert.Contains(t, args, "--gh-proxy-url="+tt.wantURL)
 		})
 	}
+}
+
+func TestReconcileDeploymentRequeuesWhenWorkspaceSecretMissing(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, kelos.AddToScheme(scheme))
+	require.NoError(t, appsv1.AddToScheme(scheme))
+	require.NoError(t, batchv1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+
+	ts := &kelos.TaskSpawner{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "spawner",
+			Namespace: "default",
+		},
+		Spec: kelos.TaskSpawnerSpec{
+			When: kelos.When{
+				GitHubIssues: &kelos.GitHubIssues{},
+			},
+			TaskTemplate: kelos.TaskTemplate{
+				WorkspaceRef: &kelos.WorkspaceReference{Name: "workspace"},
+			},
+		},
+	}
+	ws := &kelos.Workspace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "workspace",
+			Namespace: "default",
+		},
+		Spec: kelos.WorkspaceSpec{
+			Repo: "https://github.com/example/repo.git",
+			SecretRef: &kelos.SecretReference{
+				Name: "github-app-creds",
+			},
+		},
+	}
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&kelos.TaskSpawner{}).
+		WithObjects(ts, ws).
+		Build()
+	r := &TaskSpawnerReconciler{
+		Client:            cl,
+		Scheme:            scheme,
+		DeploymentBuilder: NewDeploymentBuilder(),
+	}
+
+	result, err := r.reconcileDeployment(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "spawner", Namespace: "default"},
+	}, ts, false)
+	require.NoError(t, err)
+	assert.Equal(t, 2*time.Second, result.RequeueAfter)
+
+	var deploy appsv1.Deployment
+	err = cl.Get(context.Background(), types.NamespacedName{Name: "spawner", Namespace: "default"}, &deploy)
+	assert.True(t, apierrors.IsNotFound(err), "expected no Deployment while workspace secret is missing")
 }
 
 func TestReconcileWebhook(t *testing.T) {

@@ -244,6 +244,161 @@ func TestValidateWorkspaceGHProxyRepoOverride(t *testing.T) {
 	}
 }
 
+func TestDeploymentBuilder_GHProxyURL(t *testing.T) {
+	builder := NewDeploymentBuilder()
+	ts := &kelos.TaskSpawner{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-spawner",
+			Namespace: "default",
+		},
+		Spec: kelos.TaskSpawnerSpec{
+			When: kelos.When{
+				GitHubIssues: &kelos.GitHubIssues{},
+			},
+			TaskTemplate: kelos.TaskTemplate{
+				WorkspaceRef: &kelos.WorkspaceReference{Name: "my-workspace"},
+			},
+		},
+	}
+
+	tests := []struct {
+		name        string
+		workspace   *kelos.WorkspaceSpec
+		wantProxy   bool
+		wantRepoArg bool
+	}{
+		{
+			name: "disabled by default",
+			workspace: &kelos.WorkspaceSpec{
+				Repo: "https://github.com/org/repo.git",
+			},
+			wantRepoArg: true,
+		},
+		{
+			name: "configured",
+			workspace: &kelos.WorkspaceSpec{
+				Repo:    "https://github.com/org/repo.git",
+				GHProxy: &kelos.WorkspaceGHProxy{},
+			},
+			wantProxy:   true,
+			wantRepoArg: true,
+		},
+		{
+			name:      "no workspace",
+			workspace: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			deploy := builder.Build(ts, tt.workspace, false)
+			args := deploy.Spec.Template.Spec.Containers[0].Args
+			proxyArg := "--gh-proxy-url=" + WorkspaceGHProxyServiceURL("default", "my-workspace")
+			hasProxyArg := false
+			hasRepoArg := false
+			for _, arg := range args {
+				if arg == proxyArg {
+					hasProxyArg = true
+				}
+				if arg == "--github-repo=repo" {
+					hasRepoArg = true
+				}
+			}
+			if hasProxyArg != tt.wantProxy {
+				t.Fatalf("proxy arg present = %v, want %v; args=%v", hasProxyArg, tt.wantProxy, args)
+			}
+			if hasRepoArg != tt.wantRepoArg {
+				t.Fatalf("repo arg present = %v, want %v; args=%v", hasRepoArg, tt.wantRepoArg, args)
+			}
+		})
+	}
+}
+
+func TestDeploymentBuilder_GitHubTokenWhenGHProxyDisabled(t *testing.T) {
+	builder := NewDeploymentBuilder()
+	ts := &kelos.TaskSpawner{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-spawner",
+			Namespace: "default",
+		},
+		Spec: kelos.TaskSpawnerSpec{
+			When: kelos.When{
+				GitHubIssues: &kelos.GitHubIssues{},
+			},
+			TaskTemplate: kelos.TaskTemplate{
+				WorkspaceRef: &kelos.WorkspaceReference{Name: "my-workspace"},
+			},
+		},
+	}
+
+	tests := []struct {
+		name      string
+		workspace kelos.WorkspaceSpec
+		configure func(*kelos.TaskSpawner)
+		wantToken bool
+	}{
+		{
+			name: "disabled proxy injects token for direct reads",
+			workspace: kelos.WorkspaceSpec{
+				Repo: "https://github.com/org/repo.git",
+				SecretRef: &kelos.SecretReference{
+					Name: "github-token",
+				},
+			},
+			wantToken: true,
+		},
+		{
+			name: "configured proxy does not inject token for discovery-only source",
+			workspace: kelos.WorkspaceSpec{
+				Repo:    "https://github.com/org/repo.git",
+				GHProxy: &kelos.WorkspaceGHProxy{},
+				SecretRef: &kelos.SecretReference{
+					Name: "github-token",
+				},
+			},
+			wantToken: false,
+		},
+		{
+			name: "configured proxy injects token when reporting is enabled",
+			workspace: kelos.WorkspaceSpec{
+				Repo:    "https://github.com/org/repo.git",
+				GHProxy: &kelos.WorkspaceGHProxy{},
+				SecretRef: &kelos.SecretReference{
+					Name: "github-token",
+				},
+			},
+			configure: enableGitHubReporting,
+			wantToken: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ts := ts.DeepCopy()
+			if tt.configure != nil {
+				tt.configure(ts)
+			}
+			deploy := builder.Build(ts, &tt.workspace, false)
+			spawner := deploy.Spec.Template.Spec.Containers[0]
+			hasToken := false
+			for _, env := range spawner.Env {
+				if env.Name == "GITHUB_TOKEN" {
+					hasToken = true
+					if env.ValueFrom == nil || env.ValueFrom.SecretKeyRef == nil {
+						t.Fatalf("GITHUB_TOKEN does not reference a secret: %#v", env)
+					}
+					if env.ValueFrom.SecretKeyRef.Name != "github-token" {
+						t.Fatalf("GITHUB_TOKEN secret = %q, want github-token", env.ValueFrom.SecretKeyRef.Name)
+					}
+				}
+			}
+			if hasToken != tt.wantToken {
+				t.Fatalf("GITHUB_TOKEN present = %v, want %v; env=%v", hasToken, tt.wantToken, spawner.Env)
+			}
+		})
+	}
+}
+
 func enableGitHubReporting(ts *kelos.TaskSpawner) {
 	if ts.Spec.When.GitHubIssues != nil {
 		ts.Spec.When.GitHubIssues.Reporting = &kelos.GitHubReporting{Enabled: true}
