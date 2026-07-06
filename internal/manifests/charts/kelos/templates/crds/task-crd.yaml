@@ -21159,7 +21159,7 @@ spec:
                     x-kubernetes-int-or-string: true
                     x-kubernetes-validations:
                     - message: costUSD must be non-negative
-                      rule: '!quantity(self).isLessThan(quantity(''0''))'
+                      rule: 'type(self) == int ? self >= 0 : !quantity(self).isLessThan(quantity(''0''))'
                   inputTokens:
                     description: InputTokens is the number of input tokens consumed.
                     format: int64

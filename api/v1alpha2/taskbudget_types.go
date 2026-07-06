@@ -52,7 +52,7 @@ type TaskBudgetSpec struct {
 
 	// MaxCostUSD is the maximum observed completed-task cost admitted in the period.
 	// +optional
-	// +kubebuilder:validation:XValidation:rule="!quantity(self).isLessThan(quantity('0'))",message="maxCostUSD must be non-negative"
+	// +kubebuilder:validation:XValidation:rule="type(self) == int ? self >= 0 : !quantity(self).isLessThan(quantity('0'))",message="maxCostUSD must be non-negative"
 	MaxCostUSD *resource.Quantity `json:"maxCostUSD,omitempty"`
 
 	// MaxInputTokens is the maximum observed input tokens admitted in the period.

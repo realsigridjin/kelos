@@ -173,18 +173,26 @@ func TestTaskBudgetReconciler_RefreshesUsed(t *testing.T) {
 
 func TestTaskBudgetReconciler_EnqueueBudgetsForRecord(t *testing.T) {
 	scheme := newWorkerPoolTestScheme()
-	b1 := &kelos.TaskBudget{ObjectMeta: metav1.ObjectMeta{Name: "b1", Namespace: "ns1"}}
-	b2 := &kelos.TaskBudget{ObjectMeta: metav1.ObjectMeta{Name: "b2", Namespace: "ns1"}}
-	bOther := &kelos.TaskBudget{ObjectMeta: metav1.ObjectMeta{Name: "b3", Namespace: "ns2"}}
+	// Empty selector matches all records in the namespace.
+	bAll := &kelos.TaskBudget{ObjectMeta: metav1.ObjectMeta{Name: "b-all", Namespace: "ns1"}}
+	// Selector matches the record's labels.
+	bMatch := &kelos.TaskBudget{
+		ObjectMeta: metav1.ObjectMeta{Name: "b-match", Namespace: "ns1"},
+		Spec:       kelos.TaskBudgetSpec{TaskSelector: metav1.LabelSelector{MatchLabels: map[string]string{"team": "platform"}}},
+	}
+	// Selector does not match the record's labels → must be excluded.
+	bNoMatch := &kelos.TaskBudget{
+		ObjectMeta: metav1.ObjectMeta{Name: "b-nomatch", Namespace: "ns1"},
+		Spec:       kelos.TaskBudgetSpec{TaskSelector: metav1.LabelSelector{MatchLabels: map[string]string{"team": "other"}}},
+	}
+	// Different namespace → must be excluded.
+	bOther := &kelos.TaskBudget{ObjectMeta: metav1.ObjectMeta{Name: "b-other", Namespace: "ns2"}}
 
-	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(b1, b2, bOther).Build()
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(bAll, bMatch, bNoMatch, bOther).Build()
 	r := &TaskBudgetReconciler{Client: cl, Scheme: scheme}
 
-	record := &kelos.TaskRecord{ObjectMeta: metav1.ObjectMeta{Name: "r1", Namespace: "ns1"}}
+	record := &kelos.TaskRecord{ObjectMeta: metav1.ObjectMeta{Name: "r1", Namespace: "ns1", Labels: map[string]string{"team": "platform"}}}
 	reqs := r.enqueueBudgetsForRecord(context.Background(), record)
-	if len(reqs) != 2 {
-		t.Fatalf("got %d requests, want 2 (only ns1 budgets)", len(reqs))
-	}
 	names := map[string]bool{}
 	for _, req := range reqs {
 		if req.Namespace != "ns1" {
@@ -192,8 +200,14 @@ func TestTaskBudgetReconciler_EnqueueBudgetsForRecord(t *testing.T) {
 		}
 		names[req.Name] = true
 	}
-	if !names["b1"] || !names["b2"] {
+	if len(reqs) != 2 {
+		t.Fatalf("got %d requests %v, want 2 (b-all and b-match)", len(reqs), names)
+	}
+	if !names["b-all"] || !names["b-match"] {
 		t.Errorf("missing expected budgets, got %v", names)
+	}
+	if names["b-nomatch"] {
+		t.Errorf("non-matching budget was enqueued: %v", names)
 	}
 }
 

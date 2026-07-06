@@ -45,8 +45,15 @@ func (r *TaskRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	if record.Spec.TTLSecondsAfterCompletion == nil || record.Spec.CompletionTime == nil {
-		// Retained indefinitely.
+	if record.Spec.TTLSecondsAfterCompletion == nil {
+		// No TTL configured: retained indefinitely.
+		return ctrl.Result{}, nil
+	}
+	if record.Spec.CompletionTime == nil {
+		// A TTL was requested but there is no completion time to anchor it to, so
+		// the record can never be garbage-collected. Surface the malformed state
+		// rather than silently retaining it forever.
+		logger.Info("TaskRecord has a TTL but no completionTime; it will not be garbage-collected", "record", record.Name)
 		return ctrl.Result{}, nil
 	}
 

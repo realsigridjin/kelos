@@ -6,6 +6,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 )
@@ -124,5 +126,30 @@ var _ = Describe("TaskBudget API validation", func() {
 			},
 		}
 		Expect(k8sClient.Create(ctx, budget)).ShouldNot(Succeed())
+	})
+
+	// resource.Quantity always marshals to a quoted string, so the typed client
+	// cannot exercise the integer arm of the maxCostUSD int-or-string field.
+	// Build the object unstructured with a bare integer to hit the CEL rule the
+	// way a user writing `maxCostUSD: 5` (unquoted) in YAML would.
+	budgetWithIntCost := func(name string, cost int64) *unstructured.Unstructured {
+		obj := &unstructured.Unstructured{}
+		obj.SetGroupVersionKind(schema.GroupVersionKind{Group: "kelos.dev", Version: "v1alpha2", Kind: "TaskBudget"})
+		obj.SetName(name)
+		obj.SetNamespace(ns)
+		obj.Object["spec"] = map[string]interface{}{
+			"taskSelector": map[string]interface{}{"matchLabels": map[string]interface{}{"team": "platform"}},
+			"period":       map[string]interface{}{"type": "Daily"},
+			"maxCostUSD":   cost,
+		}
+		return obj
+	}
+
+	It("accepts an integer maxCostUSD", func() {
+		Expect(k8sClient.Create(ctx, budgetWithIntCost("int-cost", 5))).Should(Succeed())
+	})
+
+	It("rejects a negative integer maxCostUSD", func() {
+		Expect(k8sClient.Create(ctx, budgetWithIntCost("negative-int-cost", -5))).ShouldNot(Succeed())
 	})
 })

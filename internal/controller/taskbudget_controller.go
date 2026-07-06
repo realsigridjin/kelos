@@ -5,6 +5,7 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -98,8 +99,11 @@ func (r *TaskBudgetReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-// enqueueBudgetsForRecord enqueues all TaskBudgets in the TaskRecord's namespace
-// so their usage is recomputed when a record is created, updated, or deleted.
+// enqueueBudgetsForRecord enqueues the TaskBudgets in the TaskRecord's namespace
+// whose taskSelector matches the record's labels, so only budgets whose usage a
+// record actually contributes to are recomputed when it is created, updated, or
+// deleted. Budgets with an unparsable selector are skipped (they are rejected at
+// admission, so this is unreachable for stored budgets).
 func (r *TaskBudgetReconciler) enqueueBudgetsForRecord(ctx context.Context, obj client.Object) []reconcile.Request {
 	record, ok := obj.(*kelos.TaskRecord)
 	if !ok {
@@ -111,9 +115,17 @@ func (r *TaskBudgetReconciler) enqueueBudgetsForRecord(ctx context.Context, obj 
 		return nil
 	}
 
+	recordLabels := labels.Set(record.Labels)
 	requests := make([]reconcile.Request, 0, len(budgetList.Items))
 	for i := range budgetList.Items {
 		b := &budgetList.Items[i]
+		selector, err := metav1.LabelSelectorAsSelector(&b.Spec.TaskSelector)
+		if err != nil {
+			continue
+		}
+		if !selector.Matches(recordLabels) {
+			continue
+		}
 		requests = append(requests, reconcile.Request{
 			NamespacedName: client.ObjectKeyFromObject(b),
 		})
