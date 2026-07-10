@@ -1,0 +1,764 @@
+package sessionruntime
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strconv"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+)
+
+type fakeProvider struct {
+	mu        sync.Mutex
+	prompts   []string
+	resume    chan struct{}
+	closed    bool
+	done      chan struct{}
+	doneOnce  sync.Once
+	closeOnce sync.Once
+}
+
+type inputProvider struct {
+	answers   chan map[string][]string
+	done      chan struct{}
+	closeOnce sync.Once
+}
+
+func (p *inputProvider) RunTurn(ctx context.Context, _ string, sink EventSink) error {
+	answers, err := sink.RequestInput(ctx, InputRequest{
+		ID: "input-test",
+		Questions: []InputQuestion{
+			{ID: "first", Question: "Choose the first value"},
+			{ID: "second", Question: "Choose the second value", MultiSelect: true},
+		},
+	})
+	if err != nil {
+		return err
+	}
+	p.answers <- answers
+	sink.Emit(Event{Type: EventAssistantMessage, Text: "answers received"})
+	return nil
+}
+
+func (p *inputProvider) Interrupt(context.Context) error { return ErrNoActiveTurn }
+func (p *inputProvider) Done() <-chan struct{}           { return p.done }
+func (p *inputProvider) Close() error {
+	p.closeOnce.Do(func() { close(p.done) })
+	return nil
+}
+
+type interruptProvider struct {
+	started     chan struct{}
+	interrupted chan struct{}
+	done        chan struct{}
+	startOnce   sync.Once
+	stopOnce    sync.Once
+	closeOnce   sync.Once
+}
+
+func (p *interruptProvider) RunTurn(context.Context, string, EventSink) error {
+	p.startOnce.Do(func() { close(p.started) })
+	<-p.interrupted
+	return ErrTurnInterrupted
+}
+
+func (p *interruptProvider) Interrupt(context.Context) error {
+	p.stopOnce.Do(func() { close(p.interrupted) })
+	return nil
+}
+
+func (p *interruptProvider) Done() <-chan struct{} { return p.done }
+func (p *interruptProvider) Close() error {
+	p.closeOnce.Do(func() { close(p.done) })
+	return nil
+}
+
+func (p *fakeProvider) RunTurn(ctx context.Context, prompt string, sink EventSink) error {
+	p.mu.Lock()
+	p.prompts = append(p.prompts, prompt)
+	p.mu.Unlock()
+	sink.Emit(Event{Type: EventAssistantDelta, Text: "working"})
+	if p.resume != nil {
+		select {
+		case <-p.resume:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	sink.Emit(Event{Type: EventAssistantDelta, Text: " done"})
+	return nil
+}
+
+func (p *fakeProvider) Interrupt(context.Context) error {
+	return ErrNoActiveTurn
+}
+
+func (p *fakeProvider) Done() <-chan struct{} {
+	p.doneOnce.Do(func() { p.done = make(chan struct{}) })
+	return p.done
+}
+
+func (p *fakeProvider) Close() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.closed = true
+	p.closeOnce.Do(func() {
+		p.doneOnce.Do(func() { p.done = make(chan struct{}) })
+		close(p.done)
+	})
+	return nil
+}
+
+func TestServerSharesConversationAcrossConnections(t *testing.T) {
+	stateDir := shortRuntimeTempDir(t)
+	journal := NewJournal()
+	provider := &fakeProvider{resume: make(chan struct{})}
+	config := Config{
+		SocketPath: filepath.Join(stateDir, "runtime.sock"),
+		StateDir:   stateDir,
+		WorkingDir: stateDir,
+		AgentType:  "fake",
+	}
+	server := NewServer(config, journal, provider)
+	ctx, cancel := context.WithCancel(context.Background())
+	serveDone := make(chan error, 1)
+	go func() { serveDone <- server.Serve(ctx) }()
+	waitForRuntime(t, config.SocketPath)
+
+	connection, err := net.Dial("unix", config.SocketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoder := json.NewEncoder(connection)
+	decoder := json.NewDecoder(connection)
+	if err := encoder.Encode(ClientRequest{Type: "subscribe"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := encoder.Encode(ClientRequest{Type: "message", Text: "hello"}); err != nil {
+		t.Fatal(err)
+	}
+
+	var first []Event
+	for {
+		var event Event
+		if err := decoder.Decode(&event); err != nil {
+			t.Fatalf("decoding first connection event: %v", err)
+		}
+		first = append(first, event)
+		if event.Type == EventAssistantDelta && event.Text == "working" {
+			break
+		}
+	}
+	_ = connection.Close()
+	assertEventTypes(t, first, EventUserMessage, EventTurnStarted, EventAssistantDelta)
+
+	second, err := net.Dial("unix", config.SocketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+	if err := json.NewEncoder(second).Encode(ClientRequest{Type: "subscribe"}); err != nil {
+		t.Fatal(err)
+	}
+	secondDecoder := json.NewDecoder(second)
+	var retained []Event
+	for {
+		var event Event
+		if err := secondDecoder.Decode(&event); err != nil {
+			t.Fatalf("decoding retained event: %v", err)
+		}
+		if event.Type == EventHistoryEnd {
+			break
+		}
+		retained = append(retained, event)
+	}
+	assertEventTypes(t, retained, EventUserMessage, EventTurnStarted, EventAssistantDelta)
+	close(provider.resume)
+	var resumed []Event
+	for {
+		var event Event
+		if err := secondDecoder.Decode(&event); err != nil {
+			t.Fatalf("decoding resumed connection event: %v", err)
+		}
+		resumed = append(resumed, event)
+		if event.Type == EventTurnCompleted {
+			break
+		}
+	}
+	assertEventTypes(t, resumed, EventAssistantDelta, EventTurnCompleted)
+
+	provider.mu.Lock()
+	if len(provider.prompts) != 1 || provider.prompts[0] != "hello" {
+		t.Fatalf("provider prompts = %v, want [hello]", provider.prompts)
+	}
+	provider.mu.Unlock()
+
+	cancel()
+	select {
+	case err := <-serveDone:
+		if err != nil {
+			t.Fatalf("Serve() error = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Serve() did not stop")
+	}
+}
+
+func TestServerSharesInputRequestAcrossConnections(t *testing.T) {
+	stateDir := shortRuntimeTempDir(t)
+	journal := NewJournal()
+	provider := &inputProvider{answers: make(chan map[string][]string, 1), done: make(chan struct{})}
+	server := NewServer(Config{SocketPath: filepath.Join(stateDir, "runtime.sock")}, journal, provider)
+	ctx, cancel := context.WithCancel(context.Background())
+	serveDone := make(chan error, 1)
+	go func() { serveDone <- server.Serve(ctx) }()
+	waitForRuntime(t, server.config.SocketPath)
+
+	first, err := net.Dial("unix", server.config.SocketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstEncoder := json.NewEncoder(first)
+	firstDecoder := json.NewDecoder(first)
+	if err := firstEncoder.Encode(ClientRequest{Type: "subscribe"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := firstEncoder.Encode(ClientRequest{Type: "message", Text: "ask me"}); err != nil {
+		t.Fatal(err)
+	}
+	for {
+		var event Event
+		if err := firstDecoder.Decode(&event); err != nil {
+			t.Fatal(err)
+		}
+		if event.Type == EventInputRequested {
+			if event.InputID != "input-test" || len(event.Questions) != 2 {
+				t.Fatalf("input request = %#v", event)
+			}
+			break
+		}
+	}
+	_ = first.Close()
+
+	second, err := net.Dial("unix", server.config.SocketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+	secondEncoder := json.NewEncoder(second)
+	secondDecoder := json.NewDecoder(second)
+	if err := secondEncoder.Encode(ClientRequest{Type: "subscribe"}); err != nil {
+		t.Fatal(err)
+	}
+	var retained []Event
+	for {
+		var event Event
+		if err := secondDecoder.Decode(&event); err != nil {
+			t.Fatal(err)
+		}
+		if event.Type == EventHistoryEnd {
+			break
+		}
+		retained = append(retained, event)
+	}
+	assertEventTypes(t, retained, EventInputRequested)
+	if err := secondEncoder.Encode(ClientRequest{Type: "input", InputID: "input-test", Answers: map[string][]string{"first": {"one"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := secondEncoder.Encode(ClientRequest{Type: "input", InputID: "input-test", Answers: map[string][]string{"second": {"two", "three"}}}); err != nil {
+		t.Fatal(err)
+	}
+	var resumed []Event
+	for {
+		var event Event
+		if err := secondDecoder.Decode(&event); err != nil {
+			t.Fatal(err)
+		}
+		resumed = append(resumed, event)
+		if event.Type == EventTurnCompleted {
+			break
+		}
+	}
+	assertEventTypes(t, resumed, EventInputResolved, EventAssistantMessage, EventTurnCompleted)
+	select {
+	case answers := <-provider.answers:
+		if !reflect.DeepEqual(answers, map[string][]string{"first": {"one"}, "second": {"two", "three"}}) {
+			t.Fatalf("provider answers = %#v", answers)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("provider did not receive answers")
+	}
+
+	cancel()
+	if err := <-serveDone; err != nil {
+		t.Fatalf("Serve() error = %v", err)
+	}
+}
+
+func TestServerInterruptsActiveTurn(t *testing.T) {
+	stateDir := shortRuntimeTempDir(t)
+	journal := NewJournal()
+	provider := &interruptProvider{
+		started:     make(chan struct{}),
+		interrupted: make(chan struct{}),
+		done:        make(chan struct{}),
+	}
+	server := NewServer(Config{SocketPath: filepath.Join(stateDir, "runtime.sock")}, journal, provider)
+	ctx, cancel := context.WithCancel(context.Background())
+	serveDone := make(chan error, 1)
+	go func() { serveDone <- server.Serve(ctx) }()
+	waitForRuntime(t, server.config.SocketPath)
+
+	connection, err := net.Dial("unix", server.config.SocketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	encoder := json.NewEncoder(connection)
+	decoder := json.NewDecoder(connection)
+	if err := encoder.Encode(ClientRequest{Type: "subscribe"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := encoder.Encode(ClientRequest{Type: "message", Text: "work"}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-provider.started:
+	case <-time.After(time.Second):
+		t.Fatal("provider turn did not start")
+	}
+	if err := encoder.Encode(ClientRequest{Type: "interrupt"}); err != nil {
+		t.Fatal(err)
+	}
+	var events []Event
+	for {
+		var event Event
+		if err := decoder.Decode(&event); err != nil {
+			t.Fatal(err)
+		}
+		events = append(events, event)
+		if event.Type == EventTurnCompleted {
+			if event.Status != "interrupted" {
+				t.Fatalf("turn completion = %#v", event)
+			}
+			break
+		}
+	}
+	assertEventTypes(t, events, EventTurnInterrupting, EventTurnCompleted)
+
+	cancel()
+	if err := <-serveDone; err != nil {
+		t.Fatalf("Serve() error = %v", err)
+	}
+}
+
+func TestInputRequestCancellationResolvesEvent(t *testing.T) {
+	journal := NewJournal()
+	defer journal.Close()
+	server := NewServer(Config{}, journal, &fakeProvider{})
+	_, events, _, stop := journal.Subscribe(0)
+	defer stop()
+	ctx, cancel := context.WithCancel(context.Background())
+	requestDone := make(chan error, 1)
+	go func() {
+		_, err := (&turnSink{server: server, turnID: "turn-1"}).RequestInput(ctx, InputRequest{
+			ID:        "input-cancel",
+			Questions: []InputQuestion{{ID: "question-1", Question: "Continue?"}},
+		})
+		requestDone <- err
+	}()
+	if event := <-events; event.Type != EventInputRequested {
+		t.Fatalf("first event = %#v", event)
+	}
+	cancel()
+	if err := <-requestDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("RequestInput() error = %v", err)
+	}
+	if event := <-events; event.Type != EventInputResolved || event.Status != "cancelled" {
+		t.Fatalf("resolved event = %#v", event)
+	}
+}
+
+func TestJournalBoundsRetainedHistory(t *testing.T) {
+	journal := newJournal(4)
+	defer journal.Close()
+	for i := 0; i < 10; i++ {
+		journal.Append(Event{Type: EventAssistantDelta, Text: strconv.Itoa(i)})
+	}
+	retained, _, _, cancel := journal.Subscribe(0)
+	defer cancel()
+	if len(retained) != 4 || retained[0].Text != "6" || retained[3].Text != "9" {
+		t.Fatalf("retained events = %#v", retained)
+	}
+}
+
+func TestJournalSignalsSubscriberOverflow(t *testing.T) {
+	journal := NewJournal()
+	defer journal.Close()
+	_, _, overflow, cancel := journal.Subscribe(0)
+	defer cancel()
+	for i := 0; i < 257; i++ {
+		journal.Append(Event{Type: EventAssistantDelta, Text: "event"})
+	}
+	select {
+	case <-overflow:
+	default:
+		t.Fatal("subscriber overflow was not signaled")
+	}
+}
+
+func TestServerStopsWhenProviderStops(t *testing.T) {
+	stateDir := shortRuntimeTempDir(t)
+	journal := NewJournal()
+	provider := &fakeProvider{}
+	server := NewServer(Config{SocketPath: filepath.Join(stateDir, "runtime.sock")}, journal, provider)
+	serveDone := make(chan error, 1)
+	go func() { serveDone <- server.Serve(t.Context()) }()
+	waitForRuntime(t, server.config.SocketPath)
+	if err := provider.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-serveDone:
+		if err == nil || !strings.Contains(err.Error(), "provider stopped") {
+			t.Fatalf("Serve() error = %v, want provider stopped", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Serve() stayed ready after the provider stopped")
+	}
+}
+
+func TestClaudeEventMapping(t *testing.T) {
+	provider := &ClaudeProvider{}
+	sink := &collectingSink{}
+	lines := []string{
+		`{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"hello"}}}`,
+		`{"type":"stream_event","event":{"type":"content_block_start","content_block":{"type":"tool_use","id":"tool-1","name":"Bash","input":{}}}}`,
+		`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tool-1","content":"ok"}]}}`,
+		`{"type":"result","subtype":"success","is_error":false,"result":"done","session_id":"session-1"}`,
+	}
+	for _, line := range lines {
+		result, err := provider.handleClaudeLine([]byte(line), sink)
+		if err != nil {
+			t.Fatalf("handleClaudeLine() error = %v", err)
+		}
+		if result != nil && result.error != "" {
+			t.Fatalf("handleClaudeLine() result error = %q", result.error)
+		}
+	}
+	assertEventTypes(t, sink.events, EventAssistantDelta, EventToolStarted, EventToolCompleted)
+}
+
+func TestClaudeInputResponse(t *testing.T) {
+	reader, writer := io.Pipe()
+	sink := &inputAnswerSink{answers: map[string][]string{"question-1": {"PostgreSQL"}}}
+	provider := &ClaudeProvider{
+		ctx:        context.Background(),
+		stdin:      writer,
+		sessionID:  "session-1",
+		activeSink: sink,
+	}
+	done := make(chan struct{})
+	go func() {
+		provider.handleControlRequest([]byte(`{"type":"control_request","request_id":"request-2","request":{"subtype":"can_use_tool","tool_name":"AskUserQuestion","tool_use_id":"tool-2","input":{"questions":[{"question":"Which database?","header":"Database","multiSelect":false,"options":[{"label":"PostgreSQL","description":"Relational database"},{"label":"SQLite","description":"Embedded database"}]}]}}}`))
+		close(done)
+	}()
+	var response struct {
+		Response struct {
+			Response struct {
+				Behavior     string `json:"behavior"`
+				UpdatedInput struct {
+					Answers map[string]string `json:"answers"`
+				} `json:"updatedInput"`
+			} `json:"response"`
+		} `json:"response"`
+	}
+	if err := json.NewDecoder(reader).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	<-done
+	if response.Response.Response.Behavior != "allow" || response.Response.Response.UpdatedInput.Answers["Which database?"] != "PostgreSQL" {
+		t.Fatalf("Claude input response = %#v", response)
+	}
+	if len(sink.request.Questions) != 1 || sink.request.Questions[0].ID != "question-1" {
+		t.Fatalf("Claude input request = %#v", sink.request)
+	}
+}
+
+func TestWriteClaudeSessionID(t *testing.T) {
+	stateDir := t.TempDir()
+	if err := writeClaudeSessionID(stateDir, "session-1"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(stateDir, "claude-session-id"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "session-1\n" {
+		t.Fatalf("Claude session ID file = %q, want %q", data, "session-1\\n")
+	}
+}
+
+func TestClaudeInterruptUsesControlProtocol(t *testing.T) {
+	reader, writer := io.Pipe()
+	interactionCtx, interactionCancel := context.WithCancel(context.Background())
+	provider := &ClaudeProvider{
+		stdin:             writer,
+		turnDone:          make(chan claudeTurnResult, 1),
+		interactionCtx:    interactionCtx,
+		interactionCancel: interactionCancel,
+		controlPending:    map[string]chan error{},
+		done:              make(chan struct{}),
+	}
+	interruptDone := make(chan error, 1)
+	go func() { interruptDone <- provider.Interrupt(t.Context()) }()
+	var request struct {
+		RequestID string `json:"request_id"`
+		Request   struct {
+			Subtype string `json:"subtype"`
+		} `json:"request"`
+	}
+	if err := json.NewDecoder(reader).Decode(&request); err != nil {
+		t.Fatal(err)
+	}
+	if request.Request.Subtype != "interrupt" {
+		t.Fatalf("Claude control request = %#v", request)
+	}
+	provider.handleControlResponse([]byte(fmt.Sprintf(`{"type":"control_response","response":{"subtype":"success","request_id":%q,"response":{}}}`, request.RequestID)))
+	if err := <-interruptDone; err != nil {
+		t.Fatalf("Interrupt() error = %v", err)
+	}
+	select {
+	case <-interactionCtx.Done():
+	default:
+		t.Fatal("Claude interaction context was not cancelled")
+	}
+}
+
+func TestCodexEventMapping(t *testing.T) {
+	sink := &collectingSink{}
+	done := make(chan codexTurnResult, 1)
+	provider := &CodexProvider{activeSink: sink, turnDone: done}
+	provider.handleNotification("item/agentMessage/delta", json.RawMessage(`{"delta":"hello"}`))
+	provider.handleNotification("item/started", json.RawMessage(`{"item":{"type":"commandExecution","id":"tool-1","command":"make test"}}`))
+	provider.handleNotification("item/completed", json.RawMessage(`{"item":{"type":"commandExecution","id":"tool-1","command":"make test","status":"completed"}}`))
+	provider.handleNotification("turn/diff/updated", json.RawMessage(`{"diff":"+updated"}`))
+	provider.handleNotification("turn/completed", json.RawMessage(`{"turn":{"status":"completed"}}`))
+	assertEventTypes(t, sink.events, EventAssistantDelta, EventToolStarted, EventToolCompleted, EventFileDiff)
+	select {
+	case result := <-done:
+		if result.status != "completed" || result.error != "" {
+			t.Fatalf("Codex turn result = %#v", result)
+		}
+	default:
+		t.Fatal("Codex turn completion was not delivered")
+	}
+}
+
+func TestCodexMcpElicitationUsesProtocolResponse(t *testing.T) {
+	reader, writer := io.Pipe()
+	sink := &collectingSink{}
+	provider := &CodexProvider{stdin: writer, activeSink: sink}
+	done := make(chan struct{})
+	go func() {
+		provider.handleServerRequest(json.RawMessage(`2`), "mcpServer/elicitation/request", json.RawMessage(`{"message":"Choose a value"}`))
+		close(done)
+	}()
+	var response struct {
+		ID     int `json:"id"`
+		Result struct {
+			Action string `json:"action"`
+		} `json:"result"`
+	}
+	if err := json.NewDecoder(reader).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	<-done
+	if response.ID != 2 || response.Result.Action != "decline" {
+		t.Fatalf("Codex elicitation response = %#v", response)
+	}
+	assertEventTypes(t, sink.events, EventError)
+}
+
+func TestCodexInputResponse(t *testing.T) {
+	reader, writer := io.Pipe()
+	sink := &inputAnswerSink{answers: map[string][]string{"database": {"PostgreSQL"}}}
+	provider := &CodexProvider{ctx: context.Background(), stdin: writer, activeSink: sink}
+	done := make(chan struct{})
+	go func() {
+		provider.handleServerRequest(json.RawMessage(`3`), "item/tool/requestUserInput", json.RawMessage(`{"questions":[{"id":"database","header":"Database","question":"Which database?","options":[{"label":"PostgreSQL","description":"Relational database"}]}]}`))
+		close(done)
+	}()
+	var response struct {
+		ID     int `json:"id"`
+		Result struct {
+			Answers map[string]struct {
+				Answers []string `json:"answers"`
+			} `json:"answers"`
+		} `json:"result"`
+	}
+	if err := json.NewDecoder(reader).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	<-done
+	if response.ID != 3 || !reflect.DeepEqual(response.Result.Answers["database"].Answers, []string{"PostgreSQL"}) {
+		t.Fatalf("Codex input response = %#v", response)
+	}
+	if len(sink.request.Questions) != 1 || sink.request.Questions[0].ID != "database" {
+		t.Fatalf("Codex input request = %#v", sink.request)
+	}
+}
+
+func TestCodexInterruptUsesActiveTurn(t *testing.T) {
+	reader, writer := io.Pipe()
+	interactionCtx, interactionCancel := context.WithCancel(context.Background())
+	provider := &CodexProvider{
+		ctx:               context.Background(),
+		stdin:             writer,
+		pending:           map[string]chan codexResponse{},
+		threadID:          "thread-1",
+		activeTurn:        "turn-1",
+		interactionCtx:    interactionCtx,
+		interactionCancel: interactionCancel,
+		done:              make(chan struct{}),
+	}
+	interruptDone := make(chan error, 1)
+	go func() { interruptDone <- provider.Interrupt(t.Context()) }()
+	var request struct {
+		ID     int64  `json:"id"`
+		Method string `json:"method"`
+		Params struct {
+			ThreadID string `json:"threadId"`
+			TurnID   string `json:"turnId"`
+		} `json:"params"`
+	}
+	if err := json.NewDecoder(reader).Decode(&request); err != nil {
+		t.Fatal(err)
+	}
+	if request.Method != "turn/interrupt" || request.Params.ThreadID != "thread-1" || request.Params.TurnID != "turn-1" {
+		t.Fatalf("Codex interrupt request = %#v", request)
+	}
+	provider.pendingMu.Lock()
+	pending := provider.pending[strconv.FormatInt(request.ID, 10)]
+	provider.pendingMu.Unlock()
+	pending <- codexResponse{Result: json.RawMessage(`{}`)}
+	if err := <-interruptDone; err != nil {
+		t.Fatalf("Interrupt() error = %v", err)
+	}
+	select {
+	case <-interactionCtx.Done():
+	default:
+		t.Fatal("Codex interaction context was not cancelled")
+	}
+}
+
+func TestCodexOpenThreadReturnsResumeFailure(t *testing.T) {
+	stateDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(stateDir, "codex-thread-id"), []byte("thread-1\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	reader, writer := io.Pipe()
+	provider := &CodexProvider{
+		config:  ProviderConfig{StateDir: stateDir},
+		ctx:     context.Background(),
+		stdin:   writer,
+		pending: map[string]chan codexResponse{},
+		done:    make(chan struct{}),
+	}
+	requestDone := make(chan error, 1)
+	go func() {
+		var request struct {
+			ID     int64  `json:"id"`
+			Method string `json:"method"`
+		}
+		if err := json.NewDecoder(reader).Decode(&request); err != nil {
+			requestDone <- err
+			return
+		}
+		if request.Method != "thread/resume" {
+			requestDone <- fmt.Errorf("method = %q, want thread/resume", request.Method)
+			return
+		}
+		var response codexResponse
+		if err := json.Unmarshal([]byte(`{"error":{"code":-32000,"message":"thread data missing"}}`), &response); err != nil {
+			requestDone <- err
+			return
+		}
+		provider.pendingMu.Lock()
+		pending := provider.pending[strconv.FormatInt(request.ID, 10)]
+		provider.pendingMu.Unlock()
+		pending <- response
+		requestDone <- nil
+	}()
+	err := provider.openThread(t.Context())
+	if requestErr := <-requestDone; requestErr != nil {
+		t.Fatal(requestErr)
+	}
+	if err == nil || !strings.Contains(err.Error(), "resuming Codex thread") {
+		t.Fatalf("openThread() error = %v", err)
+	}
+}
+
+type collectingSink struct {
+	events []Event
+}
+
+type inputAnswerSink struct {
+	answers map[string][]string
+	request InputRequest
+}
+
+func (s *inputAnswerSink) Emit(Event) {}
+func (s *inputAnswerSink) RequestInput(_ context.Context, request InputRequest) (map[string][]string, error) {
+	s.request = request
+	return s.answers, nil
+}
+
+func (s *collectingSink) Emit(event Event) { s.events = append(s.events, event) }
+func (s *collectingSink) RequestInput(context.Context, InputRequest) (map[string][]string, error) {
+	return nil, ErrInputCancelled
+}
+
+func waitForRuntime(t *testing.T, socketPath string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if Health(socketPath) == nil {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("Session runtime did not listen on %s", socketPath)
+}
+
+func assertEventTypes(t *testing.T, events []Event, wanted ...string) {
+	t.Helper()
+	found := map[string]bool{}
+	for _, event := range events {
+		found[event.Type] = true
+	}
+	for _, eventType := range wanted {
+		if !found[eventType] {
+			t.Errorf("events did not contain %q: %#v", eventType, events)
+		}
+	}
+}
+
+func shortRuntimeTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "ks-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}

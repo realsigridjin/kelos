@@ -86,6 +86,7 @@ NAMESPACE=kelos-system
 
 for crd in \
   agentconfigs.kelos.dev \
+  sessions.kelos.dev \
   tasks.kelos.dev \
   taskbudgets.kelos.dev \
   taskrecords.kelos.dev \
@@ -166,6 +167,36 @@ kubectl label secret codex-credentials \
 The controller watches Secrets labeled `kelos.dev/codex-oauth-refresh=true` and manages a dedicated CronJob for each Secret that has a non-empty `CODEX_AUTH_JSON` key. Each CronJob runs in the target Secret namespace with access limited to that Secret, refreshes that bundle through the endpoint, and updates only the `CODEX_AUTH_JSON` key. Removing the label or deleting the Secret removes the managed refresh resources. Secrets without `CODEX_AUTH_JSON`, API-key credentials, and OAuth bundles without a `refresh_token` are skipped. Externally managed Secrets, such as ExternalSecrets, Vault-synced Secrets, or sealed-secrets, will overwrite the refreshed value on their next sync and are not supported.
 
 If `CODEX_AUTH_JSON` does not include `client_id` (top-level or `tokens.client_id`), Kelos uses OpenAI's public Codex OAuth client id `app_EMoamEEZ73f0CkXaXp7hrann` as the fallback for token refresh.
+
+## Session Web Chat
+
+The shared Session server serves the web application and bridges each chat to
+its Session Pod through Kubernetes exec. It is disabled by default and requires
+a non-empty static token in an existing Secret:
+
+```bash
+kubectl create secret generic kelos-session-auth \
+  --from-literal=token='replace-with-a-long-random-token' \
+  -n kelos-system
+
+helm upgrade kelos oci://ghcr.io/kelos-dev/charts/kelos \
+  -n kelos-system \
+  --set sessionServer.enabled=true \
+  --set sessionServer.secretName=kelos-session-auth
+```
+
+The default Service is cluster-internal. For local access:
+
+```bash
+kubectl port-forward -n kelos-system service/kelos-session-server 8080:80
+```
+
+Then open `http://localhost:8080` and enter the token. The token represents one
+shared user that can create, list, delete, and connect to Sessions only in
+`sessionServer.defaultNamespace` (`default` unless overridden). That namespace
+must already exist. The web API accepts provider, credentials, model, effort,
+Workspace, and AgentConfig references; Pod and image overrides remain available
+only through the Kubernetes API and its RBAC.
 
 ## Uninstall
 

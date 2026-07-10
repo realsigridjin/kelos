@@ -36,6 +36,26 @@ spawner:
     limits: ""
 workerRunner:
   image: ghcr.io/kelos-dev/kelos-worker-runner
+sessionRuntime:
+  image: ghcr.io/kelos-dev/kelos-session-runtime
+sessionServer:
+  enabled: false
+  image: ghcr.io/kelos-dev/kelos-session-server
+  replicas: 1
+  secretName: ""
+  tokenKey: token
+  defaultNamespace: default
+  secureCookie: false
+  service:
+    type: ClusterIP
+    port: 80
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 10m
+      memory: 64Mi
 controller:
   resources:
     requests: {}

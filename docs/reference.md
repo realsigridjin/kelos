@@ -187,6 +187,37 @@ For each labeled Secret with a non-empty `CODEX_AUTH_JSON` key, the controller m
 | `worker.agentConfigRefs[].name` | Ordered AgentConfig resources. Configs are merged in order | No |
 | `worker.podOverrides` | Pod customization (same fields as the legacy `spec.podOverrides`) | No |
 
+## Session
+
+A Session is one interactive Claude Code, Codex, or OpenCode conversation backed by one
+owned Pod. Its spec is immutable. Conversation events stay in the live runtime
+process and are not stored in the Kubernetes API.
+
+| Field | Description | Required |
+|-------|-------------|----------|
+| `spec.worker.type` | Agent provider: `claude-code`, `codex`, or `opencode` | Yes |
+| `spec.worker.credentials` | Provider credentials (`api-key`, `oauth`, or `none`) | Yes |
+| `spec.worker.model` | Provider model override | No |
+| `spec.worker.effort` | Provider reasoning-effort override | No |
+| `spec.worker.image` | Agent image override implementing the Session image contract | No |
+| `spec.worker.workspaceRef.name` | Workspace cloned into the Session Pod | No |
+| `spec.worker.agentConfigRefs[].name` | Ordered AgentConfig resources | No |
+| `spec.worker.podOverrides` | Pod resources, scheduling, environment, volumes, and sidecars | No |
+| `status.phase` | Infrastructure phase: `Pending`, `Ready`, or `Failed` | Output |
+| `status.podName` | Session Pod name | Output |
+| `status.podUID` | Identity of the Pod that owns the live conversation | Output |
+
+Use `kelos session connect NAME` for terminal chat. Web chat is served by the
+optional shared `kelos-session-server`; both clients use the same event stream
+and provider conversation. Both clients can stream agent and tool activity,
+answer user-input requests, and interrupt active work without ending the
+provider conversation.
+
+The shared web server is restricted to its configured
+`sessionServer.defaultNamespace`. Its creation API accepts provider,
+credentials, model, effort, Workspace, and AgentConfig references; image and Pod
+overrides require direct Kubernetes API access governed by Kubernetes RBAC.
+
 ## WorkerPool
 
 A WorkerPool manages a fleet of persistent worker pods backed by a StatefulSet. Tasks reference a WorkerPool via `spec.workerPoolRef` to execute on pre-warmed infrastructure instead of creating per-task Jobs.
@@ -765,6 +796,7 @@ The `kelos` CLI lets you manage the full lifecycle without writing YAML.
 |---------|-------------|
 | `kelos run` | Create and run a new Task |
 | `kelos run --from taskspawner/<name>` | Run a standalone Task from a TaskSpawner template |
+| `kelos session connect NAME` | Continue a ready Session through terminal chat |
 | `kelos create workspace` | Create a Workspace resource |
 | `kelos create agentconfig` | Create an AgentConfig resource |
 | `kelos get <resource> [name]` | List resources or view a specific resource (`tasks`, `taskspawners`, `workspaces`, `agentconfigs`, `workerpools`) |

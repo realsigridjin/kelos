@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -848,6 +849,7 @@ func TestVersionCommand(t *testing.T) {
 var kelosListKinds = map[schema.GroupVersionResource]string{
 	{Group: "kelos.dev", Version: "v1alpha2", Resource: "tasks"}:        "TaskList",
 	{Group: "kelos.dev", Version: "v1alpha2", Resource: "taskspawners"}: "TaskSpawnerList",
+	{Group: "kelos.dev", Version: "v1alpha2", Resource: "sessions"}:     "SessionList",
 	{Group: "kelos.dev", Version: "v1alpha2", Resource: "workspaces"}:   "WorkspaceList",
 	{Group: "kelos.dev", Version: "v1alpha2", Resource: "agentconfigs"}: "AgentConfigList",
 }
@@ -1016,6 +1018,7 @@ func TestKelosCRDsExist(t *testing.T) {
 
 func TestKelosCRDNameSets(t *testing.T) {
 	for _, name := range []string{
+		"sessions.kelos.dev",
 		"taskbudgets.kelos.dev",
 		"taskrecords.kelos.dev",
 		"workerpools.kelos.dev",
@@ -1066,7 +1069,14 @@ func TestDeleteAllCustomResources_DeletesExistingResources(t *testing.T) {
 	workspace.SetName("my-workspace")
 	workspace.SetNamespace("default")
 
-	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, kelosListKinds, task, workspace)
+	session := &unstructured.Unstructured{}
+	session.SetGroupVersionKind(schema.GroupVersionKind{
+		Group: "kelos.dev", Version: "v1alpha2", Kind: "Session",
+	})
+	session.SetName("my-session")
+	session.SetNamespace("default")
+
+	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, kelosListKinds, task, workspace, session)
 	if err := deleteAllCustomResources(context.Background(), client); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1089,6 +1099,59 @@ func TestDeleteAllCustomResources_DeletesExistingResources(t *testing.T) {
 	if len(list.Items) != 0 {
 		t.Errorf("expected 0 workspaces, got %d", len(list.Items))
 	}
+
+	sessionGVR := schema.GroupVersionResource{Group: "kelos.dev", Version: "v1alpha2", Resource: "sessions"}
+	list, err = client.Resource(sessionGVR).Namespace("default").List(context.Background(), metav1.ListOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error listing sessions: %v", err)
+	}
+	if len(list.Items) != 0 {
+		t.Errorf("expected 0 sessions, got %d", len(list.Items))
+	}
+}
+
+func TestDeleteSessionServerRBACAcrossNamespaces(t *testing.T) {
+	scheme := runtime.NewScheme()
+	objects := []*unstructured.Unstructured{
+		rbacObject("Role", "kelos-session-server-role", "team-a"),
+		rbacObject("RoleBinding", "kelos-session-server-rolebinding", "team-a"),
+		rbacObject("Role", "unrelated-role", "team-a"),
+		rbacObject("RoleBinding", "unrelated-rolebinding", "team-a"),
+	}
+	listKinds := map[schema.GroupVersionResource]string{
+		roleGVR:        "RoleList",
+		roleBindingGVR: "RoleBindingList",
+	}
+	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, listKinds, objects[0], objects[1], objects[2], objects[3])
+	if err := deleteSessionServerRBAC(context.Background(), client); err != nil {
+		t.Fatalf("deleteSessionServerRBAC() error = %v", err)
+	}
+
+	for _, resource := range []struct {
+		gvr  schema.GroupVersionResource
+		name string
+	}{
+		{gvr: roleGVR, name: "kelos-session-server-role"},
+		{gvr: roleBindingGVR, name: "kelos-session-server-rolebinding"},
+	} {
+		if _, err := client.Resource(resource.gvr).Namespace("team-a").Get(context.Background(), resource.name, metav1.GetOptions{}); !apierrors.IsNotFound(err) {
+			t.Fatalf("%s still exists: %v", resource.name, err)
+		}
+	}
+	if _, err := client.Resource(roleGVR).Namespace("team-a").Get(context.Background(), "unrelated-role", metav1.GetOptions{}); err != nil {
+		t.Fatalf("unrelated Role was removed: %v", err)
+	}
+	if _, err := client.Resource(roleBindingGVR).Namespace("team-a").Get(context.Background(), "unrelated-rolebinding", metav1.GetOptions{}); err != nil {
+		t.Fatalf("unrelated RoleBinding was removed: %v", err)
+	}
+}
+
+func rbacObject(kind, name, namespace string) *unstructured.Unstructured {
+	object := &unstructured.Unstructured{}
+	object.SetGroupVersionKind(schema.GroupVersionKind{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: kind})
+	object.SetName(name)
+	object.SetNamespace(namespace)
+	return object
 }
 
 func TestDeleteAllCustomResources_SkipsAlreadyDeletingResources(t *testing.T) {

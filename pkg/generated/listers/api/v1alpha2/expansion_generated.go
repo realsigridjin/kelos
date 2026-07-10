@@ -26,6 +26,14 @@ type AgentConfigListerExpansion interface{}
 // AgentConfigNamespaceLister.
 type AgentConfigNamespaceListerExpansion interface{}
 
+// SessionListerExpansion allows custom methods to be added to
+// SessionLister.
+type SessionListerExpansion interface{}
+
+// SessionNamespaceListerExpansion allows custom methods to be added to
+// SessionNamespaceLister.
+type SessionNamespaceListerExpansion interface{}
+
 // TaskListerExpansion allows custom methods to be added to
 // TaskLister.
 type TaskListerExpansion interface{}

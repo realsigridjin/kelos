@@ -39,6 +39,7 @@ func NewRootCommand() *cobra.Command {
 	cmd.PersistentFlags().StringVarP(&cfg.Namespace, "namespace", "n", "", "Kubernetes namespace")
 
 	cmd.AddCommand(
+		newSessionCommand(cfg),
 		newRunCommand(cfg),
 		newCreateCommand(cfg),
 		newGetCommand(cfg),

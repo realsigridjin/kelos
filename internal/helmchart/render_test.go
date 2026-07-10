@@ -179,6 +179,55 @@ func TestRender_DisableCRDs(t *testing.T) {
 	}
 }
 
+func TestRender_IncludesSessionCRD(t *testing.T) {
+	data, err := Render(manifests.ChartFS, map[string]interface{}{
+		"crds": map[string]interface{}{"install": true},
+	})
+	if err != nil {
+		t.Fatalf("rendering chart: %v", err)
+	}
+	if !strings.Contains(string(data), "name: sessions.kelos.dev") {
+		t.Fatal("expected rendered chart to include the Session CRD")
+	}
+}
+
+func TestRender_SessionServer(t *testing.T) {
+	data, err := Render(manifests.ChartFS, map[string]interface{}{
+		"sessionServer": map[string]interface{}{
+			"enabled":          true,
+			"secretName":       "session-auth",
+			"defaultNamespace": "team-a",
+		},
+	})
+	if err != nil {
+		t.Fatalf("rendering chart: %v", err)
+	}
+	output := string(data)
+	for _, expected := range []string{
+		"name: kelos-session-server",
+		"secretName: session-auth",
+		"resources:\n      - pods/exec",
+		"resources:\n      - agentconfigs\n      - workspaces\n    verbs:\n      - list",
+		"--token-file=/var/run/secrets/kelos-session/token",
+		"--default-namespace=team-a",
+		"kind: Role\nmetadata:\n  name: kelos-session-server-role\n  namespace: team-a",
+		"kind: RoleBinding\nmetadata:\n  name: kelos-session-server-rolebinding\n  namespace: team-a",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Errorf("expected Session server render to contain %q", expected)
+		}
+	}
+}
+
+func TestRender_SessionServerRequiresSecret(t *testing.T) {
+	_, err := Render(manifests.ChartFS, map[string]interface{}{
+		"sessionServer": map[string]interface{}{"enabled": true},
+	})
+	if err == nil || !strings.Contains(err.Error(), "sessionServer.secretName is required") {
+		t.Fatalf("Render() error = %v", err)
+	}
+}
+
 func TestRender_TaskSpawnerTemplatePlaceholdersRemainLiteral(t *testing.T) {
 	vals := map[string]interface{}{
 		"crds": map[string]interface{}{

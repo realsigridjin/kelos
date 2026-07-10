@@ -68,6 +68,8 @@ func main() {
 	var codexAuthRefresherSchedule string
 	var workerRunnerImage string
 	var workerRunnerImagePullPolicy string
+	var sessionRuntimeImage string
+	var sessionRuntimeImagePullPolicy string
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -99,6 +101,8 @@ func main() {
 	flag.StringVar(&codexAuthRefresherSchedule, "codex-auth-refresher-schedule", controller.DefaultCodexAuthRefreshSchedule, "Cron schedule for managed Codex OAuth refresher CronJobs.")
 	flag.StringVar(&workerRunnerImage, "worker-runner-image", controller.DefaultWorkerRunnerImage, "The image to use for worker-runner containers in WorkerPool StatefulSets.")
 	flag.StringVar(&workerRunnerImagePullPolicy, "worker-runner-image-pull-policy", "", "The image pull policy for worker-runner containers (e.g., Always, Never, IfNotPresent).")
+	flag.StringVar(&sessionRuntimeImage, "session-runtime-image", controller.DefaultSessionRuntimeImage, "The image used to inject the runtime into Session Pods.")
+	flag.StringVar(&sessionRuntimeImagePullPolicy, "session-runtime-image-pull-policy", "", "The image pull policy for the Session runtime image (e.g., Always, Never, IfNotPresent).")
 
 	opts, applyVerbosity := logging.SetupZapOptions(flag.CommandLine)
 	flag.Parse()
@@ -215,6 +219,18 @@ func main() {
 		BranchLocker: controller.NewBranchLocker(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Task")
+		os.Exit(1)
+	}
+	if err = (&controller.SessionReconciler{
+		Client:                        mgr.GetClient(),
+		Scheme:                        mgr.GetScheme(),
+		JobBuilder:                    jobBuilder,
+		SessionRuntimeImage:           sessionRuntimeImage,
+		SessionRuntimeImagePullPolicy: corev1.PullPolicy(sessionRuntimeImagePullPolicy),
+		Recorder:                      mgr.GetEventRecorderFor("kelos-controller"),
+		TokenClient:                   githubapp.NewTokenClient(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "Unable to create controller", "controller", "Session")
 		os.Exit(1)
 	}
 

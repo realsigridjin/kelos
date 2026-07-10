@@ -23,6 +23,7 @@ func TestValidArgsFunctionWired(t *testing.T) {
 		{"delete taskspawner", []string{"delete", "taskspawner"}},
 		{"delete workerpool", []string{"delete", "workerpool"}},
 		{"logs", []string{"logs"}},
+		{"session connect", []string{"session", "connect"}},
 	}
 
 	for _, tt := range tests {
@@ -67,6 +68,7 @@ func TestCompletionWithInvalidKubeconfig(t *testing.T) {
 		{"completeTaskSpawnerNames", completeTaskSpawnerNames(cfg)},
 		{"completeWorkspaceNames", completeWorkspaceNames(cfg)},
 		{"completeWorkerPoolNames", completeWorkerPoolNames(cfg)},
+		{"completeSessionNames", completeSessionNames(cfg)},
 	}
 
 	for _, tt := range fns {
@@ -93,6 +95,7 @@ func TestCompletionSkipsAfterFirstArg(t *testing.T) {
 		{"completeTaskSpawnerNames", completeTaskSpawnerNames(cfg)},
 		{"completeWorkspaceNames", completeWorkspaceNames(cfg)},
 		{"completeWorkerPoolNames", completeWorkerPoolNames(cfg)},
+		{"completeSessionNames", completeSessionNames(cfg)},
 	}
 
 	for _, tt := range fns {

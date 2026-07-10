@@ -22,14 +22,31 @@ The image must provide an executable at `/kelos_entrypoint.sh`. Kelos sets
 The task prompt is passed as the first positional argument (`$1`). Kelos sets
 `Args: ["<prompt>"]` on the container.
 
+For a `Session`, Kelos injects its own long-running process as the container
+command. That process invokes `/kelos_entrypoint.sh` once with
+`KELOS_SESSION_SETUP_ONLY=1` and no prompt. In this mode the entrypoint must
+prepare credentials, instructions, plugins, MCP configuration, and the
+workspace setup command, then exit successfully without starting the provider.
+The corresponding `claude`, `codex`, or `opencode` executable must remain available on
+`PATH` for the Session runtime.
+
+For Codex Sessions, Kelos sets `CODEX_HOME` to Pod-local Session storage so the
+app-server thread can resume after a container restart. Codex-compatible
+entrypoints must write authentication, configuration, instructions, and skills
+under `CODEX_HOME` when it is set.
+
+For OpenCode Sessions, Kelos sets `OPENCODE_CONFIG_DIR` and `XDG_DATA_HOME` to
+Pod-local Session storage so configuration and the provider conversation survive
+a container restart. OpenCode-compatible entrypoints must honor these variables.
+
 ### 3. Environment variables
 
 Kelos sets the following reserved environment variables on agent containers:
 
 | Variable | Description | Always set? |
 |---|---|---|
-| `KELOS_MODEL` | The model name to use | Only when `model` is specified in the Task |
-| `KELOS_EFFORT` | Agent reasoning effort to use | Only when `effort` is specified in the Task |
+| `KELOS_MODEL` | The model name to use | Only when `model` is specified |
+| `KELOS_EFFORT` | Agent reasoning effort to use | Only when `effort` is specified |
 | `ANTHROPIC_API_KEY` | API key for Anthropic (`claude-code` agent, api-key credential type) | When credential type is `api-key` and agent type is `claude-code` |
 | `CODEX_API_KEY` | API key for OpenAI Codex (`codex` agent, `api-key` credential type) | When credential type is `api-key` and agent type is `codex` |
 | `CODEX_AUTH_JSON` | Contents of `~/.codex/auth.json` (`codex` agent, `oauth` credential type) | When credential type is `oauth` and agent type is `codex` |
@@ -47,9 +64,10 @@ Kelos sets the following reserved environment variables on agent containers:
 | `KELOS_AGENTS_MD` | User-level instructions from AgentConfig | When `agentConfigRefs` is set and `agentsMD` is non-empty |
 | `KELOS_PLUGIN_DIR` | Path to plugin directory containing skills and agents. Each subdirectory is one plugin in the `<plugin>/skills/<skill>/SKILL.md` layout; skills.sh packages from `spec.skills` appear under the `skills-sh` plugin | When `agentConfigRefs` is set and `plugins` or `skills` is non-empty |
 | `KELOS_SETUP_COMMAND` | JSON-encoded exec-form array from `Workspace.spec.setupCommand`, executed by the entrypoint before the agent starts | When the workspace defines `setupCommand` |
+| `KELOS_SESSION_SETUP_ONLY` | Requests environment preparation without starting an agent process | Set by the Session runtime only while invoking the entrypoint |
 
 > The names listed in this table are reserved for Kelos behavior. When Kelos
-> sets one on a Task, `PodOverrides.Env` entries that reuse the same name are
+> sets one on a workload, `PodOverrides.Env` entries that reuse the same name are
 > dropped so the built-in value wins; do not set them manually.
 > `KELOS_SETUP_COMMAND` is additionally dropped from `PodOverrides.Env` even
 > when the workspace does not define `setupCommand`, because it drives

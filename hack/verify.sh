@@ -18,6 +18,7 @@ cd "${REPO_ROOT}"
 GENERATED_FILES=(
   internal/manifests/install-crd.yaml
   internal/manifests/charts/kelos/templates/crds/agentconfig-crd.yaml
+  internal/manifests/charts/kelos/templates/crds/session-crd.yaml
   internal/manifests/charts/kelos/templates/crds/taskbudget-crd.yaml
   internal/manifests/charts/kelos/templates/crds/task-crd.yaml
   internal/manifests/charts/kelos/templates/crds/taskrecord-crd.yaml

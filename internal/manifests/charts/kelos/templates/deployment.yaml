@@ -70,6 +70,10 @@ spec:
             {{- if .Values.image.pullPolicy }}
             - --worker-runner-image-pull-policy={{ .Values.image.pullPolicy }}
             {{- end }}
+            - --session-runtime-image={{ .Values.sessionRuntime.image }}{{- if .Values.image.tag }}:{{ .Values.image.tag }}{{- end }}
+            {{- if .Values.image.pullPolicy }}
+            - --session-runtime-image-pull-policy={{ .Values.image.pullPolicy }}
+            {{- end }}
             - --ghproxy-image={{ .Values.ghproxy.image }}{{- if .Values.image.tag }}:{{ .Values.image.tag }}{{- end }}
             {{- if .Values.image.pullPolicy }}
             - --ghproxy-image-pull-policy={{ .Values.image.pullPolicy }}
