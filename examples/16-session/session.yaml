@@ -1,0 +1,12 @@
+apiVersion: kelos.dev/v1alpha2
+kind: Session
+metadata:
+  name: interactive-review
+  namespace: default
+spec:
+  worker:
+    type: claude-code
+    credentials:
+      type: api-key
+      secretRef:
+        name: claude-credentials

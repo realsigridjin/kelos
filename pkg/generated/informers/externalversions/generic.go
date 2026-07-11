@@ -66,6 +66,8 @@ func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource
 		// Group=api, Version=v1alpha2
 	case v1alpha2.SchemeGroupVersion.WithResource("agentconfigs"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Api().V1alpha2().AgentConfigs().Informer()}, nil
+	case v1alpha2.SchemeGroupVersion.WithResource("sessions"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Api().V1alpha2().Sessions().Informer()}, nil
 	case v1alpha2.SchemeGroupVersion.WithResource("tasks"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Api().V1alpha2().Tasks().Informer()}, nil
 	case v1alpha2.SchemeGroupVersion.WithResource("taskbudgets"):

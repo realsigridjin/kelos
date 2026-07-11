@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -70,16 +71,127 @@ func TestAgentEntrypointsHandleKelosEffort(t *testing.T) {
 	}
 }
 
+func TestCodexEntrypointUsesPersistentSessionHome(t *testing.T) {
+	tmp := t.TempDir()
+	home := filepath.Join(tmp, "home")
+	codexHome := filepath.Join(tmp, "session-state", "codex-home")
+	workdir := filepath.Join(tmp, "work")
+	writeFile(t, filepath.Join(codexHome, "config.toml"), "stale = true\n")
+	writeFile(t, filepath.Join(codexHome, "sessions", "retained.jsonl"), "retained\n")
+	if err := os.MkdirAll(home, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(workdir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	entrypoint, err := filepath.Abs("../../codex/kelos_entrypoint.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command("bash", entrypoint)
+	command.Dir = workdir
+	command.Env = append(os.Environ(),
+		"HOME="+home,
+		"CODEX_HOME="+codexHome,
+		"KELOS_SESSION_SETUP_ONLY=1",
+		"KELOS_AGENTS_MD=session instructions",
+	)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("running Codex Session setup: %v\n%s", err, output)
+	}
+	assertFileContent(t, filepath.Join(codexHome, "AGENTS.md"), "session instructions")
+	assertFileContent(t, filepath.Join(codexHome, "config.toml"), "")
+	assertFileContent(t, filepath.Join(codexHome, "sessions", "retained.jsonl"), "retained\n")
+	assertPathMissing(t, filepath.Join(home, ".codex"))
+}
+
+func TestClaudeEntrypointUsesPersistentSessionConfig(t *testing.T) {
+	tmp := t.TempDir()
+	home := filepath.Join(tmp, "home")
+	configDir := filepath.Join(tmp, "session-state", "claude-config")
+	workdir := filepath.Join(tmp, "work")
+	if err := os.MkdirAll(home, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(workdir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	entrypoint, err := filepath.Abs("../../claude-code/kelos_entrypoint.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command("bash", entrypoint)
+	command.Dir = workdir
+	command.Env = append(os.Environ(),
+		"HOME="+home,
+		"CLAUDE_CONFIG_DIR="+configDir,
+		"KELOS_SESSION_SETUP_ONLY=1",
+		"KELOS_AGENTS_MD=session instructions",
+		`KELOS_MCP_SERVERS={"mcpServers":{"tools":{"command":"tools-server"}}}`,
+	)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("running Claude Session setup: %v\n%s", err, output)
+	}
+	assertFileContent(t, filepath.Join(configDir, "CLAUDE.md"), "session instructions")
+	data, err := os.ReadFile(filepath.Join(configDir, ".claude.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config struct {
+		MCPServers map[string]struct {
+			Command string `json:"command"`
+		} `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(data, &config); err != nil {
+		t.Fatal(err)
+	}
+	if config.MCPServers["tools"].Command != "tools-server" {
+		t.Fatalf("Claude MCP config = %#v", config.MCPServers)
+	}
+	assertPathMissing(t, filepath.Join(home, ".claude"))
+	assertPathMissing(t, filepath.Join(home, ".claude.json"))
+}
+
 func TestOpenCodeEntrypointUsesAutoPermissions(t *testing.T) {
 	section := extractEntrypointSection(
 		t,
 		"../..//opencode/kelos_entrypoint.sh",
 		"ARGS=(",
-		"if [ -n \"${KELOS_EFFORT:-}\" ]; then",
+		"opencode \"${ARGS[@]}\"",
 	)
 	if !strings.Contains(section, "\"--auto\"") {
 		t.Fatalf("expected OpenCode entrypoint args to include --auto, got:\n%s", section)
 	}
+}
+
+func TestOpenCodeEntrypointUsesPersistentSessionConfig(t *testing.T) {
+	tmp := t.TempDir()
+	home := filepath.Join(tmp, "home")
+	configDir := filepath.Join(tmp, "session-state", "opencode-config")
+	workdir := filepath.Join(tmp, "work")
+	if err := os.MkdirAll(home, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(workdir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	entrypoint, err := filepath.Abs("../../opencode/kelos_entrypoint.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command("bash", entrypoint)
+	command.Dir = workdir
+	command.Env = append(os.Environ(),
+		"HOME="+home,
+		"OPENCODE_CONFIG_DIR="+configDir,
+		"KELOS_SESSION_SETUP_ONLY=1",
+		"KELOS_AGENTS_MD=session instructions",
+	)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("running OpenCode Session setup: %v\n%s", err, output)
+	}
+	assertFileContent(t, filepath.Join(configDir, "AGENTS.md"), "session instructions")
+	assertPathMissing(t, filepath.Join(home, ".config", "opencode"))
 }
 
 func TestOpenCodeEntrypointMapsZAIProviderKey(t *testing.T) {
@@ -95,7 +207,7 @@ func TestOpenCodeEntrypointMapsZAIProviderKey(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			tmp := t.TempDir()
-			section := extractEntrypointSection(t, "../..//opencode/kelos_entrypoint.sh", "# Map OPENCODE_API_KEY to the correct provider environment variable", "ARGS=(")
+			section := extractEntrypointSection(t, "../..//opencode/kelos_entrypoint.sh", "# Map OPENCODE_API_KEY to the correct provider environment variable", "if [ -n \"${KELOS_EFFORT:-}\" ]; then")
 			script := filepath.Join(tmp, "map-opencode-key.sh")
 			writeFile(t, script, "#!/usr/bin/env bash\nset -euo pipefail\n"+section+"\nprintf '%s' \"${ZHIPU_API_KEY:-}\"\n")
 			if err := os.Chmod(script, 0o755); err != nil {
@@ -129,7 +241,7 @@ func TestAgentEntrypointsPreserveSkillReferenceFiles(t *testing.T) {
 		{
 			name:  "codex",
 			path:  "../..//codex/kelos_entrypoint.sh",
-			start: "# Install each plugin as a Codex skill directory under ~/.codex/skills",
+			start: "# Install each plugin as a skill directory under the configured Codex home.",
 			end:   "# Write MCP server configuration",
 			targetPath: func(home, workdir string) string {
 				return filepath.Join(home, ".codex", "skills", "team-tools:deploy")
@@ -179,7 +291,7 @@ func TestAgentEntrypointsPreserveSkillReferenceFiles(t *testing.T) {
 
 			section := extractEntrypointSection(t, tt.path, tt.start, tt.end)
 			script := filepath.Join(tmp, "install-skills.sh")
-			writeFile(t, script, "#!/usr/bin/env bash\nset -euo pipefail\n"+section)
+			writeFile(t, script, "#!/usr/bin/env bash\nset -euo pipefail\nopencode_config_dir=\"${OPENCODE_CONFIG_DIR:-$HOME/.config/opencode}\"\n"+section)
 			if err := os.Chmod(script, 0o755); err != nil {
 				t.Fatalf("chmod script: %v", err)
 			}
@@ -217,7 +329,7 @@ func TestAgentEntrypointsFailOnSkillTargetConflict(t *testing.T) {
 		{
 			name:  "codex",
 			path:  "../..//codex/kelos_entrypoint.sh",
-			start: "# Install each plugin as a Codex skill directory under ~/.codex/skills",
+			start: "# Install each plugin as a skill directory under the configured Codex home.",
 			end:   "# Write MCP server configuration",
 		},
 		{
@@ -254,7 +366,7 @@ func TestAgentEntrypointsFailOnSkillTargetConflict(t *testing.T) {
 
 			section := extractEntrypointSection(t, tt.path, tt.start, tt.end)
 			script := filepath.Join(tmp, "install-skills.sh")
-			writeFile(t, script, "#!/usr/bin/env bash\nset -euo pipefail\n"+section)
+			writeFile(t, script, "#!/usr/bin/env bash\nset -euo pipefail\nopencode_config_dir=\"${OPENCODE_CONFIG_DIR:-$HOME/.config/opencode}\"\n"+section)
 			if err := os.Chmod(script, 0o755); err != nil {
 				t.Fatalf("chmod script: %v", err)
 			}

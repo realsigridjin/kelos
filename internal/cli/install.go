@@ -40,6 +40,7 @@ const installWaitTimeout = 2 * time.Minute
 
 var kelosCRDNames = []string{
 	"agentconfigs.kelos.dev",
+	"sessions.kelos.dev",
 	"tasks.kelos.dev",
 	"taskbudgets.kelos.dev",
 	"taskrecords.kelos.dev",
@@ -58,6 +59,8 @@ var kelosConversionCRDNames = []string{
 var (
 	crdGVR            = schema.GroupVersionResource{Group: "apiextensions.k8s.io", Version: "v1", Resource: "customresourcedefinitions"}
 	endpointSlicesGVR = discoveryv1.SchemeGroupVersion.WithResource("endpointslices")
+	roleGVR           = schema.GroupVersionResource{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "roles"}
+	roleBindingGVR    = schema.GroupVersionResource{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "rolebindings"}
 	secretGVR         = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "secrets"}
 )
 
@@ -753,7 +756,7 @@ var errCertManagerRequired = fmt.Errorf("cert-manager is required but was not fo
 // before the controller and CRDs can be safely removed. Resources with
 // finalizers (tasks, taskspawners) must be deleted while the controller is
 // still running so it can process the finalizer removal.
-var kelosCRResources = []string{"tasks", "taskspawners", "workspaces", "agentconfigs"}
+var kelosCRResources = []string{"tasks", "taskspawners", "sessions", "workspaces", "agentconfigs"}
 
 // kelosCRVersions are the served API versions to try for each resource, in
 // order. The v1alpha2 storage version is tried first so the common case needs
@@ -807,16 +810,12 @@ func newUninstallCommand(cfg *ClientConfig) *cobra.Command {
 
 			// Render the chart with CRDs disabled to identify resources to
 			// delete. Uninstall does not persist install values, so we force
-			// optional webhookServer.sources.*.enabled on here to ensure any
-			// webhook-related RBAC and namespaced resources are included in
-			// cleanup. Only webhookServer.sources.*.enabled currently gates
-			// cluster-scoped resources; other optional flags (ingress,
+			// optional components with cluster-scoped RBAC on here so their
+			// resources are included in cleanup. Other optional flags (ingress,
 			// gateway) produce only namespaced resources that the namespace
 			// cascade reclaims when the kelos-system namespace is deleted.
-			// Any future optional feature that adds a cluster-scoped resource
-			// must be forced on here too. Deleting resources that were never
-			// installed is safe because deleteManifests ignores not-found
-			// errors.
+			// Deleting resources that were never installed is safe because
+			// deleteManifests ignores not-found errors.
 			controllerManifest, err := helmchart.Render(manifests.ChartFS, disableChartCRDs(map[string]interface{}{
 				"webhookServer": map[string]interface{}{
 					"sources": map[string]interface{}{
@@ -855,6 +854,9 @@ func newUninstallCommand(cfg *ClientConfig) *cobra.Command {
 			}
 
 			fmt.Fprintf(os.Stdout, "Removing kelos controller\n")
+			if err := deleteSessionServerRBAC(ctx, dyn); err != nil {
+				return fmt.Errorf("removing Session server RBAC: %w", err)
+			}
 			if err := deleteManifests(ctx, dc, dyn, controllerManifest); err != nil {
 				return fmt.Errorf("removing controller: %w", err)
 			}
@@ -870,6 +872,36 @@ func newUninstallCommand(cfg *ClientConfig) *cobra.Command {
 	}
 
 	return cmd
+}
+
+func deleteSessionServerRBAC(ctx context.Context, dyn dynamic.Interface) error {
+	resources := []struct {
+		gvr  schema.GroupVersionResource
+		name string
+		kind string
+	}{
+		{gvr: roleBindingGVR, name: "kelos-session-server-rolebinding", kind: "RoleBinding"},
+		{gvr: roleGVR, name: "kelos-session-server-role", kind: "Role"},
+	}
+	for _, resource := range resources {
+		list, err := dyn.Resource(resource.gvr).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			if errors.IsNotFound(err) {
+				continue
+			}
+			return fmt.Errorf("listing Session server %s resources: %w", resource.kind, err)
+		}
+		for i := range list.Items {
+			item := &list.Items[i]
+			if item.GetName() != resource.name {
+				continue
+			}
+			if err := dyn.Resource(resource.gvr).Namespace(item.GetNamespace()).Delete(ctx, item.GetName(), metav1.DeleteOptions{}); err != nil && !errors.IsNotFound(err) {
+				return fmt.Errorf("deleting Session server %s %s/%s: %w", resource.kind, item.GetNamespace(), item.GetName(), err)
+			}
+		}
+	}
+	return nil
 }
 
 // deleteAllCustomResources deletes all instances of kelos custom resources

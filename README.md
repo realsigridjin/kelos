@@ -34,11 +34,12 @@ You define what needs to be done, and Kelos handles the "how" — from cloning t
 
 ### Core Primitives
 
-Kelos is built on four resources, grouped by the two concerns above:
+Kelos is built on a small set of resources, grouped by the two concerns above:
 
 **Defining the agent and its environment**
 
 - **Tasks** — A single agent run: prompt, model, effort, credentials, and Pod-level overrides.
+- **Sessions** — A live Claude Code, Codex, or OpenCode conversation shared by web and terminal chat.
 - **Workspaces** — The git repository (URL, ref, auth) the agent operates in.
 - **AgentConfigs** — Reusable bundles of agent instructions (`AGENTS.md`, `CLAUDE.md`), plugins (skills and agents), and MCP servers.
 
@@ -507,6 +508,7 @@ See the [`self-development/` README](self-development/README.md) for the full pi
 | Resource | Key Fields | Full Spec |
 |----------|-----------|-----------|
 | **Task** | `type`, `prompt`, `credentials`, `workspaceRef`, `dependsOn`, `branch` | [Reference](docs/reference.md#task) |
+| **Session** | `worker` | [Reference](docs/reference.md#session) |
 | **Workspace** | `repo`, `ref`, `secretRef` (PAT or GitHub App), `ghproxy`, `files`, `setupCommand` | [Reference](docs/reference.md#workspace) |
 | **AgentConfig** | `agentsMD`, `plugins`, `mcpServers` | [Reference](docs/reference.md#agentconfig) |
 | **TaskSpawner** | `when`, `taskTemplate`, per-source `pollInterval`, `maxConcurrency` | [Reference](docs/reference.md#taskspawner) |
@@ -522,6 +524,7 @@ See the [`self-development/` README](self-development/README.md) for the full pi
 | `kelos init` | Initialize `~/.kelos/config.yaml` |
 | `kelos run` | Create and run a new Task |
 | `kelos run --from taskspawner/<name> [-f values.yaml]` | Run a standalone Task from a TaskSpawner template |
+| `kelos session connect NAME` | Continue a Session through terminal chat |
 | `kelos get <resource> [name]` | List resources or view a specific resource (`tasks`, `taskspawners`, `workspaces`, `agentconfigs`, `workerpools`) |
 | `kelos delete <resource> [name]` | Delete a resource (`tasks`, `taskspawners`, `workspaces`, `agentconfigs`, `workerpools`); supports `--all` to delete every resource of that type in the namespace |
 | `kelos logs <task-name> [-f]` | View or stream logs from a task |

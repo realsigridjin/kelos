@@ -143,13 +143,23 @@ func (f *Framework) collectDebugInfo() {
 		}
 	}
 
-	// List pods and collect logs from failed ones
+	sessions, err := f.KelosClientset.ApiV1alpha2().Sessions(f.Namespace).List(ctx, metav1.ListOptions{})
+	if err == nil {
+		for _, session := range sessions.Items {
+			fmt.Fprintf(GinkgoWriter, "Session %s: phase=%s pod=%s message=%s\n", session.Name, session.Status.Phase, session.Status.PodName, session.Status.Message)
+		}
+	}
+
+	// List pods and collect logs from terminated and Session Pods.
 	pods, err := f.Clientset.CoreV1().Pods(f.Namespace).List(ctx, metav1.ListOptions{})
 	if err == nil {
 		for _, p := range pods.Items {
 			fmt.Fprintf(GinkgoWriter, "Pod %s: phase=%s\n", p.Name, p.Status.Phase)
-			if p.Status.Phase == corev1.PodFailed || p.Status.Phase == corev1.PodSucceeded {
-				for _, c := range p.Spec.Containers {
+			if p.Status.Phase == corev1.PodFailed || p.Status.Phase == corev1.PodSucceeded || p.Labels["kelos.dev/component"] == "session" {
+				containers := make([]corev1.Container, 0, len(p.Spec.InitContainers)+len(p.Spec.Containers))
+				containers = append(containers, p.Spec.InitContainers...)
+				containers = append(containers, p.Spec.Containers...)
+				for _, c := range containers {
 					tailLines := int64(30)
 					req := f.Clientset.CoreV1().Pods(f.Namespace).GetLogs(p.Name, &corev1.PodLogOptions{
 						Container: c.Name,

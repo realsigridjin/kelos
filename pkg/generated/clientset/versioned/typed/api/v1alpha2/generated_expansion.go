@@ -20,6 +20,8 @@ package v1alpha2
 
 type AgentConfigExpansion interface{}
 
+type SessionExpansion interface{}
+
 type TaskExpansion interface{}
 
 type TaskBudgetExpansion interface{}

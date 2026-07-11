@@ -27,7 +27,10 @@ rules:
   - ""
   resources:
   - pods
+  - services
   verbs:
+  - create
+  - delete
   - get
   - list
   - patch
@@ -48,18 +51,6 @@ rules:
   - delete
   - get
   - list
-  - update
-  - watch
-- apiGroups:
-  - ""
-  resources:
-  - services
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
   - update
   - watch
 - apiGroups:
@@ -92,6 +83,7 @@ rules:
   - kelos.dev
   resources:
   - agentconfigs
+  - sessions
   - taskbudgets
   - workspaces
   verbs:
@@ -101,6 +93,7 @@ rules:
 - apiGroups:
   - kelos.dev
   resources:
+  - sessions/status
   - taskbudgets/status
   - tasks/status
   - taskspawners/status
@@ -235,6 +228,58 @@ subjects:
   - kind: ServiceAccount
     name: kelos-controller
     namespace: kelos-system
+{{- if .Values.sessionServer.enabled }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kelos-session-server-role
+  namespace: {{ .Values.sessionServer.defaultNamespace }}
+rules:
+  - apiGroups:
+      - kelos.dev
+    resources:
+      - sessions
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - kelos.dev
+    resources:
+      - agentconfigs
+      - workspaces
+    verbs:
+      - list
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - get
+  - apiGroups:
+      - ""
+    resources:
+      - pods/exec
+    verbs:
+      - create
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kelos-session-server-rolebinding
+  namespace: {{ .Values.sessionServer.defaultNamespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kelos-session-server-role
+subjects:
+  - kind: ServiceAccount
+    name: kelos-session-server
+    namespace: {{ .Release.Namespace }}
+{{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role

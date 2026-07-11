@@ -26,6 +26,8 @@ import (
 type Interface interface {
 	// AgentConfigs returns a AgentConfigInformer.
 	AgentConfigs() AgentConfigInformer
+	// Sessions returns a SessionInformer.
+	Sessions() SessionInformer
 	// Tasks returns a TaskInformer.
 	Tasks() TaskInformer
 	// TaskBudgets returns a TaskBudgetInformer.
@@ -54,6 +56,11 @@ func New(f internalinterfaces.SharedInformerFactory, namespace string, tweakList
 // AgentConfigs returns a AgentConfigInformer.
 func (v *version) AgentConfigs() AgentConfigInformer {
 	return &agentConfigInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
+// Sessions returns a SessionInformer.
+func (v *version) Sessions() SessionInformer {
+	return &sessionInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
 // Tasks returns a TaskInformer.

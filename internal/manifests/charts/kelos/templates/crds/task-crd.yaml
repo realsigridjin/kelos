@@ -7296,7 +7296,7 @@ spec:
                     description: |-
                       ActiveDeadlineSeconds specifies the maximum duration in seconds
                       that the agent pod can run before being terminated.
-                      This is set on the Job's activeDeadlineSeconds field.
+                      This is set on the backing Job for Tasks and on the Pod for Sessions.
                     format: int64
                     minimum: 1
                     type: integer
@@ -14161,7 +14161,7 @@ spec:
                         description: |-
                           ActiveDeadlineSeconds specifies the maximum duration in seconds
                           that the agent pod can run before being terminated.
-                          This is set on the Job's activeDeadlineSeconds field.
+                          This is set on the backing Job for Tasks and on the Pod for Sessions.
                         format: int64
                         minimum: 1
                         type: integer

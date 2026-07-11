@@ -92,7 +92,7 @@ type PodOverrides struct {
 
 	// ActiveDeadlineSeconds specifies the maximum duration in seconds
 	// that the agent pod can run before being terminated.
-	// This is set on the Job's activeDeadlineSeconds field.
+	// This is set on the backing Job for Tasks and on the Pod for Sessions.
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	ActiveDeadlineSeconds *int64 `json:"activeDeadlineSeconds,omitempty"`
@@ -206,7 +206,7 @@ type PodOverrides struct {
 	ExtraInitContainers []corev1.Container `json:"extraInitContainers,omitempty"`
 }
 
-// WorkerSpec groups execution environment fields shared by Task,
+// WorkerSpec groups execution environment fields shared by Task, Session,
 // TaskTemplate, and WorkerPool. When workerPoolRef is set on a Task or
 // TaskTemplate, these fields are optional and default to the pool's
 // configuration.

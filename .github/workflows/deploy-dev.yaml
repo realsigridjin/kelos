@@ -24,6 +24,7 @@ jobs:
       GCP_PROJECT_ID: gjkim-400213
       GKE_CLUSTER_NAME: gjkim
       GKE_CLUSTER_LOCATION: asia-northeast3
+      KELOS_SESSION_HOSTNAME: session.kelos.dev
       GCP_SERVICE_ACCOUNT_EMAIL: kelos-gh-action@gjkim-400213.iam.gserviceaccount.com
       GCP_WORKLOAD_IDENTITY_PROVIDER: projects/317215297044/locations/global/workloadIdentityPools/github/providers/kelos
     steps:
@@ -93,6 +94,20 @@ jobs:
             --dry-run=client -o yaml \
             | kubectl apply -f -
 
+      - name: Apply Session server authentication secret
+        env:
+          KELOS_SESSION_TOKEN: ${{ secrets.KELOS_SESSION_TOKEN }}
+        run: |
+          if [ -z "${KELOS_SESSION_TOKEN}" ]; then
+            echo "KELOS_SESSION_TOKEN is required" >&2
+            exit 1
+          fi
+          kubectl create secret generic kelos-session-server-auth \
+            --namespace kelos-system \
+            --from-literal=token="${KELOS_SESSION_TOKEN}" \
+            --dry-run=client -o yaml \
+            | kubectl apply -f -
+
       - name: Install kelos
         run: |
           cat > /tmp/kelos-dev-values.yaml <<'EOF'
@@ -110,6 +125,10 @@ jobs:
               limits:
                 cpu: 500m
                 memory: 128Mi
+          sessionServer:
+            enabled: true
+            secretName: kelos-session-server-auth
+            secureCookie: true
           # NOTE: webhookServer.gateway is intentionally left at chart default
           # (disabled). The dev cluster already has a Gateway
           # (kelos-webhook-gateway) and HTTPRoute (kelos-webhook-route) applied
@@ -128,13 +147,94 @@ jobs:
                 cpu: 100m
                 memory: 128Mi
           EOF
-          bin/kelos install -f /tmp/kelos-dev-values.yaml
+          bin/kelos install -f /tmp/kelos-dev-values.yaml \
+            --set-string sessionServer.defaultNamespace="${KELOS_NAMESPACE}"
           kubectl rollout restart deployment/kelos-controller-manager -n kelos-system
           kubectl rollout status deployment/kelos-controller-manager -n kelos-system --timeout=120s
+          kubectl rollout restart deployment/kelos-session-server -n kelos-system
           kubectl rollout restart deployment -l kelos.dev/component=spawner -n "${KELOS_NAMESPACE}"
           kubectl rollout restart deployment/kelos-webhook-github -n kelos-system
+          kubectl rollout status deployment/kelos-session-server -n kelos-system --timeout=120s
           kubectl rollout status deployment -l kelos.dev/component=spawner -n "${KELOS_NAMESPACE}" --timeout=120s
           kubectl rollout status deployment/kelos-webhook-github -n kelos-system --timeout=120s
+
+      - name: Expose Session server through the GKE Gateway
+        run: |
+          kubectl apply -f - <<EOF
+          apiVersion: networking.gke.io/v1
+          kind: HealthCheckPolicy
+          metadata:
+            name: kelos-session-server
+            namespace: kelos-system
+          spec:
+            default:
+              config:
+                type: HTTP
+                httpHealthCheck:
+                  portSpecification: USE_SERVING_PORT
+                  requestPath: /readyz
+            targetRef:
+              group: ""
+              kind: Service
+              name: kelos-session-server
+          ---
+          apiVersion: gateway.networking.k8s.io/v1
+          kind: HTTPRoute
+          metadata:
+            name: kelos-session-route
+            namespace: kelos-system
+          spec:
+            hostnames:
+              - ${KELOS_SESSION_HOSTNAME}
+            parentRefs:
+              - name: kelos-webhook-gateway
+                namespace: kelos-system
+                sectionName: https
+            rules:
+              - matches:
+                  - path:
+                      type: PathPrefix
+                      value: /
+                backendRefs:
+                  - name: kelos-session-server
+                    port: 80
+          ---
+          apiVersion: gateway.networking.k8s.io/v1
+          kind: HTTPRoute
+          metadata:
+            name: kelos-session-redirect
+            namespace: kelos-system
+          spec:
+            hostnames:
+              - ${KELOS_SESSION_HOSTNAME}
+            parentRefs:
+              - name: kelos-webhook-gateway
+                namespace: kelos-system
+                sectionName: http
+            rules:
+              - filters:
+                  - type: RequestRedirect
+                    requestRedirect:
+                      scheme: https
+                      statusCode: 301
+          EOF
+
+          for route in kelos-session-route kelos-session-redirect; do
+            kubectl wait \
+              --for=jsonpath='{.status.parents[0].conditions[?(@.type=="Accepted")].status}'=True \
+              "httproute/${route}" -n kelos-system --timeout=10m \
+              || { kubectl describe "httproute/${route}" -n kelos-system; exit 1; }
+            kubectl wait \
+              --for=jsonpath='{.status.parents[0].conditions[?(@.type=="Reconciled")].status}'=True \
+              "httproute/${route}" -n kelos-system --timeout=10m \
+              || { kubectl describe "httproute/${route}" -n kelos-system; exit 1; }
+          done
+
+          # The Gateway certificate map is managed outside this workflow and
+          # must contain a certificate for KELOS_SESSION_HOSTNAME.
+          curl --fail --silent --show-error \
+            --retry 30 --retry-all-errors --retry-delay 10 \
+            "https://${KELOS_SESSION_HOSTNAME}/healthz"
 
       - name: Apply PodMonitoring
         run: |

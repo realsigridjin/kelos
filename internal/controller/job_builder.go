@@ -118,7 +118,8 @@ const (
 // because doing so would amount to executing arbitrary commands or code
 // inside the agent container before the user-supplied agent process runs.
 var reservedEnvNames = map[string]struct{}{
-	"KELOS_SETUP_COMMAND": {},
+	"KELOS_SETUP_COMMAND":      {},
+	"KELOS_SESSION_SETUP_ONLY": {},
 }
 
 // JobBuilder constructs Kubernetes Jobs for Tasks.

@@ -29,6 +29,7 @@ import (
 type ApiV1alpha2Interface interface {
 	RESTClient() rest.Interface
 	AgentConfigsGetter
+	SessionsGetter
 	TasksGetter
 	TaskBudgetsGetter
 	TaskRecordsGetter
@@ -44,6 +45,10 @@ type ApiV1alpha2Client struct {
 
 func (c *ApiV1alpha2Client) AgentConfigs(namespace string) AgentConfigInterface {
 	return newAgentConfigs(c, namespace)
+}
+
+func (c *ApiV1alpha2Client) Sessions(namespace string) SessionInterface {
+	return newSessions(c, namespace)
 }
 
 func (c *ApiV1alpha2Client) Tasks(namespace string) TaskInterface {

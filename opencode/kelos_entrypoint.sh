@@ -13,7 +13,9 @@
 
 set -uo pipefail
 
-PROMPT="${1:?Prompt argument is required}"
+opencode_config_dir="${OPENCODE_CONFIG_DIR:-$HOME/.config/opencode}"
+export OPENCODE_CONFIG_DIR="$opencode_config_dir"
+mkdir -p "$opencode_config_dir"
 
 # Map OPENCODE_API_KEY to the correct provider environment variable
 # based on the provider prefix in KELOS_MODEL.
@@ -39,20 +41,11 @@ elif [ -n "${OPENCODE_API_KEY:-}" ]; then
   export ANTHROPIC_API_KEY="$OPENCODE_API_KEY"
 fi
 
-ARGS=(
-  "run"
-  "--format" "json"
-  "--auto"
-  "$PROMPT"
-)
-
 if [ -n "${KELOS_EFFORT:-}" ]; then
-  mkdir -p ~/.config/opencode
   node -e '
 const fs = require("fs");
-const os = require("os");
 const path = require("path");
-const cfgPath = path.join(os.homedir(), ".config", "opencode", "opencode.json");
+const cfgPath = path.join(process.env.OPENCODE_CONFIG_DIR, "opencode.json");
 let existing = {};
 try { existing = JSON.parse(fs.readFileSync(cfgPath, "utf8")); } catch {}
 const model = process.env.KELOS_MODEL || existing.model;
@@ -80,14 +73,11 @@ existing.agent.build = Object.assign({}, existing.agent.build || {}, {
 if (model) existing.agent.build.model = model;
 fs.writeFileSync(cfgPath, JSON.stringify(existing, null, 2));
 '
-elif [ -n "${KELOS_MODEL:-}" ]; then
-  ARGS+=("--model" "$KELOS_MODEL")
 fi
 
 # Write user-level instructions (global scope read by OpenCode CLI)
 if [ -n "${KELOS_AGENTS_MD:-}" ]; then
-  mkdir -p ~/.config/opencode
-  printf '%s' "$KELOS_AGENTS_MD" >~/.config/opencode/AGENTS.md
+  printf '%s' "$KELOS_AGENTS_MD" >"$opencode_config_dir/AGENTS.md"
 fi
 
 # Install each plugin's skills and agents into OpenCode's global config
@@ -96,12 +86,12 @@ if [ -n "${KELOS_PLUGIN_DIR:-}" ] && [ -d "${KELOS_PLUGIN_DIR}" ]; then
   for plugindir in "${KELOS_PLUGIN_DIR}"/*/; do
     [ -d "$plugindir" ] || continue
     pluginname=$(basename "$plugindir")
-    # Copy skills into ~/.config/opencode/skills/<plugin>:<skill>/
+    # Copy skills into the configured OpenCode skills directory.
     if [ -d "${plugindir}skills" ]; then
       for skilldir in "${plugindir}skills"/*/; do
         [ -d "$skilldir" ] || continue
         skillname=$(basename "$skilldir")
-        targetdir="$HOME/.config/opencode/skills/${pluginname}:${skillname}"
+        targetdir="$opencode_config_dir/skills/${pluginname}:${skillname}"
         if [ -f "${skilldir}SKILL.md" ]; then
           sourceid="${pluginname}/${skillname}"
           existing_source=""
@@ -123,12 +113,12 @@ if [ -n "${KELOS_PLUGIN_DIR:-}" ] && [ -d "${KELOS_PLUGIN_DIR}" ]; then
         fi
       done
     fi
-    # Copy agents into ~/.config/opencode/agents/
+    # Copy agents into the configured OpenCode agents directory.
     if [ -d "${plugindir}agents" ]; then
-      mkdir -p "$HOME/.config/opencode/agents"
+      mkdir -p "$opencode_config_dir/agents"
       for agentfile in "${plugindir}agents"/*.md; do
         [ -f "$agentfile" ] || continue
-        cp "$agentfile" "$HOME/.config/opencode/agents/"
+        cp "$agentfile" "$opencode_config_dir/agents/"
       done
     fi
   done
@@ -156,6 +146,21 @@ process.exit(r.status ?? 1);
     exit "$SETUP_EXIT_CODE"
   fi
   printf '\n---KELOS_SETUP_COMMAND_DONE---\n' >&2
+fi
+
+if [ "${KELOS_SESSION_SETUP_ONLY:-}" = "1" ]; then
+  exit 0
+fi
+
+PROMPT="${1:?Prompt argument is required}"
+ARGS=(
+  "run"
+  "--format" "json"
+  "--auto"
+  "$PROMPT"
+)
+if [ -z "${KELOS_EFFORT:-}" ] && [ -n "${KELOS_MODEL:-}" ]; then
+  ARGS+=("--model" "$KELOS_MODEL")
 fi
 
 opencode "${ARGS[@]}" | /kelos/kelos-capture

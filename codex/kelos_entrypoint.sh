@@ -4,47 +4,35 @@
 #
 # Interface contract:
 #   - First argument ($1): the task prompt
+#   - KELOS_SESSION_SETUP_ONLY=1: prepare configuration and exit without a prompt
 #   - KELOS_MODEL env var: model name (optional)
 #   - UID 61100: shared between git-clone init container and agent
 #   - Working directory: /workspace/repo when a workspace is configured
 
 set -uo pipefail
 
-PROMPT="${1:?Prompt argument is required}"
+codex_home="${CODEX_HOME:-$HOME/.codex}"
+mkdir -p "$codex_home"
+if [ "${KELOS_SESSION_SETUP_ONLY:-}" = "1" ]; then
+  : >"$codex_home/config.toml"
+fi
 
 # Write auth.json from env var for OAuth/ChatGPT credential flow.
 # Strip control characters so serde_json's strict parser accepts
 # the file (the env var value may contain raw newlines).
 if [ -n "${CODEX_AUTH_JSON:-}" ]; then
-  mkdir -p ~/.codex
-  printf '%s' "$CODEX_AUTH_JSON" | tr -d '\n\r' >~/.codex/auth.json
-  printf 'cli_auth_credentials_store = "file"\n' >>~/.codex/config.toml
-fi
-
-ARGS=(
-  "exec"
-  "--dangerously-bypass-approvals-and-sandbox"
-  "--json"
-  "$PROMPT"
-)
-
-if [ -n "${KELOS_MODEL:-}" ]; then
-  ARGS+=("--model" "$KELOS_MODEL")
-fi
-
-if [ -n "${KELOS_EFFORT:-}" ]; then
-  SAFE_EFFORT=$(printf '%s' "$KELOS_EFFORT" | tr -d '"\\\n\r')
-  ARGS+=("--config" "model_reasoning_effort=\"$SAFE_EFFORT\"")
+  printf '%s' "$CODEX_AUTH_JSON" | tr -d '\n\r' >"$codex_home/auth.json"
+  printf 'cli_auth_credentials_store = "file"\n' >>"$codex_home/config.toml"
 fi
 
 # Write user-level instructions (global scope read by Codex CLI)
 if [ -n "${KELOS_AGENTS_MD:-}" ]; then
-  mkdir -p ~/.codex
-  printf '%s' "$KELOS_AGENTS_MD" >~/.codex/AGENTS.md
+  printf '%s' "$KELOS_AGENTS_MD" >"$codex_home/AGENTS.md"
 fi
 
-# Install each plugin as a Codex skill directory under ~/.codex/skills
+# Install each plugin as a skill directory under the configured Codex home.
 installed_skill_targets=""
+codex_home="${CODEX_HOME:-$HOME/.codex}"
 if [ -n "${KELOS_PLUGIN_DIR:-}" ] && [ -d "${KELOS_PLUGIN_DIR}" ]; then
   for plugindir in "${KELOS_PLUGIN_DIR}"/*/; do
     [ -d "$plugindir" ] || continue
@@ -54,7 +42,7 @@ if [ -n "${KELOS_PLUGIN_DIR:-}" ] && [ -d "${KELOS_PLUGIN_DIR}" ]; then
         [ -d "$skilldir" ] || continue
         skillname=$(basename "$skilldir")
         pluginname=$(basename "$plugindir")
-        targetdir="$HOME/.codex/skills/${pluginname}:${skillname}"
+        targetdir="$codex_home/skills/${pluginname}:${skillname}"
         if [ -f "${skilldir}SKILL.md" ]; then
           sourceid="${pluginname}/${skillname}"
           existing_source=""
@@ -83,7 +71,6 @@ fi
 # KELOS_MCP_SERVERS contains JSON in .mcp.json format; convert to
 # Codex TOML via a small Node.js helper that is available in the image.
 if [ -n "${KELOS_MCP_SERVERS:-}" ]; then
-  mkdir -p ~/.codex
   node -e '
 const cfg = JSON.parse(process.env.KELOS_MCP_SERVERS);
 const servers = cfg.mcpServers || {};
@@ -104,7 +91,7 @@ for (const [name, s] of Object.entries(servers)) {
   toml += "\n";
 }
 process.stdout.write(toml);
-' >>~/.codex/config.toml
+' >>"$codex_home/config.toml"
 fi
 
 # Run pre-agent setup command if configured. KELOS_SETUP_COMMAND is the
@@ -129,6 +116,27 @@ process.exit(r.status ?? 1);
     exit "$SETUP_EXIT_CODE"
   fi
   printf '\n---KELOS_SETUP_COMMAND_DONE---\n' >&2
+fi
+
+if [ "${KELOS_SESSION_SETUP_ONLY:-}" = "1" ]; then
+  exit 0
+fi
+
+PROMPT="${1:?Prompt argument is required}"
+ARGS=(
+  "exec"
+  "--dangerously-bypass-approvals-and-sandbox"
+  "--json"
+  "$PROMPT"
+)
+
+if [ -n "${KELOS_MODEL:-}" ]; then
+  ARGS+=("--model" "$KELOS_MODEL")
+fi
+
+if [ -n "${KELOS_EFFORT:-}" ]; then
+  SAFE_EFFORT=$(printf '%s' "$KELOS_EFFORT" | tr -d '"\\\n\r')
+  ARGS+=("--config" "model_reasoning_effort=\"$SAFE_EFFORT\"")
 fi
 
 codex "${ARGS[@]}" | /kelos/kelos-capture

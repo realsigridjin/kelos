@@ -145,6 +145,17 @@ var _ = BeforeSuite(func() {
 	}).SetupWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())
 
+	err = (&controller.SessionReconciler{
+		Client:                        mgr.GetClient(),
+		Scheme:                        mgr.GetScheme(),
+		JobBuilder:                    controller.NewJobBuilder(),
+		SessionRuntimeImage:           controller.DefaultSessionRuntimeImage,
+		SessionRuntimeImagePullPolicy: "IfNotPresent",
+		Recorder:                      mgr.GetEventRecorderFor("kelos-controller"),
+		TokenClient:                   tokenClient,
+	}).SetupWithManager(mgr)
+	Expect(err).NotTo(HaveOccurred())
+
 	err = (&controller.TaskSpawnerReconciler{
 		Client:            mgr.GetClient(),
 		Scheme:            mgr.GetScheme(),
@@ -199,6 +210,9 @@ var _ = BeforeSuite(func() {
 	}, 30*time.Second, 100*time.Millisecond).Should(Succeed())
 	Eventually(func() error {
 		return k8sClient.List(ctx, &kelos.WorkerPoolList{})
+	}, 30*time.Second, 100*time.Millisecond).Should(Succeed())
+	Eventually(func() error {
+		return k8sClient.List(ctx, &kelos.SessionList{})
 	}, 30*time.Second, 100*time.Millisecond).Should(Succeed())
 	// AgentConfig requires the conversion webhook to be reachable.
 	Eventually(func() error {
