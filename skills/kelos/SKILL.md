@@ -1,12 +1,11 @@
 ---
 name: kelos
 description: >-
-  Use only for Kelos Kubernetes resource work: authoring/debugging Task,
-  Workspace, AgentConfig, or TaskSpawner manifests/CRDs, examples, generated
-  CRDs, self-development manifests, or live kelos/kubectl operations. Do not use
-  for ordinary Kelos repo code edits, tests, reviews, build/CI, or git tasks
-  unless they involve those resources.
-compatibility: Requires kubectl and cluster access only for live operations
+  Author, debug, and operate Kelos resources (Task, Session, Workspace,
+  AgentConfig, TaskSpawner) on Kubernetes. Use for Kelos CRDs, resource
+  manifests, the kelos CLI, or live cluster operations. Do not use for ordinary
+  Kelos repo code edits, tests, reviews, build/CI, or git tasks unless they
+  involve those resources.
 ---
 
 # Kelos Skill
@@ -19,7 +18,7 @@ user's request.
 
 Use this skill for:
 
-- Authoring or editing Kelos manifests for `Task`, `Workspace`, `AgentConfig`, or `TaskSpawner`.
+- Authoring or editing Kelos manifests for `Task`, `Session`, `Workspace`, `AgentConfig`, or `TaskSpawner`.
 - Debugging live Kelos resources on Kubernetes with `kelos` or `kubectl`.
 - Operating Kelos installs, task runs, logs, suspension, deletion, or cluster resources.
 - Editing Kelos CRD/API examples, generated CRDs, self-development manifests, or docs that describe resource fields.
@@ -45,17 +44,20 @@ Kelos resources use `apiVersion: kelos.dev/v1alpha2`.
 | Resource | Purpose | Key fields |
 | --- | --- | --- |
 | `Task` | Single agent run | `spec.type`, `spec.prompt`, `spec.credentials`, `spec.workspaceRef`, `spec.agentConfigRefs[]`, `spec.branch`, `spec.dependsOn`, `spec.model`, `spec.effort`, `spec.podOverrides`, `spec.ttlSecondsAfterFinished` |
+| `Session` | Persistent interactive agent conversation | `spec.worker`, `spec.volumeClaimTemplate` |
 | `Workspace` | Git repository for the agent | `spec.repo`, `spec.ref`, `spec.secretRef`, `spec.remotes`, `spec.files` |
 | `AgentConfig` | Reusable instructions and tools | `spec.agentsMD`, `spec.plugins`, `spec.skills`, `spec.mcpServers` |
 | `TaskSpawner` | Creates Tasks from external sources | `spec.when.githubIssues`, `spec.when.githubPullRequests`, `spec.when.cron`, `spec.when.jira`, per-source `pollInterval`, `spec.taskTemplate`, `spec.maxConcurrency`, `spec.maxTotalTasks`, `spec.suspend` |
 
 Task phases are `Pending`, `Waiting`, `Running`, `Succeeded`, and `Failed`.
+Session phases are `Pending`, `Ready`, and `Failed`.
 
 ## References
 
 | Need | Read |
 | --- | --- |
 | Task examples, credentials, dependencies, branch locks, pod overrides, TTL | `references/task.yaml` |
+| Session examples, worker configuration, ephemeral or persistent storage | `references/session.yaml` |
 | Workspace examples, repository auth, remotes, injected files | `references/workspace.yaml` |
 | AgentConfig examples, plugins, skills, agents, MCP servers | `references/agentconfig.yaml` |
 | TaskSpawner examples, GitHub/Jira/cron sources, comment policy, concurrency | `references/taskspawner.yaml` |
@@ -81,13 +83,17 @@ kelos create workspace my-ws --repo https://github.com/org/repo.git --ref main -
 kelos create agentconfig my-ac --skill review=@review.md --dry-run
 
 kelos get tasks
+kelos get sessions
 kelos get task my-task -d
 kelos get task my-task -o yaml
+kelos get session my-session -d
+kelos session connect my-session
 kelos logs my-task -f
 
 kelos suspend taskspawner my-spawner
 kelos resume taskspawner my-spawner
 kelos delete task my-task
+kelos delete session my-session
 ```
 
 ## Operational Workflow

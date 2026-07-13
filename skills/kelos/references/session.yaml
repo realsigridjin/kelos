@@ -1,0 +1,46 @@
+# Session with an ephemeral workspace
+apiVersion: kelos.dev/v1alpha2
+kind: Session
+metadata:
+  name: interactive-review
+spec:
+  worker:
+    type: claude-code
+    credentials:
+      type: api-key
+      secretRef:
+        name: claude-credentials
+---
+# Session with a persistent workspace, repository, and agent configuration
+apiVersion: kelos.dev/v1alpha2
+kind: Session
+metadata:
+  name: persistent-review
+spec:
+  worker:
+    type: codex
+    credentials:
+      type: oauth
+      secretRef:
+        name: codex-credentials
+    workspaceRef:
+      name: my-workspace
+    agentConfigRefs:
+      - name: code-reviewer
+  volumeClaimTemplate:
+    accessModes:
+      - ReadWriteOnce
+    resources:
+      requests:
+        storage: 10Gi
+---
+# OpenCode Session without built-in credential injection
+apiVersion: kelos.dev/v1alpha2
+kind: Session
+metadata:
+  name: opencode-chat
+spec:
+  worker:
+    type: opencode
+    credentials:
+      type: none
