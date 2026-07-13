@@ -231,10 +231,12 @@ the workspace uses `emptyDir`, so conversation history and workspace changes do
 not survive Pod replacement.
 
 The shared web server is restricted to its configured
-`sessionServer.defaultNamespace`. Its creation API accepts provider,
-credentials, model, effort, Workspace, and AgentConfig references; image and Pod
-overrides and `volumeClaimTemplate` require direct Kubernetes API access governed
-by Kubernetes RBAC.
+`sessionServer.defaultNamespace`. Its creation form accepts provider,
+credentials, model, Workspace, AgentConfig references, and an optional persistent
+volume claim. YAML mode server-side applies one `kelos.dev/v1alpha2` Session
+manifest with the same worker fields and namespace restriction as the form. The
+manifest may also include labels, annotations, and an optional persistent volume
+claim.
 
 ## WorkerPool
 

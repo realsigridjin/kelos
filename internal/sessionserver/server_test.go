@@ -13,10 +13,12 @@ import (
 
 	"github.com/gorilla/websocket"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
@@ -82,11 +84,168 @@ func TestSessionFormUsesResourceSelectors(t *testing.T) {
 		`id="workspace-select"`,
 		`id="agent-config-select"`,
 		`id="selected-agent-configs"`,
+		`id="session-mode-yaml"`,
+		`id="session-yaml"`,
+		`id="volume-claim-enabled"`,
 		`<option value="opencode">OpenCode</option>`,
 	} {
 		if !strings.Contains(response.Body.String(), expected) {
 			t.Errorf("new Session form does not contain %s", expected)
 		}
+	}
+}
+
+func TestSessionFormAPICreatesPersistentSession(t *testing.T) {
+	server := testServer(t)
+	payload := `{
+		"name":"persistent-chat",
+		"namespace":"default",
+		"worker":{"type":"codex","credentials":{"type":"none"}},
+		"volumeClaimTemplate":{
+			"accessModes":["ReadWriteOnce"],
+			"storageClassName":"fast",
+			"resources":{"requests":{"storage":"20Gi"}}
+		}
+	}`
+	request := httptest.NewRequest(http.MethodPost, "/api/sessions", strings.NewReader(payload))
+	request.Header.Set("Authorization", "Bearer secret-token")
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body = %s", response.Code, response.Body.String())
+	}
+
+	var session kelos.Session
+	if err := server.client.Get(t.Context(), client.ObjectKey{Namespace: "default", Name: "persistent-chat"}, &session); err != nil {
+		t.Fatal(err)
+	}
+	claim := session.Spec.VolumeClaimTemplate
+	if claim == nil {
+		t.Fatal("volumeClaimTemplate is nil")
+	}
+	if len(claim.AccessModes) != 1 || claim.AccessModes[0] != corev1.ReadWriteOnce {
+		t.Fatalf("accessModes = %v", claim.AccessModes)
+	}
+	if claim.StorageClassName == nil || *claim.StorageClassName != "fast" {
+		t.Fatalf("storageClassName = %v", claim.StorageClassName)
+	}
+	wantStorage := resource.MustParse("20Gi")
+	if storage := claim.Resources.Requests[corev1.ResourceStorage]; storage.Cmp(wantStorage) != 0 {
+		t.Fatalf("storage request = %s, want %s", storage.String(), wantStorage.String())
+	}
+}
+
+func TestSessionYAMLApplyAPI(t *testing.T) {
+	server := testServer(t)
+	manifest := `apiVersion: kelos.dev/v1alpha2
+kind: Session
+metadata:
+  name: yaml-chat
+  labels:
+    source: web
+spec:
+  volumeClaimTemplate:
+    accessModes:
+      - ReadWriteOnce
+    resources:
+      requests:
+        storage: 5Gi
+  worker:
+    type: codex
+    credentials:
+      type: none
+    model: gpt-5
+`
+	request := httptest.NewRequest(http.MethodPost, "/api/sessions/apply", strings.NewReader(manifest))
+	request.Header.Set("Authorization", "Bearer secret-token")
+	request.Header.Set("Content-Type", "application/yaml")
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("apply status = %d body = %s", response.Code, response.Body.String())
+	}
+
+	var session kelos.Session
+	if err := server.client.Get(t.Context(), client.ObjectKey{Namespace: "default", Name: "yaml-chat"}, &session); err != nil {
+		t.Fatal(err)
+	}
+	if session.Labels["source"] != "web" {
+		t.Fatalf("Session labels = %v", session.Labels)
+	}
+	if session.Spec.Worker.Model != "gpt-5" {
+		t.Fatalf("worker model = %q, want %q", session.Spec.Worker.Model, "gpt-5")
+	}
+	if session.Spec.VolumeClaimTemplate == nil {
+		t.Fatal("volumeClaimTemplate is nil")
+	}
+	wantStorage := resource.MustParse("5Gi")
+	if storage := session.Spec.VolumeClaimTemplate.Resources.Requests[corev1.ResourceStorage]; storage.Cmp(wantStorage) != 0 {
+		t.Fatalf("storage request = %s, want %s", storage.String(), wantStorage.String())
+	}
+
+	updated := strings.Replace(manifest, "source: web", "source: yaml", 1)
+	request = httptest.NewRequest(http.MethodPost, "/api/sessions/apply", strings.NewReader(updated))
+	request.Header.Set("Authorization", "Bearer secret-token")
+	response = httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("reapply status = %d body = %s", response.Code, response.Body.String())
+	}
+	if err := server.client.Get(t.Context(), client.ObjectKey{Namespace: "default", Name: "yaml-chat"}, &session); err != nil {
+		t.Fatal(err)
+	}
+	if session.Labels["source"] != "yaml" {
+		t.Fatalf("Session labels after reapply = %v", session.Labels)
+	}
+}
+
+func TestSessionYAMLApplyAPIRejectsInvalidManifests(t *testing.T) {
+	server := testServer(t)
+	for _, test := range []struct {
+		name       string
+		manifest   string
+		wantStatus int
+	}{
+		{
+			name:       "wrong kind",
+			manifest:   "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: config\n",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "other namespace",
+			manifest:   "apiVersion: kelos.dev/v1alpha2\nkind: Session\nmetadata:\n  name: chat\n  namespace: team-a\nspec:\n  worker:\n    type: codex\n    credentials:\n      type: none\n",
+			wantStatus: http.StatusForbidden,
+		},
+		{
+			name:       "unknown field",
+			manifest:   "apiVersion: kelos.dev/v1alpha2\nkind: Session\nmetadata:\n  name: chat\nspec:\n  unknown: value\n  worker:\n    type: codex\n    credentials:\n      type: none\n",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "custom image",
+			manifest:   "apiVersion: kelos.dev/v1alpha2\nkind: Session\nmetadata:\n  name: chat\nspec:\n  worker:\n    type: codex\n    credentials:\n      type: none\n    image: example.invalid/unsafe:latest\n",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "pod overrides",
+			manifest:   "apiVersion: kelos.dev/v1alpha2\nkind: Session\nmetadata:\n  name: chat\nspec:\n  worker:\n    type: codex\n    credentials:\n      type: none\n    podOverrides:\n      serviceAccountName: kelos-controller\n",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "multiple documents",
+			manifest:   "apiVersion: kelos.dev/v1alpha2\nkind: Session\nmetadata:\n  name: one\nspec:\n  worker:\n    type: codex\n    credentials:\n      type: none\n---\napiVersion: kelos.dev/v1alpha2\nkind: Session\nmetadata:\n  name: two\nspec:\n  worker:\n    type: codex\n    credentials:\n      type: none\n",
+			wantStatus: http.StatusBadRequest,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, "/api/sessions/apply", strings.NewReader(test.manifest))
+			request.Header.Set("Authorization", "Bearer secret-token")
+			response := httptest.NewRecorder()
+			server.ServeHTTP(response, request)
+			if response.Code != test.wantStatus {
+				t.Fatalf("status = %d, want %d body = %s", response.Code, test.wantStatus, response.Body.String())
+			}
+		})
 	}
 }
 

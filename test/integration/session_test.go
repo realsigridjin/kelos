@@ -2,6 +2,9 @@ package integration
 
 import (
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -11,9 +14,11 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
+	"github.com/kelos-dev/kelos/internal/sessionserver"
 )
 
 var _ = Describe("Session", func() {
@@ -22,6 +27,58 @@ var _ = Describe("Session", func() {
 	BeforeEach(func() {
 		namespace = fmt.Sprintf("session-%d", time.Now().UnixNano())
 		Expect(k8sClient.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}})).To(Succeed())
+	})
+
+	It("applies a persistent Session through the web YAML API", func() {
+		clientset, err := kubernetes.NewForConfig(cfg)
+		Expect(err).NotTo(HaveOccurred())
+		server, err := sessionserver.New(sessionserver.Config{
+			Token:            "secret-token",
+			Client:           k8sClient,
+			Clientset:        clientset,
+			RESTConfig:       cfg,
+			DefaultNamespace: namespace,
+		})
+		Expect(err).NotTo(HaveOccurred())
+		manifest := fmt.Sprintf(`apiVersion: kelos.dev/v1alpha2
+kind: Session
+metadata:
+  name: yaml-chat
+  namespace: %s
+  labels:
+    source: web
+spec:
+  volumeClaimTemplate:
+    accessModes:
+      - ReadWriteOnce
+    resources:
+      requests:
+        storage: 2Gi
+  worker:
+    type: codex
+    credentials:
+      type: none
+`, namespace)
+
+		request := httptest.NewRequest(http.MethodPost, "/api/sessions/apply", strings.NewReader(manifest))
+		request.Header.Set("Authorization", "Bearer secret-token")
+		response := httptest.NewRecorder()
+		server.ServeHTTP(response, request)
+		Expect(response.Code).To(Equal(http.StatusOK), response.Body.String())
+
+		var session kelos.Session
+		Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: "yaml-chat"}, &session)).To(Succeed())
+		Expect(session.Spec.VolumeClaimTemplate).NotTo(BeNil())
+		storage := session.Spec.VolumeClaimTemplate.Resources.Requests[corev1.ResourceStorage]
+		Expect(storage.Cmp(resource.MustParse("2Gi"))).To(Equal(0))
+
+		request = httptest.NewRequest(http.MethodPost, "/api/sessions/apply", strings.NewReader(strings.Replace(manifest, "source: web", "source: yaml", 1)))
+		request.Header.Set("Authorization", "Bearer secret-token")
+		response = httptest.NewRecorder()
+		server.ServeHTTP(response, request)
+		Expect(response.Code).To(Equal(http.StatusOK), response.Body.String())
+		Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: "yaml-chat"}, &session)).To(Succeed())
+		Expect(session.Labels).To(HaveKeyWithValue("source", "yaml"))
 	})
 
 	It("creates a one-replica StatefulSet and becomes ready with its Pod", func() {

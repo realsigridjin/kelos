@@ -2,6 +2,7 @@ package sessionserver
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -22,11 +23,15 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	yamlutil "k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/remotecommand"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/yaml"
 
 	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 )
@@ -34,6 +39,8 @@ import (
 const (
 	authCookieName       = "kelos_session_auth"
 	sessionRuntimeClient = "/kelos/bin/kelos-session-runtime"
+	sessionApplyManager  = "kelos-session-server"
+	requestBodyLimit     = 1024 * 1024
 )
 
 //go:embed web/*
@@ -101,9 +108,10 @@ type credentialOption struct {
 }
 
 type createSessionRequest struct {
-	Name      string              `json:"name"`
-	Namespace string              `json:"namespace"`
-	Worker    createSessionWorker `json:"worker"`
+	Name                string                            `json:"name"`
+	Namespace           string                            `json:"namespace"`
+	Worker              createSessionWorker               `json:"worker"`
+	VolumeClaimTemplate *corev1.PersistentVolumeClaimSpec `json:"volumeClaimTemplate,omitempty"`
 }
 
 type createSessionWorker struct {
@@ -112,6 +120,25 @@ type createSessionWorker struct {
 	Model           string                       `json:"model,omitempty"`
 	WorkspaceRef    *kelos.WorkspaceReference    `json:"workspaceRef,omitempty"`
 	AgentConfigRefs []kelos.AgentConfigReference `json:"agentConfigRefs,omitempty"`
+}
+
+type sessionManifest struct {
+	APIVersion string                  `json:"apiVersion"`
+	Kind       string                  `json:"kind"`
+	Metadata   sessionManifestMetadata `json:"metadata"`
+	Spec       sessionManifestSpec     `json:"spec"`
+}
+
+type sessionManifestMetadata struct {
+	Name        string            `json:"name"`
+	Namespace   string            `json:"namespace,omitempty"`
+	Labels      map[string]string `json:"labels,omitempty"`
+	Annotations map[string]string `json:"annotations,omitempty"`
+}
+
+type sessionManifestSpec struct {
+	Worker              createSessionWorker               `json:"worker"`
+	VolumeClaimTemplate *corev1.PersistentVolumeClaimSpec `json:"volumeClaimTemplate,omitempty"`
 }
 
 func (w createSessionWorker) workerSpec() kelos.WorkerSpec {
@@ -270,6 +297,10 @@ func (s *Server) api(writer http.ResponseWriter, request *http.Request) {
 		}
 		return
 	}
+	if path == "sessions/apply" && request.Method == http.MethodPost {
+		s.applySession(writer, request)
+		return
+	}
 
 	parts := strings.Split(strings.Trim(path, "/"), "/")
 	if len(parts) < 3 || parts[0] != "sessions" {
@@ -401,7 +432,10 @@ func (s *Server) createSession(writer http.ResponseWriter, request *http.Request
 			Name:      payload.Name,
 			Namespace: payload.Namespace,
 		},
-		Spec: kelos.SessionSpec{Worker: payload.Worker.workerSpec()},
+		Spec: kelos.SessionSpec{
+			Worker:              payload.Worker.workerSpec(),
+			VolumeClaimTemplate: payload.VolumeClaimTemplate,
+		},
 	}
 	if err := s.client.Create(request.Context(), session); err != nil {
 		status := http.StatusInternalServerError
@@ -412,6 +446,64 @@ func (s *Server) createSession(writer http.ResponseWriter, request *http.Request
 		return
 	}
 	writeJSON(writer, http.StatusCreated, summarize(session))
+}
+
+func (s *Server) applySession(writer http.ResponseWriter, request *http.Request) {
+	session, err := decodeSessionYAML(request.Body)
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	if session.APIVersion != kelos.GroupVersion.String() || session.Kind != "Session" {
+		writeError(writer, http.StatusBadRequest, fmt.Sprintf("manifest must be a %s Session", kelos.GroupVersion.String()))
+		return
+	}
+	session.Name = strings.TrimSpace(session.Name)
+	session.Namespace = strings.TrimSpace(session.Namespace)
+	if session.Namespace == "" {
+		session.Namespace = s.defaultNamespace
+	}
+	if session.Name == "" {
+		writeError(writer, http.StatusBadRequest, "Session metadata.name is required")
+		return
+	}
+	if session.Namespace != s.defaultNamespace {
+		writeError(writer, http.StatusForbidden, fmt.Sprintf("namespace %q is not served", session.Namespace))
+		return
+	}
+
+	object, err := runtime.DefaultUnstructuredConverter.ToUnstructured(session)
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, fmt.Sprintf("converting Session manifest: %v", err))
+		return
+	}
+	delete(object, "status")
+	manifest := &unstructured.Unstructured{Object: object}
+	if err := s.client.Apply(
+		request.Context(),
+		client.ApplyConfigurationFromUnstructured(manifest),
+		client.FieldOwner(sessionApplyManager),
+		client.ForceOwnership,
+	); err != nil {
+		status := http.StatusInternalServerError
+		switch {
+		case apierrors.IsInvalid(err):
+			status = http.StatusBadRequest
+		case apierrors.IsForbidden(err):
+			status = http.StatusForbidden
+		case apierrors.IsConflict(err):
+			status = http.StatusConflict
+		}
+		writeError(writer, status, fmt.Sprintf("applying Session %q: %v", session.Name, err))
+		return
+	}
+
+	var applied kelos.Session
+	if err := s.client.Get(request.Context(), client.ObjectKeyFromObject(session), &applied); err != nil {
+		writeKubernetesError(writer, fmt.Sprintf("getting applied Session %q", session.Name), err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, summarize(&applied))
 }
 
 func (s *Server) deleteSession(writer http.ResponseWriter, request *http.Request, namespace, name string) {
@@ -563,12 +655,67 @@ func sameOrigin(request *http.Request) bool {
 }
 
 func decodeJSON(reader io.Reader, target any) error {
-	decoder := json.NewDecoder(io.LimitReader(reader, 1024*1024))
+	decoder := json.NewDecoder(io.LimitReader(reader, requestBodyLimit))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
 		return fmt.Errorf("invalid JSON request: %w", err)
 	}
 	return nil
+}
+
+func decodeSessionYAML(reader io.Reader) (*kelos.Session, error) {
+	data, err := io.ReadAll(io.LimitReader(reader, requestBodyLimit+1))
+	if err != nil {
+		return nil, fmt.Errorf("reading Session manifest: %w", err)
+	}
+	if len(data) > requestBodyLimit {
+		return nil, fmt.Errorf("Session manifest exceeds %d bytes", requestBodyLimit)
+	}
+
+	documents := yamlutil.NewYAMLReader(bufio.NewReader(bytes.NewReader(data)))
+	var session *kelos.Session
+	for {
+		document, err := documents.Read()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("reading Session manifest: %w", err)
+		}
+		if len(bytes.TrimSpace(document)) == 0 {
+			continue
+		}
+		if session != nil {
+			return nil, errors.New("Session manifest must contain exactly one YAML document")
+		}
+		jsonData, err := yaml.YAMLToJSONStrict(document)
+		if err != nil {
+			return nil, fmt.Errorf("invalid Session YAML: %w", err)
+		}
+		decoded := &sessionManifest{}
+		decoder := json.NewDecoder(bytes.NewReader(jsonData))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(decoded); err != nil {
+			return nil, fmt.Errorf("invalid Session manifest: %w", err)
+		}
+		session = &kelos.Session{
+			TypeMeta: metav1.TypeMeta{APIVersion: decoded.APIVersion, Kind: decoded.Kind},
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        decoded.Metadata.Name,
+				Namespace:   decoded.Metadata.Namespace,
+				Labels:      decoded.Metadata.Labels,
+				Annotations: decoded.Metadata.Annotations,
+			},
+			Spec: kelos.SessionSpec{
+				Worker:              decoded.Spec.Worker.workerSpec(),
+				VolumeClaimTemplate: decoded.Spec.VolumeClaimTemplate,
+			},
+		}
+	}
+	if session == nil {
+		return nil, errors.New("Session manifest is empty")
+	}
+	return session, nil
 }
 
 func writeJSON(writer http.ResponseWriter, status int, value any) {
