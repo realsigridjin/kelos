@@ -72,16 +72,20 @@ current UTC time and configured schedule by default.
 
 ```bash
 kelos get tasks
+kelos get sessions
 kelos get taskspawners
 kelos get workspaces
 
 kelos get task my-task -d
 kelos get task my-task -o yaml
+kelos get session my-session -d
+kelos session connect my-session
 kelos logs my-task -f
 
 kelos suspend taskspawner my-spawner
 kelos resume taskspawner my-spawner
 kelos delete task my-task
+kelos delete session my-session
 ```
 
 ## Supported Agent Types

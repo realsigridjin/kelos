@@ -22,6 +22,16 @@ failure state.
 - Review pod logs with `kelos logs <task-name>` or
   `kubectl logs -l job-name=<job-name>`.
 
+## Session Stuck In Pending Or Failed
+
+- Inspect the Session status with `kelos get session <name> -d` or
+  `kubectl get session <name> -o yaml`.
+- Check whether the credentials Secret, Workspace, and AgentConfig resources
+  referenced by `spec.worker` exist.
+- Check controller logs: `kubectl logs deployment/kelos-controller-manager -n kelos-system`.
+- Inspect the Session Pod only after checking the status reason and referenced
+  resources. Do not print Secret values.
+
 ## TaskSpawner Not Creating Tasks
 
 - Check spawner status: `kubectl get taskspawner <name> -o yaml`.
