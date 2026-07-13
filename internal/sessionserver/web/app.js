@@ -7,6 +7,8 @@ const elements = {
   composer: document.querySelector('#composer'),
   input: document.querySelector('#message-input'),
   send: document.querySelector('#send-message'),
+  composerHint: document.querySelector('#composer-hint'),
+  queue: document.querySelector('#queued-prompts'),
   connection: document.querySelector('#connection-pill'),
   dialog: document.querySelector('#session-dialog'),
   form: document.querySelector('#session-form'),
@@ -29,7 +31,6 @@ const elements = {
   persistentVolume: document.querySelector('#volume-claim-enabled'),
   volumeClaimFields: document.querySelector('#volume-claim-fields'),
   createButton: document.querySelector('#create-session'),
-  stopButton: document.querySelector('#stop-session'),
   deleteButton: document.querySelector('#delete-session'),
   sidebar: document.querySelector('#sidebar'),
   toast: document.querySelector('#toast'),
@@ -47,6 +48,7 @@ const state = {
   tools: new Map(),
   inputs: new Map(),
   diffs: new Map(),
+  queuedMessages: new Map(),
   activeTurn: false,
   interrupting: false,
   defaultNamespace: 'default',
@@ -338,6 +340,9 @@ function selectSession(session) {
   state.tools.clear();
   state.inputs.clear();
   state.diffs.clear();
+  state.queuedMessages.clear();
+  elements.queue.replaceChildren();
+  elements.queue.hidden = true;
   state.activeTurn = false;
   state.interrupting = false;
   elements.messages.replaceChildren();
@@ -373,7 +378,7 @@ function createWelcome() {
 function renderHeader() {
   const session = state.selected;
   elements.deleteButton.disabled = !session;
-  updateStopButton();
+  updateComposerAction();
   if (!session) {
     elements.title.textContent = 'Choose a session';
     elements.meta.textContent = 'Select an existing conversation or create one.';
@@ -396,13 +401,21 @@ function setConnection(status, label) {
 
 function setComposer(enabled) {
   elements.input.disabled = !enabled;
-  elements.send.disabled = !enabled;
   elements.input.placeholder = enabled ? 'Message the agent…' : 'Choose a ready session to start chatting';
+  updateComposerAction();
 }
 
-function updateStopButton() {
+function updateComposerAction() {
   const connected = state.socket && state.socket.readyState === WebSocket.OPEN;
-  elements.stopButton.disabled = !connected || !state.activeTurn || state.interrupting;
+  const interrupt = state.activeTurn && !elements.input.value.trim();
+  elements.send.dataset.action = interrupt ? 'interrupt' : 'send';
+  elements.send.textContent = interrupt ? '■' : '↑';
+  elements.send.setAttribute('aria-label', interrupt ? 'Interrupt active work' : 'Send message');
+  elements.send.title = interrupt ? 'Interrupt active work' : 'Send message';
+  elements.send.disabled = !connected || elements.input.disabled || (interrupt && state.interrupting);
+  elements.composerHint.textContent = state.activeTurn
+    ? 'Enter to queue · Shift+Enter for a new line'
+    : 'Enter to send · Shift+Enter for a new line';
 }
 
 function closeSocket() {
@@ -415,7 +428,7 @@ function closeSocket() {
     state.socket = null;
   }
   setComposer(false);
-  updateStopButton();
+  updateComposerAction();
 }
 
 function connectSocket() {
@@ -434,7 +447,7 @@ function connectSocket() {
     socket.send(JSON.stringify({type: 'subscribe', since: state.lastEventID}));
     setConnection('connected', 'Connected');
     setComposer(true);
-    updateStopButton();
+    updateComposerAction();
     elements.input.focus();
   });
   socket.addEventListener('message', event => {
@@ -450,7 +463,7 @@ function connectSocket() {
     state.socket = null;
     setConnection('error', 'Reconnecting');
     setComposer(false);
-    updateStopButton();
+    updateComposerAction();
     state.reconnectTimer = window.setTimeout(connectSocket, state.reconnectDelay);
     state.reconnectDelay = Math.min(state.reconnectDelay * 1.8, 10000);
   });
@@ -531,11 +544,12 @@ function handleEvent(event) {
       endAssistantSegment(event.turnId);
       state.activeTurn = true;
       state.interrupting = false;
-      updateStopButton();
+      acceptQueuedMessage(event.turnId);
+      updateComposerAction();
       break;
     case 'turn.interrupting':
       state.interrupting = true;
-      updateStopButton();
+      updateComposerAction();
       break;
     case 'assistant.delta':
       renderAssistantDelta(event);
@@ -574,15 +588,51 @@ function handleEvent(event) {
 }
 
 function renderUser(event) {
+  if (event.turnId) {
+    renderQueuedUser(event);
+    return;
+  }
+  renderAcceptedUser(event);
+}
+
+function renderAcceptedUser(event) {
   ensureConversation();
   const row = document.createElement('div');
   row.className = 'event-row user';
+  const message = document.createElement('div');
+  message.className = 'user-message';
   const bubble = document.createElement('div');
   bubble.className = 'message-bubble';
   renderMessageText(bubble, event.text);
-  row.append(bubble);
+  message.append(bubble);
+  row.append(message);
   elements.messages.append(row);
   scrollToBottom();
+}
+
+function renderQueuedUser(event) {
+  if (state.queuedMessages.has(event.turnId)) return;
+  const item = document.createElement('div');
+  item.className = 'queued-prompt';
+  const text = document.createElement('div');
+  text.className = 'queued-prompt-text';
+  text.textContent = event.text;
+  const status = document.createElement('span');
+  status.className = 'queued-prompt-status';
+  status.textContent = 'Queued';
+  item.append(text, status);
+  elements.queue.append(item);
+  elements.queue.hidden = false;
+  state.queuedMessages.set(event.turnId, {event, item});
+}
+
+function acceptQueuedMessage(turnID) {
+  const queued = state.queuedMessages.get(turnID);
+  if (!queued) return;
+  queued.item.remove();
+  state.queuedMessages.delete(turnID);
+  elements.queue.hidden = state.queuedMessages.size === 0;
+  renderAcceptedUser(queued.event);
 }
 
 function assistantBubble(turnID) {
@@ -771,7 +821,7 @@ function renderDiff(event) {
 function renderError(event) {
   if (event.status === 'rejected') {
     state.interrupting = false;
-    updateStopButton();
+    updateComposerAction();
   }
   ensureConversation();
   const card = document.createElement('div');
@@ -793,7 +843,8 @@ function renderRecovery(event) {
 function renderTurnEnd(event) {
   state.activeTurn = false;
   state.interrupting = false;
-  updateStopButton();
+  acceptQueuedMessage(event.turnId);
+  updateComposerAction();
   if (event.status === 'interrupted') showToast('Active work interrupted');
   const divider = document.createElement('div');
   divider.className = 'turn-divider';
@@ -811,10 +862,15 @@ function scrollToBottom(smooth = true) {
 elements.composer.addEventListener('submit', event => {
   event.preventDefault();
   const text = elements.input.value.trim();
-  if (!text || !state.socket || state.socket.readyState !== WebSocket.OPEN) return;
-  state.socket.send(JSON.stringify({type: 'message', text}));
-  elements.input.value = '';
-  resizeComposer();
+  if (!state.socket || state.socket.readyState !== WebSocket.OPEN) return;
+  if (text) {
+    state.socket.send(JSON.stringify({type: 'message', text}));
+    elements.input.value = '';
+    resizeComposer();
+    updateComposerAction();
+  } else if (state.activeTurn) {
+    interruptActiveTurn();
+  }
 });
 
 elements.input.addEventListener('keydown', event => {
@@ -823,7 +879,10 @@ elements.input.addEventListener('keydown', event => {
     elements.composer.requestSubmit();
   }
 });
-elements.input.addEventListener('input', resizeComposer);
+elements.input.addEventListener('input', () => {
+  resizeComposer();
+  updateComposerAction();
+});
 
 function resizeComposer() {
   elements.input.style.height = 'auto';
@@ -959,12 +1018,12 @@ elements.deleteButton.addEventListener('click', async () => {
   }
 });
 
-elements.stopButton.addEventListener('click', () => {
-  if (!state.socket || state.socket.readyState !== WebSocket.OPEN || !state.activeTurn) return;
+function interruptActiveTurn() {
+  if (!state.socket || state.socket.readyState !== WebSocket.OPEN || !state.activeTurn || state.interrupting) return;
   state.interrupting = true;
-  updateStopButton();
+  updateComposerAction();
   state.socket.send(JSON.stringify({type: 'interrupt'}));
-});
+}
 
 document.querySelector('#refresh-sessions').addEventListener('click', () => loadSessions());
 document.querySelector('#logout').addEventListener('click', async () => {

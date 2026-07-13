@@ -249,6 +249,27 @@ func TestSessionYAMLApplyAPIRejectsInvalidManifests(t *testing.T) {
 	}
 }
 
+func TestSessionComposerUsesOneSendAndInterruptAction(t *testing.T) {
+	server := testServer(t)
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	request.Header.Set("Authorization", "Bearer secret-token")
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("GET / status = %d body = %s", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	if !strings.Contains(body, `id="send-message" type="submit" aria-label="Send message" data-action="send"`) {
+		t.Error("Session composer does not contain the send action")
+	}
+	if !strings.Contains(body, `id="queued-prompts"`) {
+		t.Error("Session composer does not contain the queued prompts region")
+	}
+	if strings.Contains(body, `id="stop-session"`) {
+		t.Error("Session header contains a separate interrupt action")
+	}
+}
+
 func TestSessionAPIHappyPath(t *testing.T) {
 	server := testServer(t)
 	request := httptest.NewRequest(http.MethodGet, "/api/config", nil)
