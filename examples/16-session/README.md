@@ -5,7 +5,7 @@ StatefulSet. Replace the API key placeholder, then apply both files:
 
 ```bash
 kubectl apply -f examples/16-session/
-kubectl get session interactive-review -w
+kelos get session interactive-review
 ```
 
 When the Session is `Ready`, connect from a terminal:
@@ -27,7 +27,7 @@ StatefulSet, Pod, governing Service, and persistent workspace and ends the
 conversation:
 
 ```bash
-kubectl delete session interactive-review
+kelos delete session interactive-review
 ```
 
 To use another supported provider, set `spec.worker.type` to `codex` or

@@ -9,6 +9,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/duration"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/yaml"
@@ -386,6 +387,71 @@ func printWorkerPoolDetail(w io.Writer, wp *kelos.WorkerPool) {
 	}
 	if wp.Status.Message != "" {
 		printField(w, "Message", wp.Status.Message)
+	}
+}
+
+func printSessionTable(w io.Writer, sessions []kelos.Session, allNamespaces bool) {
+	tw := tabwriter.NewWriter(w, 0, 0, 3, ' ', 0)
+	if allNamespaces {
+		fmt.Fprintln(tw, "NAMESPACE\tNAME\tTYPE\tPHASE\tPOD\tAGE")
+	} else {
+		fmt.Fprintln(tw, "NAME\tTYPE\tPHASE\tPOD\tAGE")
+	}
+	for _, session := range sessions {
+		age := duration.HumanDuration(time.Since(session.CreationTimestamp.Time))
+		if allNamespaces {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
+				session.Namespace, session.Name, session.Spec.Worker.Type, session.Status.Phase, session.Status.PodName, age)
+		} else {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n",
+				session.Name, session.Spec.Worker.Type, session.Status.Phase, session.Status.PodName, age)
+		}
+	}
+	tw.Flush()
+}
+
+func printSessionDetail(w io.Writer, session *kelos.Session) {
+	printField(w, "Name", session.Name)
+	printField(w, "Namespace", session.Namespace)
+	printField(w, "Type", session.Spec.Worker.Type)
+	printField(w, "Phase", string(session.Status.Phase))
+	if credentials := session.Spec.Worker.Credentials; credentials != nil {
+		printField(w, "Credential Type", string(credentials.Type))
+		if credentials.SecretRef != nil {
+			printField(w, "Secret", credentials.SecretRef.Name)
+		}
+	}
+	if session.Spec.Worker.Model != "" {
+		printField(w, "Model", session.Spec.Worker.Model)
+	}
+	if session.Spec.Worker.Effort != "" {
+		printField(w, "Effort", session.Spec.Worker.Effort)
+	}
+	if session.Spec.Worker.Image != "" {
+		printField(w, "Image", session.Spec.Worker.Image)
+	}
+	if session.Spec.Worker.WorkspaceRef != nil {
+		printField(w, "Workspace", session.Spec.Worker.WorkspaceRef.Name)
+	}
+	if len(session.Spec.Worker.AgentConfigRefs) > 0 {
+		printField(w, "Agent Config", strings.Join(agentConfigRefNames(session.Spec.Worker.AgentConfigRefs), ","))
+	}
+	if claim := session.Spec.VolumeClaimTemplate; claim != nil {
+		if storage, ok := claim.Resources.Requests[corev1.ResourceStorage]; ok {
+			printField(w, "Storage", storage.String())
+		}
+		if claim.StorageClassName != nil {
+			printField(w, "Storage Class", *claim.StorageClassName)
+		}
+	}
+	if session.Status.PodName != "" {
+		printField(w, "Pod", session.Status.PodName)
+	}
+	if session.Status.PodUID != "" {
+		printField(w, "Pod UID", string(session.Status.PodUID))
+	}
+	if session.Status.Message != "" {
+		printField(w, "Message", session.Status.Message)
 	}
 }
 
