@@ -134,6 +134,92 @@ func TestSessionSetupEnvironmentKeepsWorkspaceSetupCommand(t *testing.T) {
 	}
 }
 
+func TestRunTurnQueuesWorkspaceStatusRefresh(t *testing.T) {
+	journal := NewJournal()
+	defer journal.Close()
+	server := NewServer(Config{}, journal, &fakeProvider{})
+	refreshStarted := make(chan struct{})
+	releaseRefresh := make(chan struct{})
+	server.refreshWorkspaceStatus = func(ctx context.Context) error {
+		close(refreshStarted)
+		select {
+		case <-releaseRefresh:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go server.runWorkspaceStatusRefreshes(ctx)
+
+	turnDone := make(chan struct{})
+	go func() {
+		server.runTurn(ctx, turnRequest{id: "turn-1", text: "work"})
+		close(turnDone)
+	}()
+
+	select {
+	case <-turnDone:
+	case <-time.After(time.Second):
+		t.Fatal("runTurn() waited for workspace status refresh")
+	}
+	select {
+	case <-refreshStarted:
+	case <-time.After(time.Second):
+		t.Fatal("workspace status refresh was not requested")
+	}
+	close(releaseRefresh)
+}
+
+func TestServerRetriesWorkspaceStatusPublication(t *testing.T) {
+	journal := NewJournal()
+	defer journal.Close()
+	server := NewServer(Config{}, journal, &fakeProvider{})
+	server.workspaceStatusRetryInterval = 10 * time.Millisecond
+	server.workspaceStatusPublishInterval = time.Hour
+	attempts := 0
+	published := make(chan struct{}, 1)
+	server.publishWorkspaceStatus = func(context.Context) error {
+		attempts++
+		if attempts == 1 {
+			return errors.New("not ready")
+		}
+		select {
+		case published <- struct{}{}:
+		default:
+		}
+		return nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go server.runWorkspaceStatusPublishes(ctx)
+	select {
+	case <-published:
+	case <-time.After(time.Second):
+		t.Fatal("workspace status publication was not retried")
+	}
+}
+
+func TestServerRefreshesWorkspaceStatusAfterPeriodicPublication(t *testing.T) {
+	journal := NewJournal()
+	defer journal.Close()
+	server := NewServer(Config{}, journal, &fakeProvider{})
+	server.workspaceStatusRetryInterval = 10 * time.Millisecond
+	server.workspaceStatusPublishInterval = time.Hour
+	server.publishWorkspaceStatus = func(context.Context) error { return nil }
+	server.refreshWorkspaceStatus = func(context.Context) error { return nil }
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go server.runWorkspaceStatusPublishes(ctx)
+
+	select {
+	case <-server.workspaceStatusRefreshes:
+	case <-time.After(time.Second):
+		t.Fatal("periodic workspace status publication did not request a refresh")
+	}
+}
+
 func TestServerSharesConversationAcrossConnections(t *testing.T) {
 	stateDir := shortRuntimeTempDir(t)
 	journal := NewJournal()

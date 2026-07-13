@@ -514,6 +514,64 @@ func TestSessionAPIHappyPath(t *testing.T) {
 	}
 }
 
+func TestSummarizeIncludesWorkspaceStatus(t *testing.T) {
+	session := &kelos.Session{
+		ObjectMeta: metav1.ObjectMeta{Name: "chat", Namespace: "default"},
+		Spec:       kelos.SessionSpec{Worker: kelos.WorkerSpec{Type: "codex"}},
+		Status: kelos.SessionStatus{
+			Phase:  kelos.SessionPhaseReady,
+			Branch: "feature/session-status",
+			PullRequest: &kelos.SessionPullRequest{
+				URL:   "https://github.com/kelos-dev/kelos/pull/42",
+				State: kelos.SessionPullRequestStateOpen,
+			},
+		},
+	}
+
+	summary := summarize(session)
+	if summary.Branch != session.Status.Branch || summary.PullRequest == nil || *summary.PullRequest != *session.Status.PullRequest {
+		t.Fatalf("summarize() = %#v", summary)
+	}
+}
+
+func TestSessionViewsIncludeWorkspaceStatus(t *testing.T) {
+	javascript, err := webFiles.ReadFile("web/app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for description, expected := range map[string]string{
+		"branch text":                `branch.textContent = session.branch;`,
+		"validated pull request URL": `const url = safeHTTPURL(pullRequest?.url);`,
+		"pull request state label":   "link.textContent = state ? `${pullRequestLabel(url)} · ${state}` : pullRequestLabel(url);",
+		"pull request state color":   `if (state) link.dataset.state = state.toLowerCase();`,
+		"pull request link target":   `link.target = '_blank';`,
+		"sidebar pull request link":  `createPullRequestLink(session.pullRequest, 'session-item-pull-request');`,
+		"header pull request link":   `createPullRequestLink(session.pullRequest, 'session-meta-pull-request');`,
+	} {
+		if !strings.Contains(string(javascript), expected) {
+			t.Errorf("Session views are missing %s: %s", description, expected)
+		}
+	}
+
+	styles, err := webFiles.ReadFile("web/styles.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(styles), `.session-item-branch { margin-top: 5px;`) {
+		t.Error("Session sidebar does not style branch information")
+	}
+	for state, expected := range map[string]string{
+		"draft":  `.pull-request-link[data-state="draft"] { color: var(--faint); }`,
+		"open":   `.pull-request-link[data-state="open"] { color: var(--pr-open); }`,
+		"merged": `.pull-request-link[data-state="merged"] { color: var(--pr-merged); }`,
+		"closed": `.pull-request-link[data-state="closed"] { color: var(--pr-closed); }`,
+	} {
+		if !strings.Contains(string(styles), expected) {
+			t.Errorf("Session views do not style %s pull requests", state)
+		}
+	}
+}
+
 func TestSessionAPIAcceptsFullWorkerSpec(t *testing.T) {
 	server := testServer(t)
 	payload := `{

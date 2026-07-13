@@ -209,6 +209,9 @@ events stay out of the Kubernetes API and are retained on the Session workspace.
 | `status.phase` | Infrastructure phase: `Pending`, `Ready`, or `Failed` | Output |
 | `status.podName` | Session Pod name | Output |
 | `status.podUID` | Identity of the Pod running the live conversation | Output |
+| `status.branch` | Currently checked-out git branch in the Session workspace | Output |
+| `status.pullRequest.url` | Web URL of the pull request associated with the current branch | Output |
+| `status.pullRequest.state` | Pull request lifecycle state: `Draft`, `Open`, `Merged`, or `Closed` | Output |
 
 The web creation dialog can generate a new Session from an existing Session in
 the active namespace. This copies the complete `Session.spec` into an editable
@@ -243,6 +246,13 @@ rolling update. Active work is interrupted and is not submitted again
 automatically. Helm passes the shared `image.tag` value through `--version`, so
 upgrading to a chart with a different image tag rolls existing Session Pods as
 well as the controller.
+
+The Session runtime owns `status.branch` and `status.pullRequest`. It publishes
+them when it starts, after each provider turn, and periodically while the Session
+is ready. Its Role permits status patches only for its own Session, and every
+patch verifies the current Pod identity and phase. The shared web client shows
+the branch and a colored, text-labeled pull request state in both the Session
+sidebar and conversation header.
 
 When `spec.volumeClaimTemplate` is set, the StatefulSet provisions the Session
 workspace from that template and reuses it across Pod replacement. Built-in

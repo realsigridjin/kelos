@@ -11,6 +11,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -59,11 +60,13 @@ type SessionReconciler struct {
 // +kubebuilder:rbac:groups=kelos.dev,resources=sessions,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kelos.dev,resources=sessions/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;create
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;create;patch
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update
 
 // Reconcile creates and observes the StatefulSet that owns a Session conversation.
 func (r *SessionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -96,7 +99,15 @@ func (r *SessionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if statefulSet.DeletionTimestamp != nil {
 		return ctrl.Result{}, r.updateSessionStatus(ctx, &session, nil, kelos.SessionPhasePending, "Session StatefulSet is terminating and will be recreated", "StatefulSetTerminating")
 	}
-	if err := r.ensureSessionRuntimeImage(ctx, &statefulSet); err != nil {
+	serviceAccountName := statefulSet.Spec.Template.Spec.ServiceAccountName
+	if serviceAccountName == "" {
+		serviceAccountName = sessionRuntimeAccessName(&session)
+	}
+	if err := r.ensureSessionRuntimeAccess(ctx, &session, serviceAccountName); err != nil {
+		message := fmt.Sprintf("Failed to prepare Session runtime access: %v", err)
+		return ctrl.Result{}, r.updateSessionStatus(ctx, &session, nil, kelos.SessionPhaseFailed, message, "RuntimeAccessFailed")
+	}
+	if err := r.ensureSessionRuntime(ctx, &session, &statefulSet, serviceAccountName); err != nil {
 		return ctrl.Result{}, err
 	}
 	if err := r.ensureSessionService(ctx, &session); err != nil {
@@ -158,6 +169,11 @@ func (r *SessionReconciler) createSessionStatefulSet(ctx context.Context, sessio
 		_ = r.updateSessionStatus(ctx, session, nil, kelos.SessionPhaseFailed, message, "StatefulSetBuildFailed")
 		return ctrl.Result{}, err
 	}
+	if err := r.ensureSessionRuntimeAccess(ctx, session, statefulSet.Spec.Template.Spec.ServiceAccountName); err != nil {
+		message := fmt.Sprintf("Failed to prepare Session runtime access: %v", err)
+		_ = r.updateSessionStatus(ctx, session, nil, kelos.SessionPhaseFailed, message, "RuntimeAccessFailed")
+		return ctrl.Result{}, err
+	}
 	if configMap != nil {
 		if err := controllerutil.SetControllerReference(session, configMap, r.Scheme); err != nil {
 			return ctrl.Result{}, fmt.Errorf("setting Session owner on plugin ConfigMap: %w", err)
@@ -202,27 +218,48 @@ func (r *SessionReconciler) createSessionStatefulSet(ctx context.Context, sessio
 	return ctrl.Result{Requeue: true}, nil
 }
 
-func (r *SessionReconciler) ensureSessionRuntimeImage(ctx context.Context, statefulSet *appsv1.StatefulSet) error {
+func (r *SessionReconciler) ensureSessionRuntime(ctx context.Context, session *kelos.Session, statefulSet *appsv1.StatefulSet, serviceAccountName string) error {
 	original := statefulSet.DeepCopy()
+	runtimeFound := false
 	for i := range statefulSet.Spec.Template.Spec.InitContainers {
 		container := &statefulSet.Spec.Template.Spec.InitContainers[i]
 		if container.Name != sessionRuntimeContainerName {
 			continue
 		}
+		runtimeFound = true
 		pullPolicyMatches := r.SessionRuntimeImagePullPolicy == "" || container.ImagePullPolicy == r.SessionRuntimeImagePullPolicy
-		if container.Image == r.SessionRuntimeImage && pullPolicyMatches {
-			return nil
+		if container.Image != r.SessionRuntimeImage || !pullPolicyMatches {
+			container.Image = r.SessionRuntimeImage
+			if r.SessionRuntimeImagePullPolicy != "" {
+				container.ImagePullPolicy = r.SessionRuntimeImagePullPolicy
+			}
 		}
-		container.Image = r.SessionRuntimeImage
-		if r.SessionRuntimeImagePullPolicy != "" {
-			container.ImagePullPolicy = r.SessionRuntimeImagePullPolicy
-		}
-		if err := r.Patch(ctx, statefulSet, client.MergeFrom(original)); err != nil {
-			return fmt.Errorf("patching Session StatefulSet %q runtime image: %w", statefulSet.Name, err)
-		}
+		break
+	}
+	if !runtimeFound {
+		return fmt.Errorf("Session StatefulSet %q has no session runtime init container", statefulSet.Name)
+	}
+	if len(statefulSet.Spec.Template.Spec.Containers) == 0 {
+		return fmt.Errorf("Session StatefulSet %q has no agent container", statefulSet.Name)
+	}
+	mainContainer := &statefulSet.Spec.Template.Spec.Containers[0]
+	setSessionContainerEnv(mainContainer, "KELOS_SESSION_NAME", session.Name)
+	setSessionContainerEnv(mainContainer, "KELOS_SESSION_NAMESPACE", session.Namespace)
+	setSessionContainerEnvVar(mainContainer, corev1.EnvVar{
+		Name: "KELOS_SESSION_POD_UID",
+		ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{
+			FieldPath: "metadata.uid",
+		}},
+	})
+	statefulSet.Spec.Template.Spec.ServiceAccountName = serviceAccountName
+	statefulSet.Spec.Template.Spec.AutomountServiceAccountToken = ptr.To(true)
+	if reflect.DeepEqual(original.Spec.Template.Spec, statefulSet.Spec.Template.Spec) {
 		return nil
 	}
-	return fmt.Errorf("Session StatefulSet %q has no session runtime init container", statefulSet.Name)
+	if err := r.Patch(ctx, statefulSet, client.MergeFrom(original)); err != nil {
+		return fmt.Errorf("patching Session StatefulSet %q runtime configuration: %w", statefulSet.Name, err)
+	}
+	return nil
 }
 
 func (r *SessionReconciler) ensureSessionService(ctx context.Context, session *kelos.Session) error {
@@ -520,6 +557,14 @@ func (r *SessionReconciler) buildSessionStatefulSet(session *kelos.Session, work
 	mainContainer := &podSpec.Containers[0]
 	mainContainer.Command = []string{sessionRuntimeBinary}
 	mainContainer.Args = []string{"serve"}
+	setSessionContainerEnv(mainContainer, "KELOS_SESSION_NAME", session.Name)
+	setSessionContainerEnv(mainContainer, "KELOS_SESSION_NAMESPACE", session.Namespace)
+	setSessionContainerEnvVar(mainContainer, corev1.EnvVar{
+		Name: "KELOS_SESSION_POD_UID",
+		ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{
+			FieldPath: "metadata.uid",
+		}},
+	})
 	switch worker.Type {
 	case "claude-code":
 		setSessionContainerEnv(mainContainer, "CLAUDE_CONFIG_DIR", sessionClaudeConfigDir)
@@ -605,8 +650,9 @@ func (r *SessionReconciler) buildSessionStatefulSet(session *kelos.Session, work
 		}},
 	}}, podSpec.InitContainers...)
 	if podSpec.ServiceAccountName == "" {
-		podSpec.AutomountServiceAccountToken = ptr.To(false)
+		podSpec.ServiceAccountName = sessionRuntimeAccessName(session)
 	}
+	podSpec.AutomountServiceAccountToken = ptr.To(true)
 
 	labels := make(map[string]string, len(job.Labels)+1)
 	for key, value := range job.Labels {
@@ -697,14 +743,17 @@ rm -rf -- /workspace/repo
 }
 
 func setSessionContainerEnv(container *corev1.Container, name, value string) {
+	setSessionContainerEnvVar(container, corev1.EnvVar{Name: name, Value: value})
+}
+
+func setSessionContainerEnvVar(container *corev1.Container, value corev1.EnvVar) {
 	for i := range container.Env {
-		if container.Env[i].Name == name {
-			container.Env[i].Value = value
-			container.Env[i].ValueFrom = nil
+		if container.Env[i].Name == value.Name {
+			container.Env[i] = value
 			return
 		}
 	}
-	container.Env = append(container.Env, corev1.EnvVar{Name: name, Value: value})
+	container.Env = append(container.Env, value)
 }
 
 func sessionPluginConfigMapName(session *kelos.Session) string {
@@ -788,6 +837,10 @@ func (r *SessionReconciler) updateSessionStatus(ctx context.Context, session *ke
 	session.Status.ObservedGeneration = session.Generation
 	session.Status.Phase = phase
 	session.Status.Message = message
+	if pod == nil || phase != kelos.SessionPhaseReady || session.Status.PodUID != pod.UID {
+		session.Status.Branch = ""
+		session.Status.PullRequest = nil
+	}
 	if pod != nil {
 		session.Status.PodName = pod.Name
 		session.Status.PodUID = pod.UID
@@ -820,6 +873,9 @@ func (r *SessionReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&appsv1.StatefulSet{}).
 		Owns(&corev1.Service{}).
 		Owns(&corev1.Secret{}).
+		Owns(&corev1.ServiceAccount{}).
+		Owns(&rbacv1.Role{}).
+		Owns(&rbacv1.RoleBinding{}).
 		Watches(&corev1.Pod{}, handler.EnqueueRequestsFromMapFunc(r.findSessionForPod)).
 		Complete(r)
 }

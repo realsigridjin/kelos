@@ -40,6 +40,9 @@ var fakeClaude string
 //go:embed fixtures/fake-opencode.js
 var fakeOpenCode string
 
+//go:embed fixtures/fake-gh.sh
+var fakeGitHubCLI string
+
 var portForwardAddressPattern = regexp.MustCompile(`Forwarding from 127\.0\.0\.1:([0-9]+) ->`)
 
 var _ = Describe("Session remote control", func() {
@@ -298,6 +301,73 @@ var _ = Describe("Session remote control", func() {
 		Expect(f.KelosClientset.ApiV1alpha2().Sessions(f.Namespace).Delete(context.TODO(), sessionName, metav1.DeleteOptions{})).To(Succeed())
 		waitForPodDeletion(f, f.Namespace, current.Status.PodName)
 	})
+
+	It("publishes and clears workspace status", func() {
+		const branch = "agent/session-status"
+		pullRequest := &kelos.SessionPullRequest{
+			URL:   "https://github.com/kelos-dev/kelos/pull/42",
+			State: kelos.SessionPullRequestStateOpen,
+		}
+		sessionName := "workspace-status"
+		configMapName := sessionName + "-provider"
+		mode := int32(0555)
+		_, err := f.Clientset.CoreV1().ConfigMaps(f.Namespace).Create(context.TODO(), &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Name: configMapName, Namespace: f.Namespace},
+			Data: map[string]string{
+				"claude": fakeClaude,
+				"gh":     fakeGitHubCLI,
+			},
+		}, metav1.CreateOptions{})
+		Expect(err).NotTo(HaveOccurred())
+		DeferCleanup(func() {
+			_ = f.Clientset.CoreV1().ConfigMaps(f.Namespace).Delete(context.TODO(), configMapName, metav1.DeleteOptions{})
+		})
+
+		createSession(f, &kelos.Session{
+			ObjectMeta: metav1.ObjectMeta{Name: sessionName},
+			Spec: kelos.SessionSpec{Worker: kelos.WorkerSpec{
+				Type:        "claude-code",
+				Credentials: &kelos.Credentials{Type: kelos.CredentialTypeNone},
+				PodOverrides: &kelos.PodOverrides{
+					Env: []corev1.EnvVar{{
+						Name:  "PATH",
+						Value: "/workspace/fake-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+					}},
+					Volumes: []corev1.Volume{{
+						Name: "fake-provider",
+						VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
+							LocalObjectReference: corev1.LocalObjectReference{Name: configMapName},
+							DefaultMode:          &mode,
+						}},
+					}},
+					VolumeMounts: []corev1.VolumeMount{{
+						Name:      "fake-provider",
+						MountPath: "/workspace/fake-bin",
+						ReadOnly:  true,
+					}},
+				},
+			}},
+		})
+		DeferCleanup(func() {
+			_ = f.KelosClientset.ApiV1alpha2().Sessions(f.Namespace).Delete(context.TODO(), sessionName, metav1.DeleteOptions{})
+		})
+		DeferCleanup(func() {
+			if CurrentSpecReport().Failed() {
+				collectSessionDebugInfo(f, f.Namespace, sessionName)
+			}
+		})
+
+		waitForSessionPhase(f, f.Namespace, sessionName, kelos.SessionPhaseReady)
+		waitForSessionWorkspaceStatus(f, f.Namespace, sessionName, "", nil)
+
+		By("publishing the current branch and pull request")
+		runTerminalTurn(f.Namespace, sessionName, "create-git-workspace", ContainSubstring("agent › turn 1: git workspace created"))
+		waitForSessionWorkspaceStatus(f, f.Namespace, sessionName, branch, pullRequest)
+
+		By("clearing workspace status when the repository is removed")
+		runTerminalTurn(f.Namespace, sessionName, "remove-git-workspace", ContainSubstring("agent › turn 2: git workspace removed"))
+		waitForSessionWorkspaceStatus(f, f.Namespace, sessionName, "", nil)
+	})
 })
 
 func describeSessionProviderTests(cfg agentTestConfig) {
@@ -411,6 +481,15 @@ func waitForSessionPhase(f *framework.Framework, namespace, name string, phase k
 	session, err := f.KelosClientset.ApiV1alpha2().Sessions(namespace).Get(context.TODO(), name, metav1.GetOptions{})
 	Expect(err).NotTo(HaveOccurred())
 	return session
+}
+
+func waitForSessionWorkspaceStatus(f *framework.Framework, namespace, name, branch string, pullRequest *kelos.SessionPullRequest) {
+	Eventually(func(g Gomega) {
+		session, err := f.KelosClientset.ApiV1alpha2().Sessions(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(session.Status.Branch).To(Equal(branch))
+		g.Expect(session.Status.PullRequest).To(Equal(pullRequest))
+	}, time.Minute, time.Second).Should(Succeed(), "Session %s/%s workspace status was not updated", namespace, name)
 }
 
 func waitForSessionPodReplacement(f *framework.Framework, namespace, name string, oldUID types.UID) *kelos.Session {

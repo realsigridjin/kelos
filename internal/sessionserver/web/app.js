@@ -142,6 +142,40 @@ function providerInitials(provider) {
   return provider === 'claude-code' ? 'CC' : provider === 'codex' ? 'CX' : provider === 'opencode' ? 'OC' : 'AI';
 }
 
+function safeHTTPURL(value) {
+  if (!value) return null;
+  try {
+    const url = new URL(value, window.location.origin);
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function pullRequestLabel(url) {
+  const match = url.pathname.match(/\/pull\/(\d+)(?:\/|$)/);
+  return match ? `PR #${match[1]}` : 'Pull request';
+}
+
+function sessionPRState(value) {
+  return ['Draft', 'Open', 'Merged', 'Closed'].includes(value) ? value : '';
+}
+
+function createPullRequestLink(pullRequest, className) {
+  const url = safeHTTPURL(pullRequest?.url);
+  if (!url) return null;
+  const link = document.createElement('a');
+  link.className = `pull-request-link ${className}`;
+  link.href = url.href;
+  link.target = '_blank';
+  link.rel = 'noopener noreferrer';
+  const state = sessionPRState(pullRequest.state);
+  link.textContent = state ? `${pullRequestLabel(url)} · ${state}` : pullRequestLabel(url);
+  if (state) link.dataset.state = state.toLowerCase();
+  link.title = pullRequest.url;
+  return link;
+}
+
 function renderSessions() {
   elements.list.replaceChildren();
   if (!state.sessions.length) {
@@ -152,8 +186,10 @@ function renderSessions() {
     return;
   }
   for (const session of state.sessions) {
+    const item = document.createElement('div');
+    item.className = `session-item${state.selected && sessionKey(state.selected) === sessionKey(session) ? ' active' : ''}`;
     const button = document.createElement('button');
-    button.className = `session-item${state.selected && sessionKey(state.selected) === sessionKey(session) ? ' active' : ''}`;
+    button.className = 'session-item-select';
     button.type = 'button';
     const dot = document.createElement('span');
     dot.className = `phase-dot ${String(session.phase || '').toLowerCase()}`;
@@ -170,9 +206,22 @@ function renderSessions() {
     namespace.textContent = `· ${session.namespace}`;
     meta.append(provider, namespace);
     text.append(name, meta);
+    if (session.branch) {
+      const branch = document.createElement('div');
+      branch.className = 'session-item-branch';
+      branch.textContent = session.branch;
+      branch.title = session.branch;
+      text.append(branch);
+    }
     button.append(dot, text);
     button.addEventListener('click', () => selectSession(session));
-    elements.list.append(button);
+    item.append(button);
+    const link = createPullRequestLink(session.pullRequest, 'session-item-pull-request');
+    if (link) {
+      item.classList.add('has-pull-request');
+      item.append(link);
+    }
+    elements.list.append(item);
   }
 }
 
@@ -659,7 +708,19 @@ function renderHeader() {
     return;
   }
   elements.title.textContent = session.name;
-  elements.meta.textContent = `${session.namespace} · ${providerLabel(session.provider)} · ${session.phase || 'Pending'}`;
+  const details = [session.namespace, providerLabel(session.provider), session.phase || 'Pending'];
+  if (session.branch) details.push(session.branch);
+  const detailText = document.createElement('span');
+  detailText.className = 'session-meta-details';
+  detailText.textContent = details.join(' · ');
+  elements.meta.replaceChildren(detailText);
+  const link = createPullRequestLink(session.pullRequest, 'session-meta-pull-request');
+  if (link) {
+    const separator = document.createElement('span');
+    separator.className = 'session-meta-separator';
+    separator.textContent = '·';
+    elements.meta.append(separator, link);
+  }
   if (session.phase !== 'Ready') {
     setConnection(session.phase === 'Failed' ? 'error' : 'connecting', session.phase || 'Pending');
     setComposer(false);
