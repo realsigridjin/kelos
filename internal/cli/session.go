@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -109,6 +110,7 @@ type sessionPodStream struct {
 	requests io.WriteCloser
 	events   io.ReadCloser
 	cancel   context.CancelFunc
+	done     <-chan struct{}
 	once     sync.Once
 }
 
@@ -119,17 +121,133 @@ func (s *sessionPodStream) Close() {
 		}
 		_ = s.requests.Close()
 		_ = s.events.Close()
+		if s.done != nil {
+			<-s.done
+		}
 	})
 }
 
 type sessionReconnectDependencies struct {
-	getSession func(context.Context, string, string) (*kelos.Session, error)
-	openStream func(context.Context, string, string) (*sessionPodStream, error)
+	getSession  func(context.Context, string, string) (*kelos.Session, error)
+	openStream  func(context.Context, string, string, io.Writer) (*sessionPodStream, error)
+	runTerminal func(context.Context, io.Reader, io.Writer, io.Reader, io.Writer, bool) error
 }
 
 type sessionEventResult struct {
 	event sessionruntime.Event
 	err   error
+}
+
+type sessionTerminalEventDelivery struct {
+	event sessionruntime.Event
+	done  chan error
+}
+
+type sessionTerminalEventSink struct {
+	ctx        context.Context
+	deliveries chan sessionTerminalEventDelivery
+	done       chan struct{}
+	errMu      sync.Mutex
+	err        error
+}
+
+func newSessionTerminalEventSink(ctx context.Context, output io.Writer) *sessionTerminalEventSink {
+	sink := &sessionTerminalEventSink{
+		ctx:        ctx,
+		deliveries: make(chan sessionTerminalEventDelivery),
+		done:       make(chan struct{}),
+	}
+	go sink.run(json.NewEncoder(output))
+	return sink
+}
+
+func (s *sessionTerminalEventSink) run(encoder *json.Encoder) {
+	for {
+		select {
+		case delivery := <-s.deliveries:
+			err := encoder.Encode(delivery.event)
+			delivery.done <- err
+			if err != nil {
+				s.finish(err)
+				return
+			}
+		case <-s.ctx.Done():
+			s.finish(s.ctx.Err())
+			return
+		}
+	}
+}
+
+func (s *sessionTerminalEventSink) send(event sessionruntime.Event) error {
+	delivery := sessionTerminalEventDelivery{event: event, done: make(chan error, 1)}
+	select {
+	case s.deliveries <- delivery:
+	case <-s.done:
+		return s.result()
+	case <-s.ctx.Done():
+		return s.ctx.Err()
+	}
+	select {
+	case err := <-delivery.done:
+		return err
+	case <-s.done:
+		return s.result()
+	case <-s.ctx.Done():
+		return s.ctx.Err()
+	}
+}
+
+func (s *sessionTerminalEventSink) finish(err error) {
+	s.errMu.Lock()
+	s.err = err
+	s.errMu.Unlock()
+	close(s.done)
+}
+
+func (s *sessionTerminalEventSink) result() error {
+	s.errMu.Lock()
+	defer s.errMu.Unlock()
+	return s.err
+}
+
+type sessionTerminalDiagnosticWriter struct {
+	mu      sync.Mutex
+	pending string
+	events  *sessionTerminalEventSink
+}
+
+func (w *sessionTerminalDiagnosticWriter) Write(data []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	w.pending += string(data)
+	for {
+		newline := strings.IndexByte(w.pending, '\n')
+		if newline < 0 {
+			break
+		}
+		line := strings.TrimSuffix(w.pending[:newline], "\r")
+		w.pending = w.pending[newline+1:]
+		if err := w.send(line); err != nil {
+			return len(data), err
+		}
+	}
+	return len(data), nil
+}
+
+func (w *sessionTerminalDiagnosticWriter) Flush() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	line := strings.TrimSuffix(w.pending, "\r")
+	w.pending = ""
+	return w.send(line)
+}
+
+func (w *sessionTerminalDiagnosticWriter) send(line string) error {
+	if line == "" {
+		return nil
+	}
+	return w.events.send(sessionruntime.Event{Type: sessionTerminalEventDiagnostic, Text: line})
 }
 
 type pendingSessionRequest struct {
@@ -150,9 +268,10 @@ func connectSession(ctx context.Context, restConfig *rest.Config, namespace, nam
 			}
 			return session, nil
 		},
-		openStream: func(ctx context.Context, namespace, podName string) (*sessionPodStream, error) {
-			return openSessionPodStream(ctx, restConfig, namespace, podName, stderr)
+		openStream: func(ctx context.Context, namespace, podName string, diagnostics io.Writer) (*sessionPodStream, error) {
+			return openSessionPodStream(ctx, restConfig, namespace, podName, diagnostics)
 		},
+		runTerminal: runSessionTerminal,
 	}
 	return connectSessionWithDependencies(ctx, namespace, name, stdin, stdout, stderr, color, dependencies)
 }
@@ -183,7 +302,9 @@ func openSessionPodStream(ctx context.Context, restConfig *rest.Config, namespac
 	streamCtx, cancel := context.WithCancel(ctx)
 	requestReader, requestWriter := io.Pipe()
 	eventReader, eventWriter := io.Pipe()
+	streamDone := make(chan struct{})
 	go func() {
+		defer close(streamDone)
 		err := executor.StreamWithContext(streamCtx, remotecommand.StreamOptions{
 			Stdin:  requestReader,
 			Stdout: eventWriter,
@@ -193,7 +314,7 @@ func openSessionPodStream(ctx context.Context, restConfig *rest.Config, namespac
 		_ = eventWriter.CloseWithError(err)
 		_ = requestReader.CloseWithError(err)
 	}()
-	return &sessionPodStream{requests: requestWriter, events: eventReader, cancel: cancel}, nil
+	return &sessionPodStream{requests: requestWriter, events: eventReader, cancel: cancel, done: streamDone}, nil
 }
 
 func connectSessionWithDependencies(
@@ -205,7 +326,6 @@ func connectSessionWithDependencies(
 	dependencies sessionReconnectDependencies,
 ) error {
 	terminalCtx, cancelTerminal := context.WithCancel(ctx)
-	defer cancelTerminal()
 	eventReader, eventWriter := io.Pipe()
 	requestReader, requestWriter := io.Pipe()
 	defer eventReader.Close()
@@ -213,10 +333,29 @@ func connectSessionWithDependencies(
 	defer requestReader.Close()
 	defer requestWriter.Close()
 
+	eventCtx, cancelEvents := context.WithCancel(ctx)
+	defer cancelEvents()
+	eventSink := newSessionTerminalEventSink(eventCtx, eventWriter)
 	terminalDone := make(chan error, 1)
+	terminalExited := make(chan struct{})
 	go func() {
-		terminalDone <- runSessionTerminal(terminalCtx, stdin, stdout, eventReader, requestWriter, color)
+		defer close(terminalExited)
+		err := dependencies.runTerminal(terminalCtx, stdin, stdout, eventReader, requestWriter, color)
+		cancelEvents()
+		terminalDone <- err
 	}()
+	defer func() {
+		cancelTerminal()
+		<-terminalExited
+	}()
+	diagnostics := stderr
+	var diagnosticWriter *sessionTerminalDiagnosticWriter
+	if sessionTerminalDiagnosticsUseTUI(stdin, stdout, stderr) {
+		diagnosticWriter = &sessionTerminalDiagnosticWriter{events: eventSink}
+		diagnostics = diagnosticWriter
+		defer diagnosticWriter.Flush()
+	}
+
 	requests := make(chan sessionruntime.ClientRequest, 32)
 	requestDecodeDone := make(chan error, 1)
 	go func() {
@@ -240,16 +379,16 @@ func connectSessionWithDependencies(
 	connectedBefore := false
 	pendingRequests := make([]pendingSessionRequest, 0)
 	for {
-		session, err := waitForReadySession(terminalCtx, namespace, name, stderr, dependencies.getSession, terminalDone, connectedBefore)
+		session, err := waitForReadySession(terminalCtx, namespace, name, diagnostics, dependencies.getSession, terminalDone, connectedBefore)
 		if err != nil {
 			if errors.Is(err, errSessionTerminalClosed) {
 				return nil
 			}
 			return err
 		}
-		stream, err := dependencies.openStream(terminalCtx, namespace, session.Status.PodName)
+		stream, err := dependencies.openStream(terminalCtx, namespace, session.Status.PodName, diagnostics)
 		if err != nil {
-			fmt.Fprintf(stderr, "Session connection failed; retrying: %v\n", err)
+			fmt.Fprintf(diagnostics, "Session connection failed; retrying: %v\n", err)
 			if err := waitForSessionRetry(terminalCtx, terminalDone); err != nil {
 				if errors.Is(err, errSessionTerminalClosed) {
 					return nil
@@ -262,7 +401,10 @@ func connectSessionWithDependencies(
 		encoder := json.NewEncoder(stream.requests)
 		if err := encoder.Encode(sessionruntime.ClientRequest{Type: "subscribe", Since: lastEventID}); err != nil {
 			stream.Close()
-			fmt.Fprintf(stderr, "Session connection failed; retrying: %v\n", err)
+			if diagnosticWriter != nil {
+				_ = diagnosticWriter.Flush()
+			}
+			fmt.Fprintf(diagnostics, "Session connection failed; retrying: %v\n", err)
 			if err := waitForSessionRetry(terminalCtx, terminalDone); err != nil {
 				if errors.Is(err, errSessionTerminalClosed) {
 					return nil
@@ -321,7 +463,7 @@ func connectSessionWithDependencies(
 				}
 				pendingRequests[len(pendingRequests)-1].sent = true
 				if err := encoder.Encode(request); err != nil {
-					fmt.Fprintf(stderr, "Session connection lost while sending input: %v\n", err)
+					fmt.Fprintf(diagnostics, "Session connection lost while sending input: %v\n", err)
 					reconnect = true
 				}
 			case result := <-events:
@@ -335,7 +477,7 @@ func connectSessionWithDependencies(
 				}
 				if event.Type == sessionruntime.EventHistoryEnd {
 					if announceReconnect {
-						fmt.Fprintln(stderr, "Reconnected to Session runtime")
+						fmt.Fprintln(diagnostics, "Reconnected to Session runtime")
 						announceReconnect = false
 					}
 					connectedBefore = true
@@ -346,7 +488,7 @@ func connectSessionWithDependencies(
 						}
 						pendingRequests[i].sent = true
 						if err := encoder.Encode(pendingRequests[i].request); err != nil {
-							fmt.Fprintf(stderr, "Session connection lost while sending input: %v\n", err)
+							fmt.Fprintf(diagnostics, "Session connection lost while sending input: %v\n", err)
 							reconnect = true
 							break
 						}
@@ -355,15 +497,25 @@ func connectSessionWithDependencies(
 				if event.ID > lastEventID {
 					lastEventID = event.ID
 				}
-				if err := json.NewEncoder(eventWriter).Encode(event); err != nil {
+				if err := eventSink.send(event); err != nil {
 					stream.Close()
+					if ctx.Err() != nil {
+						return ctx.Err()
+					}
+					if eventCtx.Err() != nil {
+						<-terminalExited
+						return <-terminalDone
+					}
 					return err
 				}
 			}
 		}
 		stream.Close()
-		pendingRequests = discardUnconfirmedSessionRequests(pendingRequests, stderr)
-		fmt.Fprintln(stderr, "Session connection lost; waiting for the runtime to recover")
+		if diagnosticWriter != nil {
+			_ = diagnosticWriter.Flush()
+		}
+		pendingRequests = discardUnconfirmedSessionRequests(pendingRequests, diagnostics)
+		fmt.Fprintln(diagnostics, "Session connection lost; waiting for the runtime to recover")
 		if err := waitForSessionRetry(terminalCtx, terminalDone); err != nil {
 			if errors.Is(err, errSessionTerminalClosed) {
 				return nil
