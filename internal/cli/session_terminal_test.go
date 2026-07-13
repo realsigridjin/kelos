@@ -130,3 +130,14 @@ func TestSessionTerminalRequest(t *testing.T) {
 		}
 	}
 }
+
+func TestSessionTerminalDoesNotUseTUIForDumbTerminal(t *testing.T) {
+	for _, termType := range []string{"dumb", "DUMB"} {
+		if sessionTerminalSupportsTUI(termType) {
+			t.Fatalf("sessionTerminalSupportsTUI(%q) = true, want false", termType)
+		}
+	}
+	if !sessionTerminalSupportsTUI("xterm-256color") {
+		t.Fatal("sessionTerminalSupportsTUI(xterm-256color) = false, want true")
+	}
+}

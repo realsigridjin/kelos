@@ -7,13 +7,17 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"sync"
 
 	"github.com/kelos-dev/kelos/internal/sessionruntime"
+	"golang.org/x/term"
 )
 
 const (
+	sessionTerminalEventDiagnostic = "terminal.diagnostic"
+
 	sessionANSIReset   = "\x1b[0m"
 	sessionANSIBold    = "\x1b[1m"
 	sessionANSIDim     = "\x1b[2m"
@@ -127,6 +131,40 @@ func runSessionTerminal(ctx context.Context, input io.Reader, output io.Writer, 
 		return err
 	}
 
+	if sessionTerminalIsInteractive(input, output) {
+		return runSessionTUI(ctx, input, output, json.NewDecoder(events), encoder, color)
+	}
+	return runSessionPlainTerminal(ctx, input, output, json.NewDecoder(events), encoder, color)
+}
+
+func sessionTerminalIsInteractive(input io.Reader, output io.Writer) bool {
+	if !sessionTerminalSupportsTUI(os.Getenv("TERM")) {
+		return false
+	}
+	inputFile, inputOK := input.(*os.File)
+	outputFile, outputOK := output.(*os.File)
+	return inputOK && outputOK && term.IsTerminal(int(inputFile.Fd())) && term.IsTerminal(int(outputFile.Fd()))
+}
+
+func sessionTerminalSupportsTUI(termType string) bool {
+	return !strings.EqualFold(termType, "dumb")
+}
+
+func sessionTerminalDiagnosticsUseTUI(input io.Reader, output, diagnostics io.Writer) bool {
+	if !sessionTerminalIsInteractive(input, output) {
+		return false
+	}
+	outputFile, outputOK := output.(*os.File)
+	diagnosticFile, diagnosticOK := diagnostics.(*os.File)
+	if !outputOK || !diagnosticOK {
+		return false
+	}
+	outputInfo, outputErr := outputFile.Stat()
+	diagnosticInfo, diagnosticErr := diagnosticFile.Stat()
+	return outputErr == nil && diagnosticErr == nil && os.SameFile(outputInfo, diagnosticInfo)
+}
+
+func runSessionPlainTerminal(ctx context.Context, input io.Reader, output io.Writer, decoder *json.Decoder, encoder *json.Encoder, color bool) error {
 	var writeMu sync.Mutex
 	write := func(format string, args ...any) {
 		writeMu.Lock()
@@ -136,7 +174,6 @@ func runSessionTerminal(ctx context.Context, input io.Reader, output io.Writer, 
 	formatter := sessionTerminalFormatter{color: color}
 	done := make(chan error, 1)
 	go func() {
-		decoder := json.NewDecoder(events)
 		streaming := false
 		for {
 			var event sessionruntime.Event

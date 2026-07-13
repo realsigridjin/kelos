@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -20,7 +22,7 @@ func TestSessionTerminalReconnectsToReplacementPod(t *testing.T) {
 	input, inputWriter := io.Pipe()
 	defer input.Close()
 	defer inputWriter.Close()
-	var output bytes.Buffer
+	output := newSessionTestOutput("agent › recovered")
 	var stderr bytes.Buffer
 	firstConnected := make(chan struct{})
 	secondConnected := make(chan struct{})
@@ -38,7 +40,7 @@ func TestSessionTerminalReconnectsToReplacementPod(t *testing.T) {
 				return &kelos.Session{Status: kelos.SessionStatus{Phase: kelos.SessionPhaseReady, PodName: "session-pod-2"}}, nil
 			}
 		},
-		openStream: func(_ context.Context, _ string, podName string) (*sessionPodStream, error) {
+		openStream: func(_ context.Context, _ string, podName string, _ io.Writer) (*sessionPodStream, error) {
 			switch podName {
 			case "session-pod-1":
 				return fakeSessionPodStream(t, func(decoder *json.Decoder, encoder *json.Encoder) {
@@ -100,10 +102,11 @@ func TestSessionTerminalReconnectsToReplacementPod(t *testing.T) {
 				return nil, nil
 			}
 		},
+		runTerminal: runSessionTerminal,
 	}
 	done := make(chan error, 1)
 	go func() {
-		done <- connectSessionWithDependencies(ctx, "default", "chat", input, &output, &stderr, false, dependencies)
+		done <- connectSessionWithDependencies(ctx, "default", "chat", input, output, &stderr, false, dependencies)
 	}()
 	select {
 	case <-firstConnected:
@@ -122,6 +125,11 @@ func TestSessionTerminalReconnectsToReplacementPod(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("replacement Session did not receive input")
 	}
+	select {
+	case <-output.found:
+	case <-ctx.Done():
+		t.Fatal("terminal did not render replacement response")
+	}
 	_, _ = io.WriteString(inputWriter, "/quit\n")
 	select {
 	case err := <-done:
@@ -136,6 +144,143 @@ func TestSessionTerminalReconnectsToReplacementPod(t *testing.T) {
 	}
 	if got := stderr.String(); !strings.Contains(got, "connection lost") || !strings.Contains(got, "Waiting for Session \"chat\" to recover") || !strings.Contains(got, "Reconnected") || !strings.Contains(got, "delivery was not confirmed") {
 		t.Fatalf("terminal stderr = %q", got)
+	}
+}
+
+type sessionTestOutput struct {
+	mu     sync.Mutex
+	buffer bytes.Buffer
+	target string
+	found  chan struct{}
+	once   sync.Once
+}
+
+func newSessionTestOutput(target string) *sessionTestOutput {
+	return &sessionTestOutput{target: target, found: make(chan struct{})}
+}
+
+func (w *sessionTestOutput) Write(data []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	written, err := w.buffer.Write(data)
+	if strings.Contains(w.buffer.String(), w.target) {
+		w.once.Do(func() { close(w.found) })
+	}
+	return written, err
+}
+
+func (w *sessionTestOutput) String() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.buffer.String()
+}
+
+func TestSessionConnectionWaitsForTerminalCleanup(t *testing.T) {
+	terminalExited := make(chan struct{})
+	dependencies := sessionReconnectDependencies{
+		getSession: func(context.Context, string, string) (*kelos.Session, error) {
+			return &kelos.Session{Status: kelos.SessionStatus{Phase: kelos.SessionPhaseFailed, Message: "runtime failed"}}, nil
+		},
+		openStream: func(context.Context, string, string, io.Writer) (*sessionPodStream, error) {
+			t.Fatal("openStream called for failed Session")
+			return nil, nil
+		},
+		runTerminal: func(ctx context.Context, _ io.Reader, _ io.Writer, _ io.Reader, _ io.Writer, _ bool) error {
+			<-ctx.Done()
+			close(terminalExited)
+			return ctx.Err()
+		},
+	}
+
+	err := connectSessionWithDependencies(t.Context(), "default", "chat", strings.NewReader(""), io.Discard, io.Discard, false, dependencies)
+	if err == nil || !strings.Contains(err.Error(), "runtime failed") {
+		t.Fatalf("connectSessionWithDependencies() error = %v, want Session failure", err)
+	}
+	select {
+	case <-terminalExited:
+	default:
+		t.Fatal("connectSessionWithDependencies() returned before terminal cleanup")
+	}
+}
+
+func TestSessionConnectionReturnsTerminalDeliveryError(t *testing.T) {
+	runtimeEventSent := make(chan struct{})
+	terminalErr := errors.New("terminal output failed")
+	dependencies := sessionReconnectDependencies{
+		getSession: func(context.Context, string, string) (*kelos.Session, error) {
+			return &kelos.Session{Status: kelos.SessionStatus{Phase: kelos.SessionPhaseReady, PodName: "session-pod"}}, nil
+		},
+		openStream: func(context.Context, string, string, io.Writer) (*sessionPodStream, error) {
+			return fakeSessionPodStream(t, func(decoder *json.Decoder, encoder *json.Encoder) {
+				var subscribe sessionruntime.ClientRequest
+				if err := decoder.Decode(&subscribe); err != nil {
+					t.Error(err)
+					return
+				}
+				if err := encoder.Encode(sessionruntime.Event{Type: sessionruntime.EventHistoryEnd}); err != nil {
+					t.Error(err)
+					return
+				}
+				close(runtimeEventSent)
+			}), nil
+		},
+		runTerminal: func(context.Context, io.Reader, io.Writer, io.Reader, io.Writer, bool) error {
+			<-runtimeEventSent
+			return terminalErr
+		},
+	}
+
+	err := connectSessionWithDependencies(t.Context(), "default", "chat", strings.NewReader(""), io.Discard, io.Discard, false, dependencies)
+	if !errors.Is(err, terminalErr) {
+		t.Fatalf("connectSessionWithDependencies() error = %v, want %v", err, terminalErr)
+	}
+}
+
+func TestSessionTerminalDiagnosticWriterEmitsCompleteLines(t *testing.T) {
+	var events bytes.Buffer
+	writer := &sessionTerminalDiagnosticWriter{
+		events: newSessionTerminalEventSink(t.Context(), &events),
+	}
+	for _, data := range []string{"first\r\nsec", "ond\nthird"} {
+		if _, err := io.WriteString(writer, data); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Flush(); err != nil {
+		t.Fatal(err)
+	}
+
+	decoder := json.NewDecoder(&events)
+	for _, want := range []string{"first", "second", "third"} {
+		var event sessionruntime.Event
+		if err := decoder.Decode(&event); err != nil {
+			t.Fatal(err)
+		}
+		if event.Type != sessionTerminalEventDiagnostic || event.Text != want {
+			t.Fatalf("diagnostic event = %#v, want text %q", event, want)
+		}
+	}
+}
+
+func TestSessionTerminalEventSinkStopsAfterCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	eventReader, eventWriter := io.Pipe()
+	defer eventReader.Close()
+	defer eventWriter.Close()
+	sink := newSessionTerminalEventSink(ctx, eventWriter)
+	done := make(chan error, 1)
+	go func() {
+		done <- sink.send(sessionruntime.Event{Type: sessionTerminalEventDiagnostic, Text: "waiting"})
+	}()
+
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("send() error = %v, want context cancellation", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("send() did not stop after cancellation")
 	}
 }
 
