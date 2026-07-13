@@ -208,6 +208,7 @@ func TestRender_SessionServer(t *testing.T) {
 		"secretName: session-auth",
 		"resources:\n      - pods/exec",
 		"resources:\n      - agentconfigs\n      - workspaces\n    verbs:\n      - list",
+		"resources:\n      - sessions\n    verbs:\n      - create\n      - delete\n      - get\n      - list\n      - patch\n      - watch",
 		"--token-file=/var/run/secrets/kelos-session/token",
 		"--default-namespace=team-a",
 		"kind: Role\nmetadata:\n  name: kelos-session-server-role\n  namespace: team-a",

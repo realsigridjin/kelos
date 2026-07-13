@@ -127,6 +127,11 @@ button { color: inherit; }
 .dialog-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; }
 .dialog-header h2 { margin: 0; font: 600 25px/1.2 Georgia,"Times New Roman",serif; }
 .dialog-header p { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
+.mode-switch { width: fit-content; display: flex; margin-top: 20px; padding: 3px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.mode-switch button { padding: 6px 13px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font-size: 11px; font-weight: 700; cursor: pointer; }
+.mode-switch button[aria-selected="true"] { background: var(--card); color: var(--ink); box-shadow: 0 2px 7px rgba(31,46,38,.08); }
+.mode-panel { min-width: 0; margin: 0; padding: 0; border: 0; }
+.mode-panel[hidden], .nested-grid[hidden] { display: none; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 23px; }
 .form-wide { grid-column: 1 / -1; }
 .form-grid label > span, .form-label { display: block; margin: 0 0 7px; font-size: 11px; font-weight: 700; }
@@ -143,6 +148,18 @@ button { color: inherit; }
 .selected-option-order { width: 18px; height: 18px; display: grid; place-items: center; border-radius: 50%; background: var(--accent-soft); color: var(--accent-2); font-size: 9px; font-weight: 800; }
 .selected-option button { width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); font-size: 14px; line-height: 1; cursor: pointer; }
 .selected-option button:hover { background: var(--line-soft); color: var(--ink); }
+.form-section { padding-top: 15px; border-top: 1px solid var(--line-soft); }
+.form-grid .checkbox-field { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
+.form-grid .checkbox-field > input { width: auto; margin: 2px 0 0; accent-color: var(--accent); }
+.form-grid .checkbox-field > span { margin: 0; }
+.checkbox-field strong { display: block; font-size: 11px; }
+.checkbox-field small { margin-top: 4px; }
+.nested-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px; padding: 14px; border: 1px solid var(--line-soft); border-radius: 11px; background: var(--panel); }
+.yaml-panel { margin-top: 18px; }
+.yaml-panel > label { display: block; margin-bottom: 7px; font-size: 11px; font-weight: 700; }
+.yaml-panel textarea { width: 100%; min-height: 360px; resize: vertical; padding: 13px; border: 1px solid #d4d9d5; border-radius: 10px; outline: none; background: var(--card); color: var(--ink); font: 11.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; tab-size: 2; }
+.yaml-panel textarea:focus { border-color: #779b88; box-shadow: 0 0 0 3px rgba(56,114,88,.08); }
+.yaml-panel small { display: block; margin-top: 6px; color: var(--faint); font-size: 9.5px; }
 .dialog-error { min-height: 19px; padding-top: 10px; color: var(--danger); font-size: 11px; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 7px; }
 .toast { position: fixed; z-index: 20; right: 22px; bottom: 22px; max-width: min(390px, calc(100vw - 44px)); padding: 11px 14px; border: 1px solid var(--line); border-radius: 11px; background: var(--card); box-shadow: var(--shadow); color: var(--ink); font-size: 12px; opacity: 0; pointer-events: none; transform: translateY(8px); transition: .2s; }
@@ -163,6 +180,7 @@ button { color: inherit; }
   .message-bubble { max-width: 90%; }
   .form-grid { grid-template-columns: 1fr; }
   .form-wide { grid-column: auto; }
+  .nested-grid { grid-template-columns: 1fr; }
 }
 
 @media (prefers-color-scheme: dark) {

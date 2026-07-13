@@ -254,6 +254,7 @@ rules:
       - delete
       - get
       - list
+      - patch
       - watch
   - apiGroups:
       - kelos.dev

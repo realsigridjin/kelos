@@ -21,6 +21,14 @@ const elements = {
   agentConfig: document.querySelector('#agent-config-select'),
   addAgentConfig: document.querySelector('#add-agent-config'),
   selectedAgentConfigs: document.querySelector('#selected-agent-configs'),
+  formFields: document.querySelector('#session-form-fields'),
+  formMode: document.querySelector('#session-mode-form'),
+  yamlMode: document.querySelector('#session-mode-yaml'),
+  yamlPanel: document.querySelector('#session-yaml-panel'),
+  yaml: document.querySelector('#session-yaml'),
+  persistentVolume: document.querySelector('#volume-claim-enabled'),
+  volumeClaimFields: document.querySelector('#volume-claim-fields'),
+  createButton: document.querySelector('#create-session'),
   stopButton: document.querySelector('#stop-session'),
   deleteButton: document.querySelector('#delete-session'),
   sidebar: document.querySelector('#sidebar'),
@@ -44,6 +52,7 @@ const state = {
   defaultNamespace: 'default',
   options: {credentials: [], workspaces: [], agentConfigs: []},
   selectedAgentConfigs: [],
+  creationMode: 'form',
 };
 
 const customOption = '__custom__';
@@ -143,6 +152,43 @@ async function loadConfig() {
   const config = await api('/api/config');
   state.defaultNamespace = config.defaultNamespace;
   elements.form.elements.namespace.value = state.defaultNamespace;
+}
+
+function defaultSessionYAML() {
+  return `apiVersion: kelos.dev/v1alpha2
+kind: Session
+metadata:
+  name: my-session
+  namespace: ${state.defaultNamespace}
+spec:
+  worker:
+    type: claude-code
+    credentials:
+      type: api-key
+      secretRef:
+        name: claude-credentials
+`;
+}
+
+function setCreationMode(mode) {
+  const yaml = mode === 'yaml';
+  state.creationMode = yaml ? 'yaml' : 'form';
+  elements.formFields.hidden = yaml;
+  elements.formFields.disabled = yaml;
+  elements.yamlPanel.hidden = !yaml;
+  elements.yaml.disabled = !yaml;
+  elements.yaml.required = yaml;
+  elements.formMode.setAttribute('aria-selected', String(!yaml));
+  elements.yamlMode.setAttribute('aria-selected', String(yaml));
+  elements.createButton.textContent = yaml ? 'Apply YAML' : 'Create session';
+  if (yaml && !elements.yaml.value.trim()) elements.yaml.value = defaultSessionYAML();
+}
+
+function updateVolumeClaimFields() {
+  const enabled = elements.persistentVolume.checked;
+  elements.volumeClaimFields.hidden = !enabled;
+  elements.form.elements.storageRequest.required = enabled;
+  elements.form.elements.accessMode.required = enabled;
 }
 
 async function loadOptions() {
@@ -784,11 +830,18 @@ function resizeComposer() {
   elements.input.style.height = `${Math.min(elements.input.scrollHeight, 160)}px`;
 }
 
-function openDialog() {
+async function openDialog() {
+  try {
+    await configReady;
+  } catch (error) {
+    showToast(error.message);
+    return;
+  }
   elements.dialogError.textContent = '';
+  setCreationMode(state.creationMode);
   elements.dialog.showModal();
   loadOptions().catch(error => { elements.dialogError.textContent = error.message; });
-  window.setTimeout(() => elements.form.elements.name.focus(), 0);
+  window.setTimeout(() => (state.creationMode === 'yaml' ? elements.yaml : elements.form.elements.name).focus(), 0);
 }
 
 document.querySelector('#new-session').addEventListener('click', openDialog);
@@ -818,42 +871,68 @@ elements.addAgentConfig.addEventListener('click', () => {
   state.selectedAgentConfigs.push(name);
   renderAgentConfigOptions();
 });
+elements.formMode.addEventListener('click', () => setCreationMode('form'));
+elements.yamlMode.addEventListener('click', () => setCreationMode('yaml'));
+elements.persistentVolume.addEventListener('change', updateVolumeClaimFields);
 renderCredentialOptions();
 renderWorkspaceOptions();
 renderAgentConfigOptions();
+updateVolumeClaimFields();
+setCreationMode('form');
 
 elements.form.addEventListener('submit', async event => {
   event.preventDefault();
   if (!elements.form.reportValidity()) return;
   elements.dialogError.textContent = '';
-  const submit = document.querySelector('#create-session');
+  const submit = elements.createButton;
   submit.disabled = true;
-  const values = new FormData(elements.form);
-  const credentialType = values.get('credentialType');
-  const worker = {
-    type: values.get('provider'),
-    credentials: {type: credentialType},
-  };
-  if (credentialType !== 'none') worker.credentials.secretRef = {name: selectedCredentialName()};
-  const workspace = selectedWorkspaceName();
-  if (workspace) worker.workspaceRef = {name: workspace};
-  if (values.get('model').trim()) worker.model = values.get('model').trim();
-  if (state.selectedAgentConfigs.length) {
-    worker.agentConfigRefs = state.selectedAgentConfigs.map(name => ({name}));
-  }
   try {
-    const created = await api('/api/sessions', {
-      method: 'POST',
-      body: JSON.stringify({
+    let created;
+    if (state.creationMode === 'yaml') {
+      created = await api('/api/sessions/apply', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/yaml'},
+        body: elements.yaml.value,
+      });
+    } else {
+      const values = new FormData(elements.form);
+      const credentialType = values.get('credentialType');
+      const worker = {
+        type: values.get('provider'),
+        credentials: {type: credentialType},
+      };
+      if (credentialType !== 'none') worker.credentials.secretRef = {name: selectedCredentialName()};
+      const workspace = selectedWorkspaceName();
+      if (workspace) worker.workspaceRef = {name: workspace};
+      if (values.get('model').trim()) worker.model = values.get('model').trim();
+      if (state.selectedAgentConfigs.length) {
+        worker.agentConfigRefs = state.selectedAgentConfigs.map(name => ({name}));
+      }
+      const payload = {
         name: values.get('name').trim(),
         namespace: values.get('namespace').trim(),
         worker,
-      }),
-    });
+      };
+      if (values.get('persistentVolume')) {
+        payload.volumeClaimTemplate = {
+          accessModes: [values.get('accessMode')],
+          resources: {requests: {storage: values.get('storageRequest').trim()}},
+        };
+        const storageClassName = values.get('storageClassName').trim();
+        if (storageClassName) payload.volumeClaimTemplate.storageClassName = storageClassName;
+      }
+      created = await api('/api/sessions', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+    }
     elements.dialog.close();
     elements.form.reset();
     state.selectedAgentConfigs = [];
     elements.form.elements.namespace.value = state.defaultNamespace;
+    elements.yaml.value = '';
+    updateVolumeClaimFields();
+    setCreationMode('form');
     renderCredentialOptions();
     renderWorkspaceOptions();
     renderAgentConfigOptions();
@@ -895,7 +974,8 @@ document.querySelector('#logout').addEventListener('click', async () => {
 document.querySelector('#open-sidebar').addEventListener('click', () => elements.sidebar.classList.add('open'));
 document.querySelector('#close-sidebar').addEventListener('click', () => elements.sidebar.classList.remove('open'));
 
-Promise.all([loadConfig(), loadOptions()]).then(() => loadSessions()).then(() => {
+const configReady = loadConfig();
+Promise.all([configReady, loadOptions()]).then(() => loadSessions()).then(() => {
   if (state.sessions.length) selectSession(state.sessions[0]);
 }).catch(error => showToast(error.message));
 window.setInterval(() => loadSessions({quiet: true}), 5000);
