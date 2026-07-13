@@ -18,10 +18,12 @@ func TestValidArgsFunctionWired(t *testing.T) {
 		{"get taskspawner", []string{"get", "taskspawner"}},
 		{"get workspace", []string{"get", "workspace"}},
 		{"get workerpool", []string{"get", "workerpool"}},
+		{"get session", []string{"get", "session"}},
 		{"delete task", []string{"delete", "task"}},
 		{"delete workspace", []string{"delete", "workspace"}},
 		{"delete taskspawner", []string{"delete", "taskspawner"}},
 		{"delete workerpool", []string{"delete", "workerpool"}},
+		{"delete session", []string{"delete", "session"}},
 		{"logs", []string{"logs"}},
 		{"session connect", []string{"session", "connect"}},
 	}

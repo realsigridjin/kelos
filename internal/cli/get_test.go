@@ -18,6 +18,7 @@ func TestDetailFlagRegistered(t *testing.T) {
 		{"get workspace", []string{"get", "workspace"}},
 		{"get agentconfig", []string{"get", "agentconfig"}},
 		{"get workerpool", []string{"get", "workerpool"}},
+		{"get session", []string{"get", "session"}},
 	}
 
 	for _, tt := range tests {

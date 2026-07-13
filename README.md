@@ -525,8 +525,8 @@ See the [`self-development/` README](self-development/README.md) for the full pi
 | `kelos run` | Create and run a new Task |
 | `kelos run --from taskspawner/<name> [-f values.yaml]` | Run a standalone Task from a TaskSpawner template |
 | `kelos session connect NAME` | Continue a Session through terminal chat |
-| `kelos get <resource> [name]` | List resources or view a specific resource (`tasks`, `taskspawners`, `workspaces`, `agentconfigs`, `workerpools`) |
-| `kelos delete <resource> [name]` | Delete a resource (`tasks`, `taskspawners`, `workspaces`, `agentconfigs`, `workerpools`); supports `--all` to delete every resource of that type in the namespace |
+| `kelos get <resource> [name]` | List resources or view a specific resource (`tasks`, `sessions`, `taskspawners`, `workspaces`, `agentconfigs`, `workerpools`) |
+| `kelos delete <resource> [name]` | Delete a resource (`tasks`, `sessions`, `taskspawners`, `workspaces`, `agentconfigs`, `workerpools`); supports `--all` to delete every resource of that type in the namespace |
 | `kelos logs <task-name> [-f]` | View or stream logs from a task |
 | `kelos suspend taskspawner <name>` | Pause a TaskSpawner |
 | `kelos resume taskspawner <name>` | Resume a paused TaskSpawner |
