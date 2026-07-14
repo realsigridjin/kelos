@@ -9,10 +9,9 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 concurrency:
-  group: deploy-dev-gke
+  group: deploy-dev-cluster
   cancel-in-progress: false
 
 jobs:
@@ -21,12 +20,11 @@ jobs:
     runs-on: ubuntu-latest
     env:
       KELOS_NAMESPACE: ${{ vars.KELOS_NAMESPACE || 'default' }}
-      GCP_PROJECT_ID: gjkim-400213
-      GKE_CLUSTER_NAME: gjkim
-      GKE_CLUSTER_LOCATION: asia-northeast3
+      KELOS_API_HOSTNAME: dev-cluster.kelos.dev
       KELOS_SESSION_HOSTNAME: session.kelos.dev
-      GCP_SERVICE_ACCOUNT_EMAIL: kelos-gh-action@gjkim-400213.iam.gserviceaccount.com
-      GCP_WORKLOAD_IDENTITY_PROVIDER: projects/317215297044/locations/global/workloadIdentityPools/github/providers/kelos
+      KELOS_WEBHOOK_HOSTNAME: webhook.kelos.dev
+      CLOUDFLARED_VERSION: 2026.7.1
+      CLOUDFLARED_DEB_SHA256: 79f790b45e6a9152c6cf63f60f4901e3d8a029f7f4be1345a24cd2373aba8e7d
     steps:
       - uses: actions/checkout@v4
 
@@ -36,21 +34,59 @@ jobs:
 
       - uses: azure/setup-helm@v4
 
+      - name: Install cloudflared
+        run: |
+          CLOUDFLARED_DEB="${RUNNER_TEMP}/cloudflared.deb"
+          curl --fail --location --silent --show-error \
+            --output "${CLOUDFLARED_DEB}" \
+            "https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/cloudflared-linux-amd64.deb"
+          echo "${CLOUDFLARED_DEB_SHA256}  ${CLOUDFLARED_DEB}" | sha256sum --check
+          sudo dpkg --install "${CLOUDFLARED_DEB}"
+
+      - name: Connect to dev cluster
+        env:
+          DEV_CLUSTER_KUBECONFIG: ${{ secrets.DEV_CLUSTER_KUBECONFIG }}
+          TUNNEL_SERVICE_TOKEN_ID: ${{ secrets.CLOUDFLARE_ACCESS_CLIENT_ID }}
+          TUNNEL_SERVICE_TOKEN_SECRET: ${{ secrets.CLOUDFLARE_ACCESS_CLIENT_SECRET }}
+        run: |
+          for name in DEV_CLUSTER_KUBECONFIG TUNNEL_SERVICE_TOKEN_ID TUNNEL_SERVICE_TOKEN_SECRET; do
+            if [ -z "${!name}" ]; then
+              echo "${name} is required" >&2
+              exit 1
+            fi
+          done
+
+          KUBECONFIG_PATH="${RUNNER_TEMP}/dev-cluster-kubeconfig"
+          printf '%s' "${DEV_CLUSTER_KUBECONFIG}" > "${KUBECONFIG_PATH}"
+          chmod 600 "${KUBECONFIG_PATH}"
+          KUBE_CLUSTER=$(KUBECONFIG="${KUBECONFIG_PATH}" kubectl config view \
+            --minify -o jsonpath='{.contexts[0].context.cluster}')
+          KUBECONFIG="${KUBECONFIG_PATH}" kubectl config set-cluster "${KUBE_CLUSTER}" \
+            --server=https://127.0.0.1:6443
+
+          CLOUDFLARED_LOG="${RUNNER_TEMP}/cloudflared-access.log"
+          cloudflared access tcp \
+            --hostname "${KELOS_API_HOSTNAME}" \
+            --url 127.0.0.1:6443 \
+            >"${CLOUDFLARED_LOG}" 2>&1 &
+          echo "$!" > "${RUNNER_TEMP}/cloudflared-access.pid"
+
+          for _ in $(seq 1 30); do
+            if nc -z 127.0.0.1 6443; then
+              break
+            fi
+            sleep 1
+          done
+          if ! nc -z 127.0.0.1 6443; then
+            cat "${CLOUDFLARED_LOG}" >&2
+            exit 1
+          fi
+
+          echo "KUBECONFIG=${KUBECONFIG_PATH}" >> "${GITHUB_ENV}"
+          KUBECONFIG="${KUBECONFIG_PATH}" kubectl get --raw=/readyz
+
       - name: Build CLI
         run: make build WHAT=cmd/kelos
-
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ env.GCP_SERVICE_ACCOUNT_EMAIL }}
-
-      - name: Configure GKE credentials
-        uses: google-github-actions/get-gke-credentials@v2
-        with:
-          cluster_name: ${{ env.GKE_CLUSTER_NAME }}
-          location: ${{ env.GKE_CLUSTER_LOCATION }}
-          project_id: ${{ env.GCP_PROJECT_ID }}
 
       - name: Install cert-manager
         run: |
@@ -70,6 +106,9 @@ jobs:
           kubectl rollout status deployment/cert-manager-webhook -n cert-manager --timeout=300s
           kubectl rollout status deployment/cert-manager-cainjector -n cert-manager --timeout=300s
 
+      - name: Create Kelos namespace
+        run: kubectl create namespace kelos-system --dry-run=client -o yaml | kubectl apply -f -
+
       - name: Apply github-webhook-secret
         env:
           KELOS_WEBHOOK_SECRET: ${{ secrets.KELOS_WEBHOOK_SECRET }}
@@ -77,6 +116,13 @@ jobs:
           KELOS_GITHUB_APP_INSTALLATION_ID: ${{ secrets.KELOS_GITHUB_APP_INSTALLATION_ID }}
           KELOS_GITHUB_APP_PRIVATE_KEY: ${{ secrets.KELOS_GITHUB_APP_PRIVATE_KEY }}
         run: |
+          for name in KELOS_WEBHOOK_SECRET KELOS_GITHUB_APP_ID KELOS_GITHUB_APP_INSTALLATION_ID KELOS_GITHUB_APP_PRIVATE_KEY; do
+            if [ -z "${!name}" ]; then
+              echo "${name} is required" >&2
+              exit 1
+            fi
+          done
+
           # Apply the full github-webhook-secret from repo secrets so the
           # workflow is self-sufficient and the secret state is portable to
           # other clusters. Holds both the HMAC WEBHOOK_SECRET and the
@@ -129,19 +175,16 @@ jobs:
             enabled: true
             secretName: kelos-session-server-auth
             secureCookie: true
-          # NOTE: webhookServer.gateway is intentionally left at chart default
-          # (disabled). The dev cluster already has a Gateway
-          # (kelos-webhook-gateway) and HTTPRoute (kelos-webhook-route) applied
-          # out of band — they use GKE CertMap via
-          # networking.gke.io/certmap annotation, which the chart's gateway
-          # template cannot express. Managing them via helm would fight the
-          # out-of-band config, so they stay manual.
+            service:
+              type: NodePort
           webhookServer:
             sources:
               github:
                 enabled: true
                 secretName: github-webhook-secret
                 githubSecretName: github-webhook-secret
+                service:
+                  type: NodePort
             resources:
               requests:
                 cpu: 100m
@@ -149,6 +192,10 @@ jobs:
           EOF
           bin/kelos install -f /tmp/kelos-dev-values.yaml \
             --set-string sessionServer.defaultNamespace="${KELOS_NAMESPACE}"
+          kubectl patch service kelos-session-server -n kelos-system --type=merge \
+            --patch '{"spec":{"ports":[{"name":"http","nodePort":30080,"port":80,"protocol":"TCP","targetPort":"http"}]}}'
+          kubectl patch service kelos-webhook-github -n kelos-system --type=merge \
+            --patch '{"spec":{"ports":[{"name":"webhook","nodePort":30081,"port":8443,"protocol":"TCP","targetPort":"webhook"}]}}'
           kubectl rollout restart deployment/kelos-controller-manager -n kelos-system
           kubectl rollout status deployment/kelos-controller-manager -n kelos-system --timeout=120s
           kubectl rollout restart deployment/kelos-session-server -n kelos-system
@@ -158,158 +205,14 @@ jobs:
           kubectl rollout status deployment -l kelos.dev/component=spawner -n "${KELOS_NAMESPACE}" --timeout=120s
           kubectl rollout status deployment/kelos-webhook-github -n kelos-system --timeout=120s
 
-      - name: Expose Session server through the GKE Gateway
+      - name: Verify public endpoints
         run: |
-          kubectl apply -f - <<EOF
-          apiVersion: networking.gke.io/v1
-          kind: HealthCheckPolicy
-          metadata:
-            name: kelos-session-server
-            namespace: kelos-system
-          spec:
-            default:
-              config:
-                type: HTTP
-                httpHealthCheck:
-                  portSpecification: USE_SERVING_PORT
-                  requestPath: /readyz
-            targetRef:
-              group: ""
-              kind: Service
-              name: kelos-session-server
-          ---
-          apiVersion: gateway.networking.k8s.io/v1
-          kind: HTTPRoute
-          metadata:
-            name: kelos-session-route
-            namespace: kelos-system
-          spec:
-            hostnames:
-              - ${KELOS_SESSION_HOSTNAME}
-            parentRefs:
-              - name: kelos-webhook-gateway
-                namespace: kelos-system
-                sectionName: https
-            rules:
-              - matches:
-                  - path:
-                      type: PathPrefix
-                      value: /
-                backendRefs:
-                  - name: kelos-session-server
-                    port: 80
-          ---
-          apiVersion: gateway.networking.k8s.io/v1
-          kind: HTTPRoute
-          metadata:
-            name: kelos-session-redirect
-            namespace: kelos-system
-          spec:
-            hostnames:
-              - ${KELOS_SESSION_HOSTNAME}
-            parentRefs:
-              - name: kelos-webhook-gateway
-                namespace: kelos-system
-                sectionName: http
-            rules:
-              - filters:
-                  - type: RequestRedirect
-                    requestRedirect:
-                      scheme: https
-                      statusCode: 301
-          EOF
-
-          for route in kelos-session-route kelos-session-redirect; do
-            kubectl wait \
-              --for=jsonpath='{.status.parents[0].conditions[?(@.type=="Accepted")].status}'=True \
-              "httproute/${route}" -n kelos-system --timeout=10m \
-              || { kubectl describe "httproute/${route}" -n kelos-system; exit 1; }
-            kubectl wait \
-              --for=jsonpath='{.status.parents[0].conditions[?(@.type=="Reconciled")].status}'=True \
-              "httproute/${route}" -n kelos-system --timeout=10m \
-              || { kubectl describe "httproute/${route}" -n kelos-system; exit 1; }
-          done
-
-          # The Gateway certificate map is managed outside this workflow and
-          # must contain a certificate for KELOS_SESSION_HOSTNAME.
-          curl --fail --silent --show-error \
-            --retry 30 --retry-all-errors --retry-delay 10 \
-            "https://${KELOS_SESSION_HOSTNAME}/healthz"
-
-      - name: Apply PodMonitoring
-        run: |
-          kubectl apply -f - <<EOF
-          apiVersion: monitoring.googleapis.com/v1
-          kind: PodMonitoring
-          metadata:
-            name: kelos-controller
-            namespace: kelos-system
-            labels:
-              app.kubernetes.io/name: kelos
-              app.kubernetes.io/component: manager
-          spec:
-            selector:
-              matchLabels:
-                app.kubernetes.io/name: kelos
-                app.kubernetes.io/component: manager
-            endpoints:
-              - port: metrics
-                interval: 30s
-          ---
-          apiVersion: monitoring.googleapis.com/v1
-          kind: PodMonitoring
-          metadata:
-            name: kelos-spawner
-            namespace: ${KELOS_NAMESPACE}
-            labels:
-              kelos.dev/name: kelos
-              kelos.dev/component: spawner
-          spec:
-            selector:
-              matchLabels:
-                kelos.dev/name: kelos
-                kelos.dev/component: spawner
-              matchExpressions:
-                - key: job-name
-                  operator: DoesNotExist
-            endpoints:
-              - port: metrics
-                interval: 30s
-          ---
-          apiVersion: monitoring.googleapis.com/v1
-          kind: PodMonitoring
-          metadata:
-            name: ghproxy
-            namespace: ${KELOS_NAMESPACE}
-            labels:
-              kelos.dev/name: kelos
-              kelos.dev/component: ghproxy
-          spec:
-            selector:
-              matchLabels:
-                kelos.dev/name: kelos
-                kelos.dev/component: ghproxy
-            endpoints:
-              - port: metrics
-                interval: 30s
-          ---
-          apiVersion: monitoring.googleapis.com/v1
-          kind: PodMonitoring
-          metadata:
-            name: kelos-webhook-github
-            namespace: kelos-system
-            labels:
-              app.kubernetes.io/name: kelos
-              app.kubernetes.io/component: webhook-github
-          spec:
-            selector:
-              matchLabels:
-                app.kubernetes.io/name: kelos
-                app.kubernetes.io/component: webhook-github
-            endpoints:
-              - port: metrics
-                interval: 30s
-          EOF
+          curl --fail --silent --show-error --retry 30 --retry-all-errors --retry-delay 10 "https://${KELOS_SESSION_HOSTNAME}/healthz"
+          WEBHOOK_STATUS=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --request POST --header 'Content-Type: application/json' --data '{}' "https://${KELOS_WEBHOOK_HOSTNAME}/webhook/github")
+          if [ "${WEBHOOK_STATUS}" != 401 ]; then
+            echo "Unsigned webhook returned HTTP ${WEBHOOK_STATUS}, expected 401" >&2
+            exit 1
+          fi
 
       - name: Apply self-development resources
         run: kubectl apply -f self-development/ -n "${KELOS_NAMESPACE}"
@@ -319,3 +222,14 @@ jobs:
 
       - name: Apply kanon self-development resources
         run: kubectl apply -f self-development/kanon/ -n "${KELOS_NAMESPACE}"
+
+      - name: Show Cloudflare Access logs
+        if: failure()
+        run: cat "${RUNNER_TEMP}/cloudflared-access.log" 2>/dev/null || true
+
+      - name: Stop Cloudflare Access proxy
+        if: always()
+        run: |
+          if [ -f "${RUNNER_TEMP}/cloudflared-access.pid" ]; then
+            kill "$(cat "${RUNNER_TEMP}/cloudflared-access.pid")" 2>/dev/null || true
+          fi
