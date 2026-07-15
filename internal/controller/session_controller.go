@@ -29,19 +29,20 @@ import (
 )
 
 const (
-	// DefaultSessionRuntimeImage is the default image used to inject the Session runtime.
-	DefaultSessionRuntimeImage = "ghcr.io/kelos-dev/kelos-session-runtime:latest"
+	SessionRuntimeImageRepository = "ghcr.io/kelos-dev/kelos-session-runtime"
+	DefaultSessionRuntimeImage    = SessionRuntimeImageRepository + ":latest"
 
-	sessionRuntimeVolumeName = "kelos-session-runtime"
-	sessionRuntimeMountPath  = "/kelos/bin"
-	sessionRuntimeBinary     = sessionRuntimeMountPath + "/kelos-session-runtime"
-	sessionClaudeConfigDir   = "/workspace/.kelos/session/claude-config"
-	sessionCodexHome         = "/workspace/.kelos/session/codex-home"
-	sessionOpenCodeConfigDir = "/workspace/.kelos/session/opencode-config"
-	sessionOpenCodeDataDir   = "/workspace/.kelos/session/opencode-data"
-	sessionInitializedPath   = "/workspace/.kelos/session/initialized"
-	sessionNameAnnotation    = "kelos.dev/session-name"
-	sessionReadyCondition    = "Ready"
+	sessionRuntimeContainerName = "kelos-session-runtime"
+	sessionRuntimeVolumeName    = "kelos-session-runtime"
+	sessionRuntimeMountPath     = "/kelos/bin"
+	sessionRuntimeBinary        = sessionRuntimeMountPath + "/kelos-session-runtime"
+	sessionClaudeConfigDir      = "/workspace/.kelos/session/claude-config"
+	sessionCodexHome            = "/workspace/.kelos/session/codex-home"
+	sessionOpenCodeConfigDir    = "/workspace/.kelos/session/opencode-config"
+	sessionOpenCodeDataDir      = "/workspace/.kelos/session/opencode-data"
+	sessionInitializedPath      = "/workspace/.kelos/session/initialized"
+	sessionNameAnnotation       = "kelos.dev/session-name"
+	sessionReadyCondition       = "Ready"
 )
 
 // SessionReconciler reconciles a Session object.
@@ -62,7 +63,7 @@ type SessionReconciler struct {
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
-// +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;create
+// +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;create;patch
 
 // Reconcile creates and observes the StatefulSet that owns a Session conversation.
 func (r *SessionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -94,6 +95,9 @@ func (r *SessionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 	if statefulSet.DeletionTimestamp != nil {
 		return ctrl.Result{}, r.updateSessionStatus(ctx, &session, nil, kelos.SessionPhasePending, "Session StatefulSet is terminating and will be recreated", "StatefulSetTerminating")
+	}
+	if err := r.ensureSessionRuntimeImage(ctx, &statefulSet); err != nil {
+		return ctrl.Result{}, err
 	}
 	if err := r.ensureSessionService(ctx, &session); err != nil {
 		message := fmt.Sprintf("Failed to prepare Session governing Service: %v", err)
@@ -196,6 +200,29 @@ func (r *SessionReconciler) createSessionStatefulSet(ctx context.Context, sessio
 	}
 
 	return ctrl.Result{Requeue: true}, nil
+}
+
+func (r *SessionReconciler) ensureSessionRuntimeImage(ctx context.Context, statefulSet *appsv1.StatefulSet) error {
+	original := statefulSet.DeepCopy()
+	for i := range statefulSet.Spec.Template.Spec.InitContainers {
+		container := &statefulSet.Spec.Template.Spec.InitContainers[i]
+		if container.Name != sessionRuntimeContainerName {
+			continue
+		}
+		pullPolicyMatches := r.SessionRuntimeImagePullPolicy == "" || container.ImagePullPolicy == r.SessionRuntimeImagePullPolicy
+		if container.Image == r.SessionRuntimeImage && pullPolicyMatches {
+			return nil
+		}
+		container.Image = r.SessionRuntimeImage
+		if r.SessionRuntimeImagePullPolicy != "" {
+			container.ImagePullPolicy = r.SessionRuntimeImagePullPolicy
+		}
+		if err := r.Patch(ctx, statefulSet, client.MergeFrom(original)); err != nil {
+			return fmt.Errorf("patching Session StatefulSet %q runtime image: %w", statefulSet.Name, err)
+		}
+		return nil
+	}
+	return fmt.Errorf("Session StatefulSet %q has no session runtime init container", statefulSet.Name)
 }
 
 func (r *SessionReconciler) ensureSessionService(ctx context.Context, session *kelos.Session) error {
@@ -558,7 +585,7 @@ func (r *SessionReconciler) buildSessionStatefulSet(session *kelos.Session, work
 		VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
 	})
 	podSpec.InitContainers = append([]corev1.Container{{
-		Name:            "kelos-session-runtime",
+		Name:            sessionRuntimeContainerName,
 		Image:           r.SessionRuntimeImage,
 		ImagePullPolicy: r.SessionRuntimeImagePullPolicy,
 		Args:            []string{"--self-copy", sessionRuntimeBinary},

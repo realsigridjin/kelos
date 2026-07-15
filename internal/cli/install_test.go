@@ -253,15 +253,19 @@ func TestRenderChart_ImageArgs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("rendering chart: %v", err)
 	}
-	versionedArgs := []string{
-		"--claude-code-image=ghcr.io/kelos-dev/claude-code:v0.3.0",
-		"--codex-image=ghcr.io/kelos-dev/codex:v0.3.0",
-		"--gemini-image=ghcr.io/kelos-dev/gemini:v0.3.0",
-		"--opencode-image=ghcr.io/kelos-dev/opencode:v0.3.0",
-		"--spawner-image=ghcr.io/kelos-dev/kelos-spawner:v0.3.0",
-		"--worker-runner-image=ghcr.io/kelos-dev/kelos-worker-runner:v0.3.0",
+	controllerArgs := []string{
+		"--version=v0.3.0",
+		"--claude-code-image=ghcr.io/kelos-dev/claude-code",
+		"--codex-image=ghcr.io/kelos-dev/codex",
+		"--gemini-image=ghcr.io/kelos-dev/gemini",
+		"--opencode-image=ghcr.io/kelos-dev/opencode",
+		"--cursor-image=ghcr.io/kelos-dev/cursor",
+		"--spawner-image=ghcr.io/kelos-dev/kelos-spawner",
+		"--worker-runner-image=ghcr.io/kelos-dev/kelos-worker-runner",
+		"--session-runtime-image=ghcr.io/kelos-dev/kelos-session-runtime",
+		"--ghproxy-image=ghcr.io/kelos-dev/ghproxy",
 	}
-	for _, arg := range versionedArgs {
+	for _, arg := range controllerArgs {
 		if !bytes.Contains(data, []byte(arg)) {
 			t.Errorf("expected rendered chart to contain %q", arg)
 		}

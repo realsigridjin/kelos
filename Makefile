@@ -1,14 +1,16 @@
 # Image configuration
 REGISTRY ?= ghcr.io/kelos-dev
 VERSION ?= latest
+# Release image tags may be architecture-specific while KELOS_VERSION remains shared.
+KELOS_VERSION ?= $(VERSION)
 IMAGE_DIRS ?= cmd/kelos-controller cmd/kelos-spawner cmd/kelos-worker-runner cmd/kelos-session-runtime cmd/kelos-session-server cmd/ghproxy cmd/kelos-webhook-server claude-code codex gemini opencode cursor cmd/kelos-slack-server
 LOCAL_ARCH ?= $(shell go env GOARCH)
 
-# Version injection for the kelos CLI – only set ldflags when an explicit
-# version is given so that dev builds fall through to runtime/debug info.
+# Version injection – only set ldflags when an explicit version is given so
+# that dev builds fall through to runtime/debug info and latest image tags.
 VERSION_PKG = github.com/kelos-dev/kelos/internal/version
-ifneq ($(VERSION),latest)
-LDFLAGS ?= -X $(VERSION_PKG).Version=$(VERSION)
+ifneq ($(KELOS_VERSION),latest)
+LDFLAGS ?= -X $(VERSION_PKG).Version=$(KELOS_VERSION)
 endif
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.

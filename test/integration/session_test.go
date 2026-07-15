@@ -18,6 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
+	"github.com/kelos-dev/kelos/internal/controller"
 	"github.com/kelos-dev/kelos/internal/sessionserver"
 )
 
@@ -128,6 +129,31 @@ spec:
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(session), &current)).To(Succeed())
 			g.Expect(current.Status.Phase).To(Equal(kelos.SessionPhaseReady))
 			g.Expect(current.Status.PodName).To(Equal(pod.Name))
+		}, 10*time.Second, 100*time.Millisecond).Should(Succeed())
+	})
+
+	It("updates the runtime image of an existing StatefulSet", func() {
+		session := validSession(namespace, "runtime-update", "codex")
+		Expect(k8sClient.Create(ctx, session)).To(Succeed())
+
+		key := client.ObjectKey{Namespace: namespace, Name: "session-" + session.Name}
+		var statefulSet appsv1.StatefulSet
+		Eventually(func(g Gomega) {
+			g.Expect(k8sClient.Get(ctx, key, &statefulSet)).To(Succeed())
+			g.Expect(statefulSet.Spec.Template.Spec.InitContainers).NotTo(BeEmpty())
+			g.Expect(statefulSet.Spec.UpdateStrategy.Type).To(Equal(appsv1.RollingUpdateStatefulSetStrategyType))
+		}, 10*time.Second, 100*time.Millisecond).Should(Succeed())
+
+		statefulSet.Spec.Template.Spec.InitContainers[0].Image = "runtime:old"
+		statefulSet.Spec.Template.Spec.InitContainers[0].ImagePullPolicy = corev1.PullAlways
+		Expect(k8sClient.Update(ctx, &statefulSet)).To(Succeed())
+
+		Eventually(func(g Gomega) {
+			var updated appsv1.StatefulSet
+			g.Expect(k8sClient.Get(ctx, key, &updated)).To(Succeed())
+			g.Expect(updated.Spec.Template.Spec.InitContainers).NotTo(BeEmpty())
+			g.Expect(updated.Spec.Template.Spec.InitContainers[0].Image).To(Equal(controller.DefaultSessionRuntimeImage))
+			g.Expect(updated.Spec.Template.Spec.InitContainers[0].ImagePullPolicy).To(Equal(corev1.PullIfNotPresent))
 		}, 10*time.Second, 100*time.Millisecond).Should(Succeed())
 	})
 

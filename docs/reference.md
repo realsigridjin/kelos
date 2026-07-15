@@ -221,6 +221,16 @@ automatically. The terminal client also does not retry a request whose delivery
 cannot be confirmed; it reports that uncertainty so the user can decide whether
 to submit it again.
 
+The controller's `--version` flag defaults to its build version and applies to
+every managed image argument that does not already include a tag or digest. A
+tagged or digested image argument remains an explicit override. When the
+resolved `--session-runtime-image` changes, the controller updates every
+existing Session StatefulSet, and the StatefulSet replaces its Pod through a
+rolling update. Active work is interrupted and is not submitted again
+automatically. Helm passes the shared `image.tag` value through `--version`, so
+upgrading to a chart with a different image tag rolls existing Session Pods as
+well as the controller.
+
 When `spec.volumeClaimTemplate` is set, the StatefulSet provisions the Session
 workspace from that template and reuses it across Pod replacement. Built-in
 workspace initialization is skipped after the persistent workspace has been

@@ -127,6 +127,14 @@ helm upgrade kelos oci://ghcr.io/kelos-dev/charts/kelos \
   --set crds.install=false
 ```
 
+The chart passes `image.tag` to the controller through `--version`. The
+controller applies that version to untagged managed image values, including
+`sessionRuntime.image`; tagged and digested values remain explicit overrides.
+When an upgrade changes the resolved runtime image, each existing Session
+StatefulSet replaces its Pod through a rolling update. Active work is interrupted
+and is not submitted again automatically. Persistent Session workspaces survive
+the replacement, while `emptyDir` workspaces do not.
+
 If Helm owns the CRDs and the release includes CRD changes, upgrade in two
 phases so the new webhook is ready before Helm applies conversion-backed CRDs:
 

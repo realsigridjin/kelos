@@ -16,8 +16,10 @@ import (
 )
 
 const (
+	SpawnerImageRepository = "ghcr.io/kelos-dev/kelos-spawner"
+
 	// DefaultSpawnerImage is the default image for the spawner binary.
-	DefaultSpawnerImage = "ghcr.io/kelos-dev/kelos-spawner:latest"
+	DefaultSpawnerImage = SpawnerImageRepository + ":latest"
 
 	// SpawnerServiceAccount is the service account used by spawner Deployments.
 	SpawnerServiceAccount = "kelos-spawner"

@@ -5,8 +5,10 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
+	"github.com/distribution/reference"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -26,6 +28,7 @@ import (
 	"github.com/kelos-dev/kelos/internal/githubapp"
 	"github.com/kelos-dev/kelos/internal/logging"
 	"github.com/kelos-dev/kelos/internal/telemetry"
+	"github.com/kelos-dev/kelos/internal/version"
 )
 
 var (
@@ -39,10 +42,40 @@ func init() {
 	utilruntime.Must(kelos.AddToScheme(scheme))
 }
 
+func validateImageVersion(imageVersion string) error {
+	if strings.TrimSpace(imageVersion) == "" {
+		return fmt.Errorf("--version must not be empty")
+	}
+	named, err := reference.ParseNormalizedNamed("example.com/image")
+	if err != nil {
+		return err
+	}
+	if _, err := reference.WithTag(named, imageVersion); err != nil {
+		return fmt.Errorf("invalid --version %q: %w", imageVersion, err)
+	}
+	return nil
+}
+
+func imageForVersion(image, imageVersion string) (string, error) {
+	named, err := reference.ParseNormalizedNamed(image)
+	if err != nil {
+		return "", err
+	}
+	if !reference.IsNameOnly(named) {
+		return image, nil
+	}
+	tagged, err := reference.WithTag(named, imageVersion)
+	if err != nil {
+		return "", err
+	}
+	return reference.FamiliarString(tagged), nil
+}
+
 func main() {
 	var metricsAddr string
 	var enableLeaderElection bool
 	var probeAddr string
+	var kelosVersion string
 	var claudeCodeImage string
 	var claudeCodeImagePullPolicy string
 	var codexImage string
@@ -76,21 +109,22 @@ func main() {
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
-	flag.StringVar(&claudeCodeImage, "claude-code-image", controller.ClaudeCodeImage, "The image to use for Claude Code agent containers.")
+	flag.StringVar(&kelosVersion, "version", version.Version, "The shared tag applied to untagged managed images.")
+	flag.StringVar(&claudeCodeImage, "claude-code-image", controller.ClaudeCodeImageRepository, "The image repository or tagged image to use for Claude Code agent containers.")
 	flag.StringVar(&claudeCodeImagePullPolicy, "claude-code-image-pull-policy", "", "The image pull policy for Claude Code agent containers (e.g., Always, Never, IfNotPresent).")
-	flag.StringVar(&codexImage, "codex-image", controller.CodexImage, "The image to use for Codex agent containers.")
+	flag.StringVar(&codexImage, "codex-image", controller.CodexImageRepository, "The image repository or tagged image to use for Codex agent containers.")
 	flag.StringVar(&codexImagePullPolicy, "codex-image-pull-policy", "", "The image pull policy for Codex agent containers (e.g., Always, Never, IfNotPresent).")
-	flag.StringVar(&geminiImage, "gemini-image", controller.GeminiImage, "The image to use for Gemini CLI agent containers.")
+	flag.StringVar(&geminiImage, "gemini-image", controller.GeminiImageRepository, "The image repository or tagged image to use for Gemini CLI agent containers.")
 	flag.StringVar(&geminiImagePullPolicy, "gemini-image-pull-policy", "", "The image pull policy for Gemini CLI agent containers (e.g., Always, Never, IfNotPresent).")
-	flag.StringVar(&openCodeImage, "opencode-image", controller.OpenCodeImage, "The image to use for OpenCode agent containers.")
+	flag.StringVar(&openCodeImage, "opencode-image", controller.OpenCodeImageRepository, "The image repository or tagged image to use for OpenCode agent containers.")
 	flag.StringVar(&openCodeImagePullPolicy, "opencode-image-pull-policy", "", "The image pull policy for OpenCode agent containers (e.g., Always, Never, IfNotPresent).")
-	flag.StringVar(&cursorImage, "cursor-image", controller.CursorImage, "The image to use for Cursor CLI agent containers.")
+	flag.StringVar(&cursorImage, "cursor-image", controller.CursorImageRepository, "The image repository or tagged image to use for Cursor CLI agent containers.")
 	flag.StringVar(&cursorImagePullPolicy, "cursor-image-pull-policy", "", "The image pull policy for Cursor CLI agent containers (e.g., Always, Never, IfNotPresent).")
-	flag.StringVar(&spawnerImage, "spawner-image", controller.DefaultSpawnerImage, "The image to use for spawner Deployments.")
+	flag.StringVar(&spawnerImage, "spawner-image", controller.SpawnerImageRepository, "The image repository or tagged image to use for spawner Deployments.")
 	flag.StringVar(&spawnerImagePullPolicy, "spawner-image-pull-policy", "", "The image pull policy for spawner Deployments (e.g., Always, Never, IfNotPresent).")
 	flag.StringVar(&spawnerResourceRequests, "spawner-resource-requests", "", "Resource requests for spawner containers as comma-separated name=value pairs (e.g., cpu=250m,memory=512Mi).")
 	flag.StringVar(&spawnerResourceLimits, "spawner-resource-limits", "", "Resource limits for spawner containers as comma-separated name=value pairs (e.g., cpu=1,memory=1Gi).")
-	flag.StringVar(&ghProxyImage, "ghproxy-image", controller.DefaultGHProxyImage, "The image to use for workspace ghproxy Deployments.")
+	flag.StringVar(&ghProxyImage, "ghproxy-image", controller.GHProxyImageRepository, "The image repository or tagged image to use for workspace ghproxy Deployments.")
 	flag.StringVar(&ghProxyImagePullPolicy, "ghproxy-image-pull-policy", "", "The image pull policy for workspace ghproxy Deployments (e.g., Always, Never, IfNotPresent).")
 	flag.StringVar(&ghProxyResourceRequests, "ghproxy-resource-requests", "", "Resource requests for workspace ghproxy containers as comma-separated name=value pairs (e.g., cpu=50m,memory=64Mi).")
 	flag.StringVar(&ghProxyResourceLimits, "ghproxy-resource-limits", "", "Resource limits for workspace ghproxy containers as comma-separated name=value pairs (e.g., cpu=200m,memory=128Mi).")
@@ -99,9 +133,9 @@ func main() {
 	flag.StringVar(&telemetryEndpoint, "telemetry-endpoint", telemetry.DefaultPostHogEndpoint, "The PostHog endpoint for sending telemetry reports.")
 	flag.StringVar(&telemetryEnvironment, "telemetry-environment", "production", "The environment label for telemetry reports (e.g., production, development).")
 	flag.StringVar(&codexAuthRefresherSchedule, "codex-auth-refresher-schedule", controller.DefaultCodexAuthRefreshSchedule, "Cron schedule for managed Codex OAuth refresher CronJobs.")
-	flag.StringVar(&workerRunnerImage, "worker-runner-image", controller.DefaultWorkerRunnerImage, "The image to use for worker-runner containers in WorkerPool StatefulSets.")
+	flag.StringVar(&workerRunnerImage, "worker-runner-image", controller.WorkerRunnerImageRepository, "The image repository or tagged image to use for worker-runner containers in WorkerPool StatefulSets.")
 	flag.StringVar(&workerRunnerImagePullPolicy, "worker-runner-image-pull-policy", "", "The image pull policy for worker-runner containers (e.g., Always, Never, IfNotPresent).")
-	flag.StringVar(&sessionRuntimeImage, "session-runtime-image", controller.DefaultSessionRuntimeImage, "The image used to inject the runtime into Session Pods.")
+	flag.StringVar(&sessionRuntimeImage, "session-runtime-image", controller.SessionRuntimeImageRepository, "The image repository or tagged image used to inject the runtime into Session Pods.")
 	flag.StringVar(&sessionRuntimeImagePullPolicy, "session-runtime-image-pull-policy", "", "The image pull policy for the Session runtime image (e.g., Always, Never, IfNotPresent).")
 
 	opts, applyVerbosity := logging.SetupZapOptions(flag.CommandLine)
@@ -110,6 +144,32 @@ func main() {
 	if err := applyVerbosity(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
+	}
+	if err := validateImageVersion(kelosVersion); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	imageFlags := []struct {
+		name  string
+		value *string
+	}{
+		{name: "claude-code-image", value: &claudeCodeImage},
+		{name: "codex-image", value: &codexImage},
+		{name: "gemini-image", value: &geminiImage},
+		{name: "opencode-image", value: &openCodeImage},
+		{name: "cursor-image", value: &cursorImage},
+		{name: "spawner-image", value: &spawnerImage},
+		{name: "ghproxy-image", value: &ghProxyImage},
+		{name: "worker-runner-image", value: &workerRunnerImage},
+		{name: "session-runtime-image", value: &sessionRuntimeImage},
+	}
+	for _, imageFlag := range imageFlags {
+		resolved, err := imageForVersion(*imageFlag.value, kelosVersion)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: invalid --%s %q: %v\n", imageFlag.name, *imageFlag.value, err)
+			os.Exit(1)
+		}
+		*imageFlag.value = resolved
 	}
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(opts)))

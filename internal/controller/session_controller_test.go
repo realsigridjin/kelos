@@ -29,6 +29,60 @@ import (
 	"github.com/kelos-dev/kelos/internal/githubapp"
 )
 
+func TestSessionReconcilerUpdatesStatefulSetRuntimeImage(t *testing.T) {
+	tests := []struct {
+		name           string
+		configuredPull corev1.PullPolicy
+		wantPull       corev1.PullPolicy
+	}{
+		{name: "configured pull policy", configuredPull: corev1.PullIfNotPresent, wantPull: corev1.PullIfNotPresent},
+		{name: "default pull policy", wantPull: corev1.PullAlways},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			scheme := runtime.NewScheme()
+			if err := appsv1.AddToScheme(scheme); err != nil {
+				t.Fatal(err)
+			}
+			if err := corev1.AddToScheme(scheme); err != nil {
+				t.Fatal(err)
+			}
+			if err := kelos.AddToScheme(scheme); err != nil {
+				t.Fatal(err)
+			}
+
+			session := testSession("chat", "claude-code")
+			statefulSet := testSessionStatefulSet(session)
+			statefulSet.Spec.Template.Spec.InitContainers[0].Image = "runtime:old"
+			statefulSet.Spec.Template.Spec.InitContainers[0].ImagePullPolicy = corev1.PullAlways
+			cl := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithStatusSubresource(&kelos.Session{}, &corev1.Pod{}, &appsv1.StatefulSet{}).
+				WithObjects(session, statefulSet).
+				Build()
+			reconciler := testSessionReconciler(cl, scheme)
+			reconciler.SessionRuntimeImagePullPolicy = tt.configuredPull
+			request := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(session)}
+			if _, err := reconciler.Reconcile(context.Background(), request); err != nil {
+				t.Fatalf("Reconcile() error = %v", err)
+			}
+
+			var updated appsv1.StatefulSet
+			if err := cl.Get(context.Background(), client.ObjectKeyFromObject(statefulSet), &updated); err != nil {
+				t.Fatalf("getting updated Session StatefulSet: %v", err)
+			}
+			runtimeContainer := updated.Spec.Template.Spec.InitContainers[0]
+			if runtimeContainer.Image != "runtime:test" {
+				t.Fatalf("runtime init container image = %q, want %q", runtimeContainer.Image, "runtime:test")
+			}
+			if runtimeContainer.ImagePullPolicy != tt.wantPull {
+				t.Fatalf("runtime init container imagePullPolicy = %q, want %q", runtimeContainer.ImagePullPolicy, tt.wantPull)
+			}
+		})
+	}
+}
+
 func TestSessionReconcilerCreatesStatefulSetAndObservesPod(t *testing.T) {
 	t.Parallel()
 	scheme := runtime.NewScheme()
@@ -578,6 +632,16 @@ func testSessionStatefulSet(session *kelos.Session) *appsv1.StatefulSet {
 			Namespace:       session.Namespace,
 			UID:             types.UID(sessionWorkloadName(session) + "-uid"),
 			OwnerReferences: []metav1.OwnerReference{*metav1.NewControllerRef(session, kelos.GroupVersion.WithKind("Session"))},
+		},
+		Spec: appsv1.StatefulSetSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					InitContainers: []corev1.Container{{
+						Name:  sessionRuntimeContainerName,
+						Image: "runtime:test",
+					}},
+				},
+			},
 		},
 	}
 }
