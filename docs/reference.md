@@ -210,6 +210,11 @@ events stay out of the Kubernetes API and are retained on the Session workspace.
 | `status.podName` | Session Pod name | Output |
 | `status.podUID` | Identity of the Pod running the live conversation | Output |
 
+The web creation dialog can generate a new Session from an existing Session in
+the active namespace. This copies the complete `Session.spec` into an editable
+form or YAML manifest and leaves the new name blank. It does not copy the source
+metadata, conversation, or persistent-volume data.
+
 Use `kelos session connect NAME` for terminal chat. Web chat is served by the
 optional shared `kelos-session-server`; both clients use the same event stream
 and provider conversation. Both clients can stream agent and tool activity,
@@ -235,12 +240,14 @@ namespaces while the web application operates on one active namespace at a
 time. Users can switch the active namespace live from the sidebar.
 `sessionServer.defaultNamespace` sets its initial value, and Session, Workspace,
 AgentConfig, and credential options are loaded only from the active namespace.
+Selecting an existing Session as a source populates both the form fields and the
+editable YAML manifest. Settings that the form cannot represent remain editable
+in YAML mode.
 The creation form accepts provider, credentials, model, Workspace, AgentConfig
 references, and an optional persistent volume claim. YAML mode server-side
-applies one `kelos.dev/v1alpha2` Session manifest in the active namespace with
-the same worker fields as the form. The manifest may also include labels,
-annotations, and an optional persistent volume claim. Image and Pod overrides
-require direct Kubernetes API access governed by Kubernetes RBAC.
+applies one `kelos.dev/v1alpha2` Session manifest in the active namespace. The
+manifest may include labels, annotations, the complete `WorkerSpec`, and an
+optional persistent volume claim.
 
 ## WorkerPool
 

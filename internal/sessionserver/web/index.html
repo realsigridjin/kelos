@@ -98,6 +98,14 @@
         <button type="button" id="session-mode-form" role="tab" aria-selected="true">Form</button>
         <button type="button" id="session-mode-yaml" role="tab" aria-selected="false">YAML</button>
       </div>
+      <div class="source-picker">
+        <label for="session-source">Generate from Session <em>optional</em></label>
+        <select name="sessionSource" id="session-source">
+          <option value="">Start from scratch</option>
+        </select>
+        <small>Copies the full Session spec, but not metadata, conversation, or volume data.</small>
+        <div class="source-status" id="session-source-status" role="status" hidden></div>
+      </div>
       <fieldset class="mode-panel" id="session-form-fields">
         <div class="form-grid">
         <label>
