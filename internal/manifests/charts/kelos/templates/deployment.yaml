@@ -36,27 +36,30 @@ spec:
           {{- end }}
           args:
             - --leader-elect
-            - --claude-code-image={{ .Values.claudeCodeImage }}{{- if .Values.image.tag }}:{{ .Values.image.tag }}{{- end }}
+            {{- if .Values.image.tag }}
+            - --version={{ .Values.image.tag }}
+            {{- end }}
+            - --claude-code-image={{ .Values.claudeCodeImage }}
             {{- if .Values.image.pullPolicy }}
             - --claude-code-image-pull-policy={{ .Values.image.pullPolicy }}
             {{- end }}
-            - --codex-image={{ .Values.codexImage }}{{- if .Values.image.tag }}:{{ .Values.image.tag }}{{- end }}
+            - --codex-image={{ .Values.codexImage }}
             {{- if .Values.image.pullPolicy }}
             - --codex-image-pull-policy={{ .Values.image.pullPolicy }}
             {{- end }}
-            - --gemini-image={{ .Values.geminiImage }}{{- if .Values.image.tag }}:{{ .Values.image.tag }}{{- end }}
+            - --gemini-image={{ .Values.geminiImage }}
             {{- if .Values.image.pullPolicy }}
             - --gemini-image-pull-policy={{ .Values.image.pullPolicy }}
             {{- end }}
-            - --opencode-image={{ .Values.opencodeImage }}{{- if .Values.image.tag }}:{{ .Values.image.tag }}{{- end }}
+            - --opencode-image={{ .Values.opencodeImage }}
             {{- if .Values.image.pullPolicy }}
             - --opencode-image-pull-policy={{ .Values.image.pullPolicy }}
             {{- end }}
-            - --cursor-image={{ .Values.cursorImage }}{{- if .Values.image.tag }}:{{ .Values.image.tag }}{{- end }}
+            - --cursor-image={{ .Values.cursorImage }}
             {{- if .Values.image.pullPolicy }}
             - --cursor-image-pull-policy={{ .Values.image.pullPolicy }}
             {{- end }}
-            - --spawner-image={{ .Values.spawner.image }}{{- if .Values.image.tag }}:{{ .Values.image.tag }}{{- end }}
+            - --spawner-image={{ .Values.spawner.image }}
             {{- if .Values.image.pullPolicy }}
             - --spawner-image-pull-policy={{ .Values.image.pullPolicy }}
             {{- end }}
@@ -66,15 +69,15 @@ spec:
             {{- if .Values.spawner.resources.limits }}
             - --spawner-resource-limits={{ .Values.spawner.resources.limits }}
             {{- end }}
-            - --worker-runner-image={{ .Values.workerRunner.image }}{{- if .Values.image.tag }}:{{ .Values.image.tag }}{{- end }}
+            - --worker-runner-image={{ .Values.workerRunner.image }}
             {{- if .Values.image.pullPolicy }}
             - --worker-runner-image-pull-policy={{ .Values.image.pullPolicy }}
             {{- end }}
-            - --session-runtime-image={{ .Values.sessionRuntime.image }}{{- if .Values.image.tag }}:{{ .Values.image.tag }}{{- end }}
+            - --session-runtime-image={{ .Values.sessionRuntime.image }}
             {{- if .Values.image.pullPolicy }}
             - --session-runtime-image-pull-policy={{ .Values.image.pullPolicy }}
             {{- end }}
-            - --ghproxy-image={{ .Values.ghproxy.image }}{{- if .Values.image.tag }}:{{ .Values.image.tag }}{{- end }}
+            - --ghproxy-image={{ .Values.ghproxy.image }}
             {{- if .Values.image.pullPolicy }}
             - --ghproxy-image-pull-policy={{ .Values.image.pullPolicy }}
             {{- end }}

@@ -15,8 +15,10 @@ import (
 )
 
 const (
+	GHProxyImageRepository = "ghcr.io/kelos-dev/ghproxy"
+
 	// DefaultGHProxyImage is the default image for workspace ghproxy Deployments.
-	DefaultGHProxyImage = "ghcr.io/kelos-dev/ghproxy:latest"
+	DefaultGHProxyImage = GHProxyImageRepository + ":latest"
 
 	workspaceProxyPort       = 8888
 	workspaceProxyNamePrefix = "ghproxy-"

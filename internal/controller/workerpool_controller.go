@@ -55,10 +55,11 @@ import (
 )
 
 const (
-	WorkerRunnerServiceAccount = "kelos-worker-runner"
-	WorkerRunnerClusterRole    = "kelos-worker-runner-role"
-	WorkerComponentLabel       = "worker"
-	DefaultWorkerRunnerImage   = "ghcr.io/kelos-dev/kelos-worker-runner:latest"
+	WorkerRunnerServiceAccount  = "kelos-worker-runner"
+	WorkerRunnerClusterRole     = "kelos-worker-runner-role"
+	WorkerComponentLabel        = "worker"
+	WorkerRunnerImageRepository = "ghcr.io/kelos-dev/kelos-worker-runner"
+	DefaultWorkerRunnerImage    = WorkerRunnerImageRepository + ":latest"
 
 	labelWorkerPool    = "kelos.dev/workerpool"
 	labelComponent     = "kelos.dev/component"

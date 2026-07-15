@@ -53,7 +53,7 @@ jobs:
       - name: Build and push image
         env:
           VERSION: ${{ needs.determine-version.outputs.version }}
-        run: make image IMAGE_PLATFORMS=linux/${{ matrix.arch }} PUSH=true VERSION="$VERSION-${{ matrix.arch }}"
+        run: make image IMAGE_PLATFORMS=linux/${{ matrix.arch }} PUSH=true VERSION="$VERSION-${{ matrix.arch }}" KELOS_VERSION="$VERSION"
 
   merge-manifests:
     needs: [determine-version, build-images]

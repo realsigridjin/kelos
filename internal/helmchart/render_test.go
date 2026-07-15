@@ -94,6 +94,40 @@ func TestRender_VersionOverride(t *testing.T) {
 	if !strings.Contains(output, ":v1.2.3") {
 		t.Error("expected :v1.2.3 tags in rendered output")
 	}
+	for _, expected := range []string{
+		"--version=v1.2.3",
+		"--claude-code-image=ghcr.io/kelos-dev/claude-code",
+		"--codex-image=ghcr.io/kelos-dev/codex",
+		"--gemini-image=ghcr.io/kelos-dev/gemini",
+		"--opencode-image=ghcr.io/kelos-dev/opencode",
+		"--cursor-image=ghcr.io/kelos-dev/cursor",
+		"--spawner-image=ghcr.io/kelos-dev/kelos-spawner",
+		"--worker-runner-image=ghcr.io/kelos-dev/kelos-worker-runner",
+		"--session-runtime-image=ghcr.io/kelos-dev/kelos-session-runtime",
+		"--ghproxy-image=ghcr.io/kelos-dev/ghproxy",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Errorf("expected controller arguments to contain %q", expected)
+		}
+	}
+	if strings.Contains(output, "--session-runtime-image=ghcr.io/kelos-dev/kelos-session-runtime:v1.2.3") {
+		t.Error("expected the controller to apply the shared version to the Session runtime image")
+	}
+}
+
+func TestRender_TaggedManagedImageOverride(t *testing.T) {
+	data, err := Render(manifests.ChartFS, map[string]interface{}{
+		"image": map[string]interface{}{"tag": "v1.2.3"},
+		"sessionRuntime": map[string]interface{}{
+			"image": "example.com/session-runtime:custom",
+		},
+	})
+	if err != nil {
+		t.Fatalf("rendering chart: %v", err)
+	}
+	if !strings.Contains(string(data), "--session-runtime-image=example.com/session-runtime:custom") {
+		t.Error("expected tagged Session runtime image override to remain unchanged")
+	}
 }
 
 func TestRender_PullPolicy(t *testing.T) {
