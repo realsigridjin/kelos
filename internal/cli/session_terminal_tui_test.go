@@ -505,6 +505,35 @@ func TestSessionTUIForcedColorIgnoresNoColorEnvironment(t *testing.T) {
 	}
 }
 
+func TestSessionTUIScreen256ColorUsesBlackBackground(t *testing.T) {
+	t.Setenv("TERM", "screen-256color")
+	t.Setenv("COLORTERM", "")
+	renderer := newSessionTUIRenderer(io.Discard, true)
+	styles := newSessionTUIStyles(renderer, true)
+
+	for name, style := range map[string]lipgloss.Style{
+		"base": styles.base,
+		"user": styles.user,
+	} {
+		if got := style.GetBackground(); got != lipgloss.Color("0") {
+			t.Errorf("%s background = %v, want black", name, got)
+		}
+		if got := style.GetForeground(); got != lipgloss.Color("15") {
+			t.Errorf("%s foreground = %v, want white", name, got)
+		}
+	}
+}
+
+func TestSessionTUIScreen256ColorDoesNotStyleWhenColorDisabled(t *testing.T) {
+	t.Setenv("TERM", "screen-256color")
+	renderer := newSessionTUIRenderer(io.Discard, false)
+	styles := newSessionTUIStyles(renderer, false)
+
+	if got := styles.base.Render("assistant") + styles.user.Render("user"); got != "assistantuser" {
+		t.Fatalf("disabled color output = %q, want unstyled output", got)
+	}
+}
+
 func TestSessionTUISubmittedTextRendersFromUserEventOnce(t *testing.T) {
 	model, requests := newSessionTUITestModel()
 	history := captureSessionTUIHistory(model)

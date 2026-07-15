@@ -215,6 +215,10 @@ func newSessionTUIRenderer(output io.Writer, color bool) *lipgloss.Renderer {
 
 func newSessionTUIStyles(renderer *lipgloss.Renderer, color bool) sessionTUIStyles {
 	base := renderer.NewStyle()
+	useBlackBackground := color && os.Getenv("TERM") == "screen-256color"
+	if useBlackBackground {
+		base = base.Foreground(lipgloss.Color("15")).Background(lipgloss.Color("0"))
+	}
 	styles := sessionTUIStyles{
 		base:         base,
 		user:         base,
@@ -236,7 +240,11 @@ func newSessionTUIStyles(renderer *lipgloss.Renderer, color bool) sessionTUIStyl
 		return styles
 	}
 
-	styles.user = base.Background(lipgloss.AdaptiveColor{Light: "254", Dark: "236"})
+	if useBlackBackground {
+		styles.user = base
+	} else {
+		styles.user = base.Background(lipgloss.AdaptiveColor{Light: "254", Dark: "236"})
+	}
 	styles.muted = base.Faint(true)
 	styles.warning = base.Foreground(lipgloss.Color("3")).Bold(true)
 	styles.error = base.Foreground(lipgloss.Color("1")).Bold(true)
