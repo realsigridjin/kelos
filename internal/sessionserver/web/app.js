@@ -675,17 +675,22 @@ function setComposer(enabled) {
   updateComposerAction();
 }
 
+function usesTouchComposer() {
+  return window.matchMedia('(pointer: coarse)').matches;
+}
+
 function updateComposerAction() {
   const connected = state.socket && state.socket.readyState === WebSocket.OPEN;
   const interrupt = state.activeTurn && !elements.input.value.trim();
+  const action = state.activeTurn ? 'queue' : 'send';
   elements.send.dataset.action = interrupt ? 'interrupt' : 'send';
   elements.send.textContent = interrupt ? '■' : '↑';
   elements.send.setAttribute('aria-label', interrupt ? 'Interrupt active work' : 'Send message');
   elements.send.title = interrupt ? 'Interrupt active work' : 'Send message';
   elements.send.disabled = !connected || elements.input.disabled || (interrupt && state.interrupting);
-  elements.composerHint.textContent = state.activeTurn
-    ? 'Enter to queue · Shift+Enter for a new line'
-    : 'Enter to send · Shift+Enter for a new line';
+  elements.composerHint.textContent = usesTouchComposer()
+    ? `Tap ↑ to ${action} · Return for a new line`
+    : `Enter to ${action} · Shift+Enter for a new line`;
 }
 
 function closeSocket() {
@@ -1350,7 +1355,7 @@ elements.composer.addEventListener('submit', event => {
 });
 
 elements.input.addEventListener('keydown', event => {
-  if (event.key === 'Enter' && !event.shiftKey) {
+  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && !usesTouchComposer()) {
     event.preventDefault();
     elements.composer.requestSubmit();
   }
