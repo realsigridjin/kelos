@@ -3,6 +3,8 @@ kind: AgentConfig
 metadata:
   name: kanon-workers-agent
 spec:
+  skills:
+    - source: gjkim42/kanon-repo
   agentsMD: |
     # Kanon Worker Agent
 

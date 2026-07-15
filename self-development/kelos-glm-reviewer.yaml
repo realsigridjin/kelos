@@ -3,6 +3,8 @@ kind: AgentConfig
 metadata:
   name: kelos-glm-reviewer-agent
 spec:
+  skills:
+    - source: gjkim42/kanon-repo
   agentsMD: |
     # Kelos GLM Reviewer Agent
 

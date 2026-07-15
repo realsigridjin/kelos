@@ -119,6 +119,7 @@ Reviews open pull requests on demand when a maintainer posts `/kelos review` or 
 | **Concurrency** | 3 |
 
 **Key features:**
+- Uses the `review-all` skill to reconcile two independent reviews of the same diff
 - Reads the full diff and surrounding context to understand changes
 - Checks correctness, tests, project conventions, security, and code quality
 - Pays special attention to CLI/config-surface changes (naming, shape, backward compatibility)
