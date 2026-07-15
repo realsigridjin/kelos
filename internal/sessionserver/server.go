@@ -99,6 +99,7 @@ type sessionOptions struct {
 	Credentials  []credentialOption `json:"credentials"`
 	Workspaces   []string           `json:"workspaces"`
 	AgentConfigs []string           `json:"agentConfigs"`
+	Sessions     []string           `json:"sessions"`
 }
 
 type credentialOption struct {
@@ -110,23 +111,15 @@ type credentialOption struct {
 type createSessionRequest struct {
 	Name                string                            `json:"name"`
 	Namespace           string                            `json:"namespace"`
-	Worker              createSessionWorker               `json:"worker"`
+	Worker              kelos.WorkerSpec                  `json:"worker"`
 	VolumeClaimTemplate *corev1.PersistentVolumeClaimSpec `json:"volumeClaimTemplate,omitempty"`
-}
-
-type createSessionWorker struct {
-	Type            string                       `json:"type"`
-	Credentials     *kelos.Credentials           `json:"credentials"`
-	Model           string                       `json:"model,omitempty"`
-	WorkspaceRef    *kelos.WorkspaceReference    `json:"workspaceRef,omitempty"`
-	AgentConfigRefs []kelos.AgentConfigReference `json:"agentConfigRefs,omitempty"`
 }
 
 type sessionManifest struct {
 	APIVersion string                  `json:"apiVersion"`
 	Kind       string                  `json:"kind"`
 	Metadata   sessionManifestMetadata `json:"metadata"`
-	Spec       sessionManifestSpec     `json:"spec"`
+	Spec       kelos.SessionSpec       `json:"spec"`
 }
 
 type sessionManifestMetadata struct {
@@ -136,19 +129,11 @@ type sessionManifestMetadata struct {
 	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
-type sessionManifestSpec struct {
-	Worker              createSessionWorker               `json:"worker"`
-	VolumeClaimTemplate *corev1.PersistentVolumeClaimSpec `json:"volumeClaimTemplate,omitempty"`
-}
-
-func (w createSessionWorker) workerSpec() kelos.WorkerSpec {
-	return kelos.WorkerSpec{
-		Type:            w.Type,
-		Credentials:     w.Credentials,
-		Model:           w.Model,
-		WorkspaceRef:    w.WorkspaceRef,
-		AgentConfigRefs: w.AgentConfigRefs,
-	}
+type sessionSourceDetail struct {
+	Name      string          `json:"name"`
+	Namespace string          `json:"namespace"`
+	Manifest  sessionManifest `json:"manifest"`
+	YAML      string          `json:"yaml"`
 }
 
 // New validates config and creates the HTTP handler.
@@ -317,6 +302,8 @@ func (s *Server) api(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 	switch request.Method {
+	case http.MethodGet:
+		s.getSessionSource(writer, request, namespace, name)
 	case http.MethodDelete:
 		s.deleteSession(writer, request, namespace, name)
 	default:
@@ -362,8 +349,40 @@ func (s *Server) listSessionOptions(writer http.ResponseWriter, request *http.Re
 		Credentials:  credentialOptions(sessions.Items),
 		Workspaces:   objectNames(workspaces.Items, func(item kelos.Workspace) string { return item.Name }),
 		AgentConfigs: objectNames(agentConfigs.Items, func(item kelos.AgentConfig) string { return item.Name }),
+		Sessions:     objectNames(sessions.Items, func(item kelos.Session) string { return item.Name }),
 	}
 	writeJSON(writer, http.StatusOK, options)
+}
+
+func (s *Server) getSessionSource(writer http.ResponseWriter, request *http.Request, namespace, name string) {
+	var session kelos.Session
+	if err := s.client.Get(request.Context(), client.ObjectKey{Namespace: namespace, Name: name}, &session); err != nil {
+		writeKubernetesError(writer, fmt.Sprintf("getting source Session %q", name), err)
+		return
+	}
+	manifest := sessionManifestFromSession(&session)
+	data, err := yaml.Marshal(manifest)
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, fmt.Sprintf("marshaling source Session %q: %v", name, err))
+		return
+	}
+	writeJSON(writer, http.StatusOK, sessionSourceDetail{
+		Name:      name,
+		Namespace: namespace,
+		Manifest:  manifest,
+		YAML:      string(data),
+	})
+}
+
+func sessionManifestFromSession(session *kelos.Session) sessionManifest {
+	return sessionManifest{
+		APIVersion: kelos.GroupVersion.String(),
+		Kind:       "Session",
+		Metadata: sessionManifestMetadata{
+			Namespace: session.Namespace,
+		},
+		Spec: *session.Spec.DeepCopy(),
+	}
 }
 
 func (s *Server) requestNamespace(request *http.Request) string {
@@ -434,7 +453,7 @@ func (s *Server) createSession(writer http.ResponseWriter, request *http.Request
 			Namespace: payload.Namespace,
 		},
 		Spec: kelos.SessionSpec{
-			Worker:              payload.Worker.workerSpec(),
+			Worker:              payload.Worker,
 			VolumeClaimTemplate: payload.VolumeClaimTemplate,
 		},
 	}
@@ -708,10 +727,7 @@ func decodeSessionYAML(reader io.Reader) (*kelos.Session, error) {
 				Labels:      decoded.Metadata.Labels,
 				Annotations: decoded.Metadata.Annotations,
 			},
-			Spec: kelos.SessionSpec{
-				Worker:              decoded.Spec.Worker.workerSpec(),
-				VolumeClaimTemplate: decoded.Spec.VolumeClaimTemplate,
-			},
+			Spec: decoded.Spec,
 		}
 	}
 	if session == nil {

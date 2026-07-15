@@ -224,13 +224,15 @@ namespace. The web application operates on one active namespace at a time and
 can switch it live from the sidebar. `sessionServer.defaultNamespace` (`default`
 unless overridden) sets the initial active namespace. The selected namespace
 must already exist. Session, Workspace, AgentConfig, and previously used
-credential options are loaded only from the active namespace. The creation form
+credential options are loaded only from the active namespace. The creation
+dialog can generate a new Session from an existing Session in that namespace,
+copying its complete `Session.spec` into the form and editable YAML manifest but
+not copying its metadata, conversation, or volume data. The creation form
 accepts provider, credentials, model, Workspace, AgentConfig references, and an
-optional persistent volume claim. YAML mode server-side applies one
-`kelos.dev/v1alpha2` Session manifest in the active namespace with the same
-worker fields as the form. The manifest may also include labels, annotations,
-and an optional persistent volume claim. Pod and image overrides remain
-available only through the Kubernetes API and its RBAC.
+optional persistent volume claim. In YAML mode, the server applies one
+`kelos.dev/v1alpha2` Session manifest in the active namespace. The manifest may
+also include labels, annotations, the complete `WorkerSpec`, and an optional
+persistent volume claim.
 
 ## Uninstall
 

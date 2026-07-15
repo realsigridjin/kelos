@@ -82,6 +82,8 @@ func TestSessionFormUsesResourceSelectors(t *testing.T) {
 	for _, expected := range []string{
 		`id="namespace-form"`,
 		`id="active-namespace"`,
+		`id="session-source"`,
+		`id="session-source-status"`,
 		`name="namespace" required value="default" autocomplete="off" readonly>`,
 		`id="credential-secret"`,
 		`id="workspace-select"`,
@@ -95,6 +97,29 @@ func TestSessionFormUsesResourceSelectors(t *testing.T) {
 		if !strings.Contains(response.Body.String(), expected) {
 			t.Errorf("new Session form does not contain %s", expected)
 		}
+	}
+}
+
+func TestSessionSourceJavaScriptPreservesSelectedSource(t *testing.T) {
+	source, err := webFiles.ReadFile("web/app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	javascript := string(source)
+	for description, expected := range map[string]string{
+		"shared loading and submission guard": "function updateCreationBusyState() {\n  const busy = state.sourceLoading || state.creatingSession;\n  elements.sessionSource.disabled = busy;\n  elements.createButton.disabled = busy;\n}",
+		"submit loading guard":                "if (state.sourceLoading || state.creatingSession) return;",
+		"namespace invalidation reset":        "state.sourceGeneration += 1;\n  setSourceLoading(false);",
+		"explicit StorageClass tracking":      "state.sourceStorageClassNamePresent = Boolean(claim && 'storageClassName' in claim);",
+		"explicit empty StorageClass copy":    "if (storageClassName || state.sourceStorageClassNamePresent) {\n          payload.volumeClaimTemplate.storageClassName = storageClassName;\n        }",
+		"advanced reference warning":          "in YAML for additional namespace-scoped references.",
+	} {
+		if !strings.Contains(javascript, expected) {
+			t.Errorf("Session source JavaScript is missing %s: %s", description, expected)
+		}
+	}
+	if strings.Contains(javascript, "No namespace-scoped references.") {
+		t.Error("Session source JavaScript claims there are no namespace-scoped references without checking advanced settings")
 	}
 }
 
@@ -218,6 +243,10 @@ spec:
     credentials:
       type: none
     model: gpt-5
+    effort: high
+    image: example.com/codex:latest
+    podOverrides:
+      serviceAccountName: kelos-controller
 `
 	request := httptest.NewRequest(http.MethodPost, "/api/sessions/apply?namespace=team-a", strings.NewReader(manifest))
 	request.Header.Set("Authorization", "Bearer secret-token")
@@ -235,8 +264,11 @@ spec:
 	if session.Labels["source"] != "web" {
 		t.Fatalf("Session labels = %v", session.Labels)
 	}
-	if session.Spec.Worker.Model != "gpt-5" {
-		t.Fatalf("worker model = %q, want %q", session.Spec.Worker.Model, "gpt-5")
+	if session.Spec.Worker.Model != "gpt-5" || session.Spec.Worker.Effort != "high" || session.Spec.Worker.Image != "example.com/codex:latest" {
+		t.Fatalf("worker settings = %#v", session.Spec.Worker)
+	}
+	if session.Spec.Worker.PodOverrides == nil || session.Spec.Worker.PodOverrides.ServiceAccountName != "kelos-controller" {
+		t.Fatalf("worker Pod overrides = %#v", session.Spec.Worker.PodOverrides)
 	}
 	if session.Spec.VolumeClaimTemplate == nil {
 		t.Fatal("volumeClaimTemplate is nil")
@@ -282,16 +314,6 @@ func TestSessionYAMLApplyAPIRejectsInvalidManifests(t *testing.T) {
 		{
 			name:       "unknown field",
 			manifest:   "apiVersion: kelos.dev/v1alpha2\nkind: Session\nmetadata:\n  name: chat\nspec:\n  unknown: value\n  worker:\n    type: codex\n    credentials:\n      type: none\n",
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "custom image",
-			manifest:   "apiVersion: kelos.dev/v1alpha2\nkind: Session\nmetadata:\n  name: chat\nspec:\n  worker:\n    type: codex\n    credentials:\n      type: none\n    image: example.invalid/unsafe:latest\n",
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "pod overrides",
-			manifest:   "apiVersion: kelos.dev/v1alpha2\nkind: Session\nmetadata:\n  name: chat\nspec:\n  worker:\n    type: codex\n    credentials:\n      type: none\n    podOverrides:\n      serviceAccountName: kelos-controller\n",
 			wantStatus: http.StatusBadRequest,
 		},
 		{
@@ -405,33 +427,39 @@ func TestSessionAPIHappyPath(t *testing.T) {
 	}
 }
 
-func TestSessionAPIRejectsUnsafeWorkerFields(t *testing.T) {
+func TestSessionAPIAcceptsFullWorkerSpec(t *testing.T) {
 	server := testServer(t)
-	for _, test := range []struct {
-		name       string
-		payload    string
-		wantStatus int
-	}{
-		{
-			name:       "custom image",
-			payload:    `{"name":"chat","namespace":"default","worker":{"type":"codex","credentials":{"type":"none"},"image":"example.invalid/unsafe:latest"}}`,
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "pod overrides",
-			payload:    `{"name":"chat","namespace":"default","worker":{"type":"codex","credentials":{"type":"none"},"podOverrides":{"serviceAccountName":"kelos-controller"}}}`,
-			wantStatus: http.StatusBadRequest,
-		},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			request := httptest.NewRequest(http.MethodPost, "/api/sessions", strings.NewReader(test.payload))
-			request.Header.Set("Authorization", "Bearer secret-token")
-			response := httptest.NewRecorder()
-			server.ServeHTTP(response, request)
-			if response.Code != test.wantStatus {
-				t.Fatalf("status = %d, want %d body = %s", response.Code, test.wantStatus, response.Body.String())
-			}
-		})
+	payload := `{
+  "name": "full-worker",
+  "namespace": "default",
+  "worker": {
+    "type": "codex",
+    "credentials": {"type": "none"},
+    "model": "gpt-5",
+    "effort": "high",
+    "image": "example.com/codex:latest",
+    "podOverrides": {
+      "serviceAccountName": "kelos-controller"
+    }
+  }
+}`
+	request := httptest.NewRequest(http.MethodPost, "/api/sessions", strings.NewReader(payload))
+	request.Header.Set("Authorization", "Bearer secret-token")
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body = %s", response.Code, response.Body.String())
+	}
+
+	var session kelos.Session
+	if err := server.client.Get(t.Context(), client.ObjectKey{Namespace: "default", Name: "full-worker"}, &session); err != nil {
+		t.Fatal(err)
+	}
+	if session.Spec.Worker.Effort != "high" || session.Spec.Worker.Image != "example.com/codex:latest" {
+		t.Fatalf("worker settings = %#v", session.Spec.Worker)
+	}
+	if session.Spec.Worker.PodOverrides == nil || session.Spec.Worker.PodOverrides.ServiceAccountName != "kelos-controller" {
+		t.Fatalf("worker Pod overrides = %#v", session.Spec.Worker.PodOverrides)
 	}
 }
 
@@ -579,6 +607,9 @@ func TestSessionOptionsAPI(t *testing.T) {
 	if got := strings.Join(options.AgentConfigs, ","); got != "defaults,tools" {
 		t.Errorf("AgentConfig options = %q, want %q", got, "defaults,tools")
 	}
+	if got := strings.Join(options.Sessions, ","); got != "claude,codex,codex-duplicate,none" {
+		t.Errorf("Session options = %q, want %q", got, "claude,codex,codex-duplicate,none")
+	}
 
 	request = httptest.NewRequest(http.MethodGet, "/api/options?namespace=team-a", nil)
 	request.Header.Set("Authorization", "Bearer secret-token")
@@ -598,6 +629,122 @@ func TestSessionOptionsAPI(t *testing.T) {
 	}
 	if got := strings.Join(options.AgentConfigs, ","); got != "other" {
 		t.Errorf("team-a AgentConfig options = %q, want %q", got, "other")
+	}
+	if got := strings.Join(options.Sessions, ","); got != "other" {
+		t.Errorf("team-a Session options = %q, want %q", got, "other")
+	}
+}
+
+func TestSessionSourceAPIReturnsReusableSpec(t *testing.T) {
+	storageClassName := ""
+	server := testServer(t)
+	source := &kelos.Session{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "codex-review",
+			Namespace:   "team-a",
+			Labels:      map[string]string{"purpose": "review"},
+			Annotations: map[string]string{"owner": "platform"},
+		},
+		Spec: kelos.SessionSpec{
+			Worker: kelos.WorkerSpec{
+				Type: "codex",
+				Credentials: &kelos.Credentials{
+					Type:      kelos.CredentialTypeOAuth,
+					SecretRef: &kelos.SecretReference{Name: "codex-credentials"},
+				},
+				Model:           "gpt-5",
+				Effort:          "high",
+				Image:           "example.com/codex:latest",
+				WorkspaceRef:    &kelos.WorkspaceReference{Name: "kelos"},
+				AgentConfigRefs: []kelos.AgentConfigReference{{Name: "defaults"}, {Name: "review-tools"}},
+				PodOverrides: &kelos.PodOverrides{Env: []corev1.EnvVar{{
+					Name:  "REVIEW_MODE",
+					Value: "strict",
+				}}},
+			},
+			VolumeClaimTemplate: &corev1.PersistentVolumeClaimSpec{
+				AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+				StorageClassName: &storageClassName,
+				Resources: corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{
+					corev1.ResourceStorage: resource.MustParse("20Gi"),
+				}},
+			},
+		},
+		Status: kelos.SessionStatus{Phase: kelos.SessionPhaseReady, PodName: "codex-review-0"},
+	}
+	if err := server.client.Create(t.Context(), source); err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/api/sessions/team-a/codex-review", nil)
+	request.Header.Set("Authorization", "Bearer secret-token")
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("source Session status = %d body = %s", response.Code, response.Body.String())
+	}
+	var detail sessionSourceDetail
+	if err := json.Unmarshal(response.Body.Bytes(), &detail); err != nil {
+		t.Fatal(err)
+	}
+	if detail.Name != "codex-review" || detail.Namespace != "team-a" {
+		t.Fatalf("source Session identity = %s/%s", detail.Namespace, detail.Name)
+	}
+	manifest := detail.Manifest
+	if manifest.Metadata.Name != "" || manifest.Metadata.Namespace != "team-a" {
+		t.Fatalf("Session manifest identity = %s/%s", manifest.Metadata.Namespace, manifest.Metadata.Name)
+	}
+	if len(manifest.Metadata.Labels) != 0 || len(manifest.Metadata.Annotations) != 0 {
+		t.Fatalf("Session manifest copied source metadata: labels %v annotations %v", manifest.Metadata.Labels, manifest.Metadata.Annotations)
+	}
+	worker := manifest.Spec.Worker
+	if worker.Type != "codex" || worker.Model != "gpt-5" || worker.Effort != "high" || worker.Image != "example.com/codex:latest" || worker.Credentials == nil || worker.Credentials.SecretRef.Name != "codex-credentials" {
+		t.Fatalf("Session manifest worker = %#v", worker)
+	}
+	if worker.WorkspaceRef == nil || worker.WorkspaceRef.Name != "kelos" || len(worker.AgentConfigRefs) != 2 {
+		t.Fatalf("Session manifest references = workspace %#v AgentConfigs %#v", worker.WorkspaceRef, worker.AgentConfigRefs)
+	}
+	if worker.PodOverrides == nil || len(worker.PodOverrides.Env) != 1 || worker.PodOverrides.Env[0].Name != "REVIEW_MODE" {
+		t.Fatalf("Session manifest Pod overrides = %#v", worker.PodOverrides)
+	}
+	if manifest.Spec.VolumeClaimTemplate == nil {
+		t.Fatal("Session manifest volumeClaimTemplate is nil")
+	}
+	if manifest.Spec.VolumeClaimTemplate.StorageClassName == nil || *manifest.Spec.VolumeClaimTemplate.StorageClassName != "" {
+		t.Fatalf("storageClassName = %v, want explicit empty string", manifest.Spec.VolumeClaimTemplate.StorageClassName)
+	}
+	wantStorage := resource.MustParse("20Gi")
+	if storage := manifest.Spec.VolumeClaimTemplate.Resources.Requests[corev1.ResourceStorage]; storage.Cmp(wantStorage) != 0 {
+		t.Fatalf("storage request = %s, want %s", storage.String(), wantStorage.String())
+	}
+	for _, expected := range []string{
+		"apiVersion: kelos.dev/v1alpha2",
+		"kind: Session",
+		`name: ""`,
+		"namespace: team-a",
+		"name: codex-credentials",
+		"effort: high",
+		"image: example.com/codex:latest",
+		"name: REVIEW_MODE",
+		`storageClassName: ""`,
+		"storage: 20Gi",
+	} {
+		if !strings.Contains(detail.YAML, expected) {
+			t.Errorf("generated Session YAML does not contain %q:\n%s", expected, detail.YAML)
+		}
+	}
+	for _, unexpected := range []string{"codex-review-0", "purpose: review", "owner: platform", "status:"} {
+		if strings.Contains(detail.YAML, unexpected) {
+			t.Errorf("generated Session YAML contains source runtime data %q:\n%s", unexpected, detail.YAML)
+		}
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/api/sessions/team-a/missing", nil)
+	request.Header.Set("Authorization", "Bearer secret-token")
+	response = httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("missing source Session status = %d body = %s", response.Code, response.Body.String())
 	}
 }
 

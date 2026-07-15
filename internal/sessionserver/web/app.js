@@ -24,6 +24,8 @@ const elements = {
   namespaceForm: document.querySelector('#namespace-form'),
   activeNamespace: document.querySelector('#active-namespace'),
   namespace: document.querySelector('[name="namespace"]'),
+  sessionSource: document.querySelector('#session-source'),
+  sessionSourceStatus: document.querySelector('#session-source-status'),
   provider: document.querySelector('[name="provider"]'),
   credentialType: document.querySelector('#credential-type'),
   secretField: document.querySelector('#secret-field'),
@@ -67,9 +69,14 @@ const state = {
   defaultNamespace: 'default',
   namespace: 'default',
   namespaceGeneration: 0,
-  options: {credentials: [], workspaces: [], agentConfigs: []},
+  options: {credentials: [], workspaces: [], agentConfigs: [], sessions: []},
   selectedAgentConfigs: [],
   creationMode: 'form',
+  sourceGeneration: 0,
+  sourceLoading: false,
+  creatingSession: false,
+  sourceStorageClassNamePresent: false,
+  loadedSource: null,
 };
 
 const customOption = '__custom__';
@@ -249,6 +256,7 @@ async function loadOptions() {
   }
   if (generation !== state.namespaceGeneration) return;
   state.options = options;
+  renderSessionSourceOptions();
   renderCredentialOptions();
   renderWorkspaceOptions();
   renderAgentConfigOptions();
@@ -256,6 +264,13 @@ async function loadOptions() {
 
 function resetNamespaceReferences() {
   state.selectedAgentConfigs = [];
+  state.sourceGeneration += 1;
+  setSourceLoading(false);
+  state.sourceStorageClassNamePresent = false;
+  state.loadedSource = null;
+  elements.sessionSource.value = '';
+  elements.sessionSourceStatus.hidden = true;
+  elements.sessionSourceStatus.textContent = '';
   elements.credentialSecret.value = '';
   elements.credentialSecretCustom.value = '';
   elements.workspace.value = '';
@@ -265,15 +280,18 @@ function resetNamespaceReferences() {
 async function switchNamespace(namespace) {
   namespace = namespace.trim();
   if (!namespace || namespace === state.namespace) return;
+  const hadLoadedSource = Boolean(state.loadedSource);
   state.namespace = namespace;
   state.namespaceGeneration += 1;
   state.sessions = [];
-  state.options = {credentials: [], workspaces: [], agentConfigs: []};
+  state.options = {credentials: [], workspaces: [], agentConfigs: [], sessions: []};
   window.localStorage.setItem('kelos-session-namespace', namespace);
   elements.activeNamespace.value = namespace;
   elements.namespace.value = namespace;
   resetNamespaceReferences();
   elements.yaml.value = '';
+  if (hadLoadedSource) resetSourceValues();
+  renderSessionSourceOptions();
   renderCredentialOptions();
   renderWorkspaceOptions();
   renderAgentConfigOptions();
@@ -291,6 +309,14 @@ function addOption(select, value, label) {
 
 function credentialTypeLabel(type) {
   return type === 'api-key' ? 'API key' : type === 'oauth' ? 'OAuth' : type;
+}
+
+function renderSessionSourceOptions() {
+  const previous = elements.sessionSource.value;
+  elements.sessionSource.replaceChildren();
+  addOption(elements.sessionSource, '', 'Start from scratch');
+  for (const name of state.options.sessions) addOption(elements.sessionSource, name, name);
+  if (state.options.sessions.includes(previous)) elements.sessionSource.value = previous;
 }
 
 function renderCredentialOptions() {
@@ -411,6 +437,162 @@ function renderSelectedAgentConfigs() {
     chip.append(order, label, remove);
     elements.selectedAgentConfigs.append(chip);
   });
+}
+
+function setSourceCredential(credentials) {
+  const type = credentials?.type || 'none';
+  elements.credentialType.value = type;
+  renderCredentialOptions();
+  const name = credentials?.secretRef?.name || '';
+  const match = Array.from(elements.credentialSecret.options).find(option =>
+    option.dataset.name === name && option.dataset.type === type,
+  );
+  if (match) {
+    elements.credentialSecret.value = match.value;
+    elements.credentialSecretCustom.value = '';
+  } else if (name) {
+    elements.credentialSecret.value = customOption;
+    elements.credentialSecretCustom.value = name;
+  }
+  updateCredentialField();
+}
+
+function setSourceWorkspace(workspaceRef) {
+  const name = workspaceRef?.name || '';
+  renderWorkspaceOptions();
+  if (!name || state.options.workspaces.includes(name)) {
+    elements.workspace.value = name;
+    elements.workspaceCustom.value = '';
+  } else {
+    elements.workspace.value = customOption;
+    elements.workspaceCustom.value = name;
+  }
+  updateWorkspaceField();
+}
+
+function sourceFitsForm(manifest) {
+  const worker = manifest.spec.worker;
+  const allowedWorkerFields = new Set(['type', 'credentials', 'model', 'workspaceRef', 'agentConfigRefs']);
+  if (Object.keys(worker).some(key => !allowedWorkerFields.has(key))) return false;
+  const claim = manifest.spec.volumeClaimTemplate;
+  if (!claim) return true;
+  const allowedClaimFields = new Set(['accessModes', 'resources', 'storageClassName']);
+  if (Object.keys(claim).some(key => !allowedClaimFields.has(key))) return false;
+  if (!Array.isArray(claim.accessModes) || claim.accessModes.length !== 1) return false;
+  const resources = claim.resources || {};
+  if (Object.keys(resources).some(key => key !== 'requests')) return false;
+  const requests = resources.requests || {};
+  return Object.keys(requests).length === 1 && typeof requests.storage === 'string';
+}
+
+function describeSourceReferences(manifest) {
+  const worker = manifest.spec.worker;
+  const references = [];
+  if (worker.credentials?.secretRef?.name) references.push(`Secret ${worker.credentials.secretRef.name}`);
+  if (worker.workspaceRef?.name) references.push(`Workspace ${worker.workspaceRef.name}`);
+  if (worker.agentConfigRefs?.length) {
+    references.push(`AgentConfigs ${worker.agentConfigRefs.map(reference => reference.name).join(', ')}`);
+  }
+  let description = references.length
+    ? ` Namespace references: ${references.join('; ')}.`
+    : ' No direct credential, Workspace, or AgentConfig references.';
+  const advanced = [];
+  if (worker.podOverrides) advanced.push('Pod overrides');
+  if (manifest.spec.volumeClaimTemplate) advanced.push('persistent-volume settings');
+  if (advanced.length) {
+    description += ` Review ${advanced.join(' and ')} in YAML for additional namespace-scoped references.`;
+  }
+  return description;
+}
+
+function populateSessionSource(detail) {
+  const manifest = detail.manifest;
+  const worker = manifest.spec.worker;
+  elements.form.elements.name.value = '';
+  elements.namespace.value = detail.namespace;
+  elements.provider.value = worker.type;
+  elements.form.elements.model.value = worker.model || '';
+  setSourceCredential(worker.credentials);
+  setSourceWorkspace(worker.workspaceRef);
+  state.selectedAgentConfigs = (worker.agentConfigRefs || []).map(reference => reference.name);
+  renderAgentConfigOptions();
+
+  const claim = manifest.spec.volumeClaimTemplate;
+  state.sourceStorageClassNamePresent = Boolean(claim && 'storageClassName' in claim);
+  elements.persistentVolume.checked = Boolean(claim);
+  elements.form.elements.storageRequest.value = claim?.resources?.requests?.storage || '10Gi';
+  elements.form.elements.accessMode.value = claim?.accessModes?.[0] || 'ReadWriteOnce';
+  elements.form.elements.storageClassName.value = claim?.storageClassName ?? '';
+  updateVolumeClaimFields();
+  elements.yaml.value = detail.yaml;
+  const formCompatible = sourceFitsForm(manifest);
+  elements.sessionSourceStatus.textContent =
+    `Loaded reusable settings from Session ${detail.namespace}/${detail.name}. Enter a name for the new Session.` +
+    describeSourceReferences(manifest) +
+    (formCompatible ? '' : ' YAML mode is required to preserve settings that the form cannot represent.');
+  elements.sessionSourceStatus.hidden = false;
+  state.loadedSource = {name: detail.name, namespace: detail.namespace, formCompatible};
+  elements.formMode.disabled = !formCompatible;
+  if (!formCompatible) setCreationMode('yaml');
+}
+
+function resetSourceValues() {
+  const mode = state.creationMode;
+  elements.form.reset();
+  state.selectedAgentConfigs = [];
+  state.sourceStorageClassNamePresent = false;
+  state.loadedSource = null;
+  elements.formMode.disabled = false;
+  elements.namespace.value = state.namespace;
+  elements.yaml.value = '';
+  elements.sessionSourceStatus.hidden = true;
+  elements.sessionSourceStatus.textContent = '';
+  renderSessionSourceOptions();
+  renderCredentialOptions();
+  renderWorkspaceOptions();
+  renderAgentConfigOptions();
+  updateVolumeClaimFields();
+  setCreationMode(mode);
+}
+
+function updateCreationBusyState() {
+  const busy = state.sourceLoading || state.creatingSession;
+  elements.sessionSource.disabled = busy;
+  elements.createButton.disabled = busy;
+}
+
+function setSourceLoading(loading) {
+  state.sourceLoading = loading;
+  updateCreationBusyState();
+}
+
+function setCreatingSession(creating) {
+  state.creatingSession = creating;
+  updateCreationBusyState();
+}
+
+async function loadSessionSource(name) {
+  const generation = ++state.sourceGeneration;
+  if (!name) {
+    setSourceLoading(false);
+    resetSourceValues();
+    return;
+  }
+  const namespace = state.namespace;
+  setSourceLoading(true);
+  elements.dialogError.textContent = '';
+  try {
+    const detail = await api(`/api/sessions/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+    if (generation !== state.sourceGeneration || namespace !== state.namespace) return;
+    populateSessionSource(detail);
+  } catch (error) {
+    if (generation === state.sourceGeneration) {
+      elements.sessionSource.value = state.loadedSource?.name || '';
+      elements.dialogError.textContent = error.message;
+    }
+  } finally {
+    if (generation === state.sourceGeneration) setSourceLoading(false);
+  }
 }
 
 function selectSession(session) {
@@ -1209,6 +1391,7 @@ elements.namespaceForm.addEventListener('submit', async event => {
     showToast(error.message);
   }
 });
+elements.sessionSource.addEventListener('change', () => loadSessionSource(elements.sessionSource.value));
 elements.credentialType.addEventListener('change', () => {
   const option = elements.credentialSecret.selectedOptions[0];
   if (option?.dataset.type && option.dataset.type !== elements.credentialType.value) {
@@ -1236,6 +1419,7 @@ elements.addAgentConfig.addEventListener('click', () => {
 elements.formMode.addEventListener('click', () => setCreationMode('form'));
 elements.yamlMode.addEventListener('click', () => setCreationMode('yaml'));
 elements.persistentVolume.addEventListener('change', updateVolumeClaimFields);
+renderSessionSourceOptions();
 renderCredentialOptions();
 renderWorkspaceOptions();
 renderAgentConfigOptions();
@@ -1244,10 +1428,10 @@ setCreationMode('form');
 
 elements.form.addEventListener('submit', async event => {
   event.preventDefault();
+  if (state.sourceLoading || state.creatingSession) return;
   if (!elements.form.reportValidity()) return;
   elements.dialogError.textContent = '';
-  const submit = elements.createButton;
-  submit.disabled = true;
+  setCreatingSession(true);
   try {
     let created;
     if (state.creationMode === 'yaml') {
@@ -1281,7 +1465,9 @@ elements.form.addEventListener('submit', async event => {
           resources: {requests: {storage: values.get('storageRequest').trim()}},
         };
         const storageClassName = values.get('storageClassName').trim();
-        if (storageClassName) payload.volumeClaimTemplate.storageClassName = storageClassName;
+        if (storageClassName || state.sourceStorageClassNamePresent) {
+          payload.volumeClaimTemplate.storageClassName = storageClassName;
+        }
       }
       created = await api('/api/sessions', {
         method: 'POST',
@@ -1290,11 +1476,19 @@ elements.form.addEventListener('submit', async event => {
     }
     elements.dialog.close();
     elements.form.reset();
+    state.sourceGeneration += 1;
+    setSourceLoading(false);
     state.selectedAgentConfigs = [];
+    state.sourceStorageClassNamePresent = false;
+    state.loadedSource = null;
+    elements.formMode.disabled = false;
     elements.namespace.value = state.namespace;
     elements.yaml.value = '';
+    elements.sessionSourceStatus.hidden = true;
+    elements.sessionSourceStatus.textContent = '';
     updateVolumeClaimFields();
     setCreationMode('form');
+    renderSessionSourceOptions();
     renderCredentialOptions();
     renderWorkspaceOptions();
     renderAgentConfigOptions();
@@ -1304,7 +1498,7 @@ elements.form.addEventListener('submit', async event => {
   } catch (error) {
     elements.dialogError.textContent = error.message;
   } finally {
-    submit.disabled = false;
+    setCreatingSession(false);
   }
 });
 
