@@ -3,6 +3,8 @@ kind: AgentConfig
 metadata:
   name: kelos-fake-strategist-agent
 spec:
+  skills:
+    - source: gjkim42/kanon-repo
   agentsMD: |
     # Kelos Strategist Agent
 

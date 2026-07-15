@@ -3,6 +3,8 @@ kind: AgentConfig
 metadata:
   name: kelos-glm-api-reviewer-agent
 spec:
+  skills:
+    - source: gjkim42/kanon-repo
   agentsMD: |
     # Kelos GLM API Reviewer Agent
 
@@ -139,6 +141,11 @@ spec:
       - Understand the motivation and scope of the change or proposal
 
       ### 3. Review
+
+      Use the `api-review` skill for the review analysis, passing it the current
+      pull request or issue as the target. The skill produces an in-task report
+      only; after it returns, use its findings and verdict as the basis for the
+      checks and publishing steps below.
 
       **If this is a pull request:**
       - Read the full diff: `git diff origin/main...HEAD`

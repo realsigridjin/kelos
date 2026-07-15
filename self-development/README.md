@@ -19,6 +19,11 @@ the `kelos-workers` TaskSpawner.
 
 Each TaskSpawner references an `AgentConfig` that defines git identity, comment signatures, and standard constraints. Some agents (triage, pr-responder, squash-commits, config-update) share the base `agentconfig.yaml` (`kelos-dev-agent`), while others (workers, planner, fake-user, fake-strategist, self-update, image-update) define their own `AgentConfig` inline.
 
+Each self-development `AgentConfig`, including the nested Agora and Kanon
+configurations, also installs all skills from
+[`gjkim42/kanon-repo`](https://github.com/gjkim42/kanon-repo) through
+`spec.skills`, giving every TaskSpawner-created agent the same shared skill set.
+
 Autonomous discovery agents that publish GitHub issues maintain at most one
 open `generated-by-kelos` issue slot per TaskSpawner. The issue body includes a
 `kelos-taskspawner=<name>` marker so later runs can find it. A run may update
@@ -107,6 +112,7 @@ Reviews open pull requests on demand when a maintainer posts `/kelos review` or 
 | **Concurrency** | 3 |
 
 **Key features:**
+- Uses the `review-all` skill to reconcile two independent reviews of the same diff
 - Reads the full diff and surrounding context to understand changes
 - Checks correctness, tests, project conventions, security, and code quality
 - Reviews test adequacy without rerunning local validation
@@ -158,6 +164,7 @@ Reviews issues and pull requests for Kubernetes API design conventions, compatib
 | **Concurrency** | 3 |
 
 **Key features:**
+- Uses the `api-review` skill for API design analysis and verdicts
 - Works on both issues (API design proposals) and pull requests (API implementation review)
 - Focused on Kubernetes API design concerns (field naming, primitive types, compatibility, CRD validation, naming/docs, defaulting/conversion)
 - References upstream Kubernetes API conventions and API review process documentation
@@ -191,6 +198,7 @@ uses a separate trigger from `kelos-api-reviewer`, which continues to handle
 | **Concurrency** | 3 |
 
 **Key features:**
+- Uses the `api-review` skill for API design analysis and verdicts
 - Uses the same Kubernetes API design checklist and structured output as `kelos-api-reviewer`
 - Works on both issues (API design proposals) and pull requests (API implementation review)
 - For PRs: creates or updates a single GLM-specific sticky PR comment with structured API review feedback

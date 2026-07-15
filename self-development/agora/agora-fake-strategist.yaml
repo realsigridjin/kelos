@@ -3,6 +3,8 @@ kind: AgentConfig
 metadata:
   name: agora-fake-strategist-agent
 spec:
+  skills:
+    - source: gjkim42/kanon-repo
   agentsMD: |
     # Agora Strategist Agent
 

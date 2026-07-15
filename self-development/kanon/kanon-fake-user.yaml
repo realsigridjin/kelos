@@ -3,6 +3,8 @@ kind: AgentConfig
 metadata:
   name: kanon-fake-user-agent
 spec:
+  skills:
+    - source: gjkim42/kanon-repo
   agentsMD: |
     # Kanon User Agent
 

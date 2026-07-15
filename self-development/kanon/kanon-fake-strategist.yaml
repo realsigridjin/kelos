@@ -3,6 +3,8 @@ kind: AgentConfig
 metadata:
   name: kanon-fake-strategist-agent
 spec:
+  skills:
+    - source: gjkim42/kanon-repo
   agentsMD: |
     # Kanon Strategist Agent
 

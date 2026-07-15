@@ -69,6 +69,52 @@ func TestSelfDevelopmentGitHubSpawnersUseWebhooks(t *testing.T) {
 	}
 }
 
+func TestSelfDevelopmentAgentConfigsUseSharedSkills(t *testing.T) {
+	t.Parallel()
+
+	files := []struct {
+		dir  string
+		file string
+	}{
+		{dir: "self-development", file: "agentconfig.yaml"},
+		{dir: "self-development", file: "kelos-api-reviewer.yaml"},
+		{dir: "self-development", file: "kelos-fake-strategist.yaml"},
+		{dir: "self-development", file: "kelos-fake-user.yaml"},
+		{dir: "self-development", file: "kelos-glm-api-reviewer.yaml"},
+		{dir: "self-development", file: "kelos-glm-reviewer.yaml"},
+		{dir: "self-development", file: "kelos-image-update.yaml"},
+		{dir: "self-development", file: "kelos-planner.yaml"},
+		{dir: "self-development", file: "kelos-reviewer.yaml"},
+		{dir: "self-development", file: "kelos-self-update.yaml"},
+		{dir: "self-development", file: "kelos-workers.yaml"},
+		{dir: "self-development/agora", file: "agentconfig.yaml"},
+		{dir: "self-development/agora", file: "agora-fake-strategist.yaml"},
+		{dir: "self-development/agora", file: "agora-fake-user.yaml"},
+		{dir: "self-development/agora", file: "agora-planner.yaml"},
+		{dir: "self-development/agora", file: "agora-reviewer.yaml"},
+		{dir: "self-development/agora", file: "agora-workers.yaml"},
+		{dir: "self-development/kanon", file: "agentconfig.yaml"},
+		{dir: "self-development/kanon", file: "kanon-fake-strategist.yaml"},
+		{dir: "self-development/kanon", file: "kanon-fake-user.yaml"},
+		{dir: "self-development/kanon", file: "kanon-planner.yaml"},
+		{dir: "self-development/kanon", file: "kanon-reviewer.yaml"},
+		{dir: "self-development/kanon", file: "kanon-workers.yaml"},
+	}
+
+	for _, tt := range files {
+		tt := tt
+		t.Run(tt.dir+"/"+tt.file, func(t *testing.T) {
+			t.Parallel()
+
+			config := readAgentConfigFromDir(t, tt.dir, tt.file)
+			want := []kelos.SkillsShSpec{{Source: "gjkim42/kanon-repo"}}
+			if !reflect.DeepEqual(config.Spec.Skills, want) {
+				t.Fatalf("expected %s/%s skills %v, got %v", tt.dir, tt.file, want, config.Spec.Skills)
+			}
+		})
+	}
+}
+
 func TestDevelopmentTaskSpawnersIgnoreDisruptions(t *testing.T) {
 	t.Parallel()
 
@@ -333,6 +379,34 @@ func TestKelosAPIReviewersUseConcreteIssueCommentBodyFile(t *testing.T) {
 			}
 			if strings.Contains(prompt, `--body-file <file>`) {
 				t.Fatalf("%s prompt contains placeholder issue comment body file", tt.file)
+			}
+		})
+	}
+}
+
+func TestDevelopmentReviewersUseReviewSkills(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		dir      string
+		file     string
+		workflow string
+	}{
+		{dir: "self-development", file: "kelos-reviewer.yaml", workflow: "Use the `review-all` skill with `origin/main` as the base"},
+		{dir: "self-development/agora", file: "agora-reviewer.yaml", workflow: "Use the `review-all` skill with `origin/main` as the base"},
+		{dir: "self-development/kanon", file: "kanon-reviewer.yaml", workflow: "Use the `review-all` skill with `origin/main` as the base"},
+		{dir: "self-development", file: "kelos-api-reviewer.yaml", workflow: "Use the `api-review` skill for the review analysis"},
+		{dir: "self-development", file: "kelos-glm-api-reviewer.yaml", workflow: "Use the `api-review` skill for the review analysis"},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.dir+"/"+tt.file, func(t *testing.T) {
+			t.Parallel()
+
+			spawner := readTaskSpawnerFromDir(t, tt.dir, tt.file)
+			if !strings.Contains(spawner.Spec.TaskTemplate.PromptTemplate, tt.workflow) {
+				t.Fatalf("%s/%s prompt does not require %q", tt.dir, tt.file, tt.workflow)
 			}
 		})
 	}
@@ -945,6 +1019,51 @@ func readTaskSpawnerFromDir(t *testing.T, dir, file string) *kelos.TaskSpawner {
 	}
 
 	t.Fatalf("no TaskSpawner found in %s", path)
+	return nil
+}
+
+func readAgentConfigFromDir(t *testing.T, dir, file string) *kelos.AgentConfig {
+	t.Helper()
+
+	path := filepath.Join("..", "..", dir, file)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading %s: %v", path, err)
+	}
+
+	reader := yamlutil.NewYAMLReader(bufio.NewReader(bytes.NewReader(data)))
+	for {
+		doc, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("reading YAML document from %s: %v", path, err)
+		}
+
+		doc = bytes.TrimSpace(doc)
+		if len(doc) == 0 {
+			continue
+		}
+
+		var meta struct {
+			Kind string `yaml:"kind"`
+		}
+		if err := sigyaml.Unmarshal(doc, &meta); err != nil {
+			t.Fatalf("decoding document metadata from %s: %v", path, err)
+		}
+		if meta.Kind != "AgentConfig" {
+			continue
+		}
+
+		var config kelos.AgentConfig
+		if err := sigyaml.Unmarshal(doc, &config); err != nil {
+			t.Fatalf("decoding AgentConfig from %s: %v", path, err)
+		}
+		return &config
+	}
+
+	t.Fatalf("no AgentConfig found in %s", path)
 	return nil
 }
 
