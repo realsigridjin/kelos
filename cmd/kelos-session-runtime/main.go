@@ -9,7 +9,11 @@ import (
 	"os/signal"
 	"syscall"
 
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/rest"
+
 	"github.com/kelos-dev/kelos/internal/sessionruntime"
+	clientset "github.com/kelos-dev/kelos/pkg/generated/clientset/versioned"
 )
 
 func selfCopy(destination string) error {
@@ -72,15 +76,21 @@ func runServe() {
 		fmt.Fprintln(os.Stderr, "Invalid configuration: KELOS_AGENT_TYPE must be set")
 		os.Exit(1)
 	}
+	publisher, err := workspaceStatusPublisherFromEnvironment()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Invalid configuration: %v\n", err)
+		os.Exit(1)
+	}
 	config := sessionruntime.Config{
-		SocketPath:  envOrDefault("KELOS_SESSION_SOCKET", sessionruntime.DefaultSocketPath),
-		StateDir:    envOrDefault("KELOS_SESSION_STATE_DIR", sessionruntime.DefaultStateDir),
-		WorkingDir:  envOrDefault("KELOS_SESSION_WORKING_DIR", sessionruntime.DefaultWorkingDir),
-		AgentType:   agentType,
-		Model:       os.Getenv("KELOS_MODEL"),
-		Effort:      os.Getenv("KELOS_EFFORT"),
-		PluginDir:   os.Getenv("KELOS_PLUGIN_DIR"),
-		Environment: os.Environ(),
+		SocketPath:             envOrDefault("KELOS_SESSION_SOCKET", sessionruntime.DefaultSocketPath),
+		StateDir:               envOrDefault("KELOS_SESSION_STATE_DIR", sessionruntime.DefaultStateDir),
+		WorkingDir:             envOrDefault("KELOS_SESSION_WORKING_DIR", sessionruntime.DefaultWorkingDir),
+		AgentType:              agentType,
+		Model:                  os.Getenv("KELOS_MODEL"),
+		Effort:                 os.Getenv("KELOS_EFFORT"),
+		PluginDir:              os.Getenv("KELOS_PLUGIN_DIR"),
+		Environment:            os.Environ(),
+		PublishWorkspaceStatus: publisher,
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()
@@ -88,6 +98,24 @@ func runServe() {
 		fmt.Fprintf(os.Stderr, "Session runtime failed: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func workspaceStatusPublisherFromEnvironment() (sessionruntime.WorkspaceStatusPublisher, error) {
+	sessionName := os.Getenv("KELOS_SESSION_NAME")
+	namespace := os.Getenv("KELOS_SESSION_NAMESPACE")
+	podUID := types.UID(os.Getenv("KELOS_SESSION_POD_UID"))
+	if sessionName == "" || namespace == "" || podUID == "" {
+		return nil, fmt.Errorf("KELOS_SESSION_NAME, KELOS_SESSION_NAMESPACE, and KELOS_SESSION_POD_UID must be set")
+	}
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		return nil, fmt.Errorf("loading in-cluster Kubernetes configuration: %w", err)
+	}
+	client, err := clientset.NewForConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("creating Kubernetes client: %w", err)
+	}
+	return sessionruntime.NewWorkspaceStatusPublisher(client.ApiV1alpha2().Sessions(namespace), sessionName, podUID)
 }
 
 func runHealth() {

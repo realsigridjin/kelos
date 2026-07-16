@@ -16,26 +16,30 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 const (
-	DefaultSocketPath = "/tmp/kelos-session/runtime.sock"
-	DefaultStateDir   = "/workspace/.kelos/session"
-	DefaultWorkingDir = "/workspace/repo"
-	journalFileName   = "events.jsonl"
-	initializedFile   = "initialized"
+	DefaultSocketPath                     = "/tmp/kelos-session/runtime.sock"
+	DefaultStateDir                       = "/workspace/.kelos/session"
+	DefaultWorkingDir                     = "/workspace/repo"
+	journalFileName                       = "events.jsonl"
+	initializedFile                       = "initialized"
+	defaultWorkspaceStatusPublishInterval = 30 * time.Second
+	defaultWorkspaceStatusRetryInterval   = 2 * time.Second
 )
 
 // Config configures the resident Session runtime.
 type Config struct {
-	SocketPath  string
-	StateDir    string
-	WorkingDir  string
-	AgentType   string
-	Model       string
-	Effort      string
-	PluginDir   string
-	Environment []string
+	SocketPath             string
+	StateDir               string
+	WorkingDir             string
+	AgentType              string
+	Model                  string
+	Effort                 string
+	PluginDir              string
+	Environment            []string
+	PublishWorkspaceStatus WorkspaceStatusPublisher
 }
 
 type turnRequest struct {
@@ -69,20 +73,28 @@ type Server struct {
 	activeMu      sync.Mutex
 	activeTurn    string
 
-	inputMu       sync.Mutex
-	pendingInputs map[string]*pendingInput
-	nextInputID   atomic.Int64
+	inputMu                        sync.Mutex
+	pendingInputs                  map[string]*pendingInput
+	nextInputID                    atomic.Int64
+	refreshWorkspaceStatus         func(context.Context) error
+	publishWorkspaceStatus         func(context.Context) error
+	workspaceStatusRefreshes       chan struct{}
+	workspaceStatusPublishInterval time.Duration
+	workspaceStatusRetryInterval   time.Duration
 }
 
 // NewServer constructs a Session server around injected provider and journal implementations.
 func NewServer(config Config, journal *Journal, provider Provider) *Server {
 	return &Server{
-		config:        config,
-		journal:       journal,
-		provider:      provider,
-		appendMessage: journal.Append,
-		turns:         make(chan turnRequest, 32),
-		pendingInputs: map[string]*pendingInput{},
+		config:                         config,
+		journal:                        journal,
+		provider:                       provider,
+		appendMessage:                  journal.Append,
+		turns:                          make(chan turnRequest, 32),
+		pendingInputs:                  map[string]*pendingInput{},
+		workspaceStatusRefreshes:       make(chan struct{}, 1),
+		workspaceStatusPublishInterval: defaultWorkspaceStatusPublishInterval,
+		workspaceStatusRetryInterval:   defaultWorkspaceStatusRetryInterval,
 	}
 }
 
@@ -132,6 +144,23 @@ func Run(ctx context.Context, config Config) error {
 		return err
 	}
 	server := NewServer(config, journal, provider)
+	publishWorkspaceStatus := func(ctx context.Context) error {
+		status, err := readWorkspaceStatus(ctx, realWorkspaceStatusRunner{}, config.StateDir, config.WorkingDir)
+		if err != nil {
+			return err
+		}
+		return config.PublishWorkspaceStatus(ctx, status)
+	}
+	server.refreshWorkspaceStatus = func(ctx context.Context) error {
+		status, refreshErr := refreshWorkspaceStatus(ctx, config.StateDir, config.WorkingDir, config.Environment)
+		if config.PublishWorkspaceStatus == nil {
+			return refreshErr
+		}
+		return errors.Join(refreshErr, config.PublishWorkspaceStatus(ctx, status))
+	}
+	if config.PublishWorkspaceStatus != nil {
+		server.publishWorkspaceStatus = publishWorkspaceStatus
+	}
 	server.nextTurnID.Store(recovery.nextTurnID)
 	server.nextInputID.Store(recovery.nextInputID)
 	return server.Serve(ctx)
@@ -195,6 +224,11 @@ func (s *Server) Serve(ctx context.Context) error {
 	}
 
 	providerDone := s.provider.Done()
+	go s.runWorkspaceStatusRefreshes(serveCtx)
+	if s.publishWorkspaceStatus != nil {
+		go s.runWorkspaceStatusPublishes(serveCtx)
+	}
+	s.requestWorkspaceStatusRefresh()
 	go s.runTurns(serveCtx)
 	go func() {
 		select {
@@ -247,7 +281,51 @@ func (s *Server) runTurns(ctx context.Context) {
 	}
 }
 
+func (s *Server) requestWorkspaceStatusRefresh() {
+	if s.refreshWorkspaceStatus == nil {
+		return
+	}
+	select {
+	case s.workspaceStatusRefreshes <- struct{}{}:
+	default:
+	}
+}
+
+func (s *Server) runWorkspaceStatusRefreshes(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-s.workspaceStatusRefreshes:
+			if err := s.refreshWorkspaceStatus(ctx); err != nil {
+				log.Printf("Unable to refresh Session workspace status error=%v", err)
+			}
+		}
+	}
+}
+
+func (s *Server) runWorkspaceStatusPublishes(ctx context.Context) {
+	timer := time.NewTimer(s.workspaceStatusRetryInterval)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+			next := s.workspaceStatusPublishInterval
+			if err := s.publishWorkspaceStatus(ctx); err != nil {
+				log.Printf("Unable to publish Session workspace status error=%v", err)
+				next = s.workspaceStatusRetryInterval
+			} else {
+				s.requestWorkspaceStatusRefresh()
+			}
+			timer.Reset(next)
+		}
+	}
+}
+
 func (s *Server) runTurn(ctx context.Context, turn turnRequest) {
+	defer s.requestWorkspaceStatusRefresh()
 	s.activeMu.Lock()
 	s.activeTurn = turn.id
 	s.activeMu.Unlock()

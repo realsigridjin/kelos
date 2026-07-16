@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 const readline = require('node:readline');
+const childProcess = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -88,6 +89,19 @@ function handleUser(message) {
   if (prompt === 'read-state') {
     const state = readFile(path.join(process.cwd(), 'kelos-recovery-state'), 'missing');
     complete(`turn ${turn}: state ${state}`);
+    return;
+  }
+  if (prompt === 'create-git-workspace') {
+    fs.rmSync(path.join(process.cwd(), '.git'), {recursive: true, force: true});
+    childProcess.execFileSync('git', ['init'], {cwd: process.cwd(), stdio: 'ignore'});
+    childProcess.execFileSync('git', ['checkout', '-b', 'agent/session-status'], {cwd: process.cwd(), stdio: 'ignore'});
+    childProcess.execFileSync('git', ['remote', 'add', 'origin', 'https://github.com/kelos-dev/kelos.git'], {cwd: process.cwd(), stdio: 'ignore'});
+    complete(`turn ${turn}: git workspace created`);
+    return;
+  }
+  if (prompt === 'remove-git-workspace') {
+    fs.rmSync(path.join(process.cwd(), '.git'), {recursive: true, force: true});
+    complete(`turn ${turn}: git workspace removed`);
     return;
   }
   complete(`turn ${turn}: ${prompt}`);

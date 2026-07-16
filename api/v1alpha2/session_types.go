@@ -18,6 +18,30 @@ const (
 	SessionPhaseFailed SessionPhase = "Failed"
 )
 
+// SessionPullRequestState represents the lifecycle state of a Session pull request.
+type SessionPullRequestState string
+
+const (
+	// SessionPullRequestStateDraft means the pull request is open as a draft.
+	SessionPullRequestStateDraft SessionPullRequestState = "Draft"
+	// SessionPullRequestStateOpen means the pull request is open for review.
+	SessionPullRequestStateOpen SessionPullRequestState = "Open"
+	// SessionPullRequestStateMerged means the pull request has been merged.
+	SessionPullRequestStateMerged SessionPullRequestState = "Merged"
+	// SessionPullRequestStateClosed means the pull request was closed without merging.
+	SessionPullRequestStateClosed SessionPullRequestState = "Closed"
+)
+
+// SessionPullRequest describes the pull request associated with a Session branch.
+type SessionPullRequest struct {
+	// URL is the pull request web URL.
+	URL string `json:"url"`
+
+	// State is the pull request lifecycle state.
+	// +kubebuilder:validation:Enum=Draft;Open;Merged;Closed
+	State SessionPullRequestState `json:"state"`
+}
+
 // SessionSpec defines the desired state of a Session.
 //
 // +kubebuilder:validation:XValidation:rule="has(self.worker.type) && self.worker.type in ['claude-code', 'codex', 'opencode']",message="worker.type must be claude-code, codex, or opencode"
@@ -32,7 +56,7 @@ type SessionSpec struct {
 	VolumeClaimTemplate *corev1.PersistentVolumeClaimSpec `json:"volumeClaimTemplate,omitempty"`
 }
 
-// SessionStatus defines the observed infrastructure state of a Session.
+// SessionStatus defines the observed state of a Session.
 type SessionStatus struct {
 	// ObservedGeneration is the most recent generation observed by the controller.
 	// +optional
@@ -53,6 +77,14 @@ type SessionStatus struct {
 	// Message provides additional information about the current phase.
 	// +optional
 	Message string `json:"message,omitempty"`
+
+	// Branch is the currently checked-out git branch in the Session workspace.
+	// +optional
+	Branch string `json:"branch,omitempty"`
+
+	// PullRequest describes the pull request associated with Branch, when one exists.
+	// +optional
+	PullRequest *SessionPullRequest `json:"pullRequest,omitempty"`
 
 	// Conditions provides detailed status information.
 	// +optional

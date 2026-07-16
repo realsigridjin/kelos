@@ -88,11 +88,13 @@ func (c *sessionSocket) WriteMessage(messageType int, data []byte) error {
 }
 
 type sessionSummary struct {
-	Name      string             `json:"name"`
-	Namespace string             `json:"namespace"`
-	Provider  string             `json:"provider"`
-	Phase     kelos.SessionPhase `json:"phase,omitempty"`
-	Message   string             `json:"message,omitempty"`
+	Name        string                    `json:"name"`
+	Namespace   string                    `json:"namespace"`
+	Provider    string                    `json:"provider"`
+	Phase       kelos.SessionPhase        `json:"phase,omitempty"`
+	Message     string                    `json:"message,omitempty"`
+	Branch      string                    `json:"branch,omitempty"`
+	PullRequest *kelos.SessionPullRequest `json:"pullRequest,omitempty"`
 }
 
 type sessionOptions struct {
@@ -538,11 +540,13 @@ func (s *Server) deleteSession(writer http.ResponseWriter, request *http.Request
 
 func summarize(session *kelos.Session) sessionSummary {
 	return sessionSummary{
-		Name:      session.Name,
-		Namespace: session.Namespace,
-		Provider:  session.Spec.Worker.Type,
-		Phase:     session.Status.Phase,
-		Message:   session.Status.Message,
+		Name:        session.Name,
+		Namespace:   session.Namespace,
+		Provider:    session.Spec.Worker.Type,
+		Phase:       session.Status.Phase,
+		Message:     session.Status.Message,
+		Branch:      session.Status.Branch,
+		PullRequest: session.Status.PullRequest,
 	}
 }
 

@@ -7789,9 +7789,12 @@ spec:
             - message: worker.credentials is required
               rule: has(self.worker.credentials)
           status:
-            description: SessionStatus defines the observed infrastructure state of
-              a Session.
+            description: SessionStatus defines the observed state of a Session.
             properties:
+              branch:
+                description: Branch is the currently checked-out git branch in the
+                  Session workspace.
+                type: string
               conditions:
                 description: Conditions provides detailed status information.
                 items:
@@ -7873,6 +7876,25 @@ spec:
                 description: PodUID identifies the Pod that owns the live conversation
                   process.
                 type: string
+              pullRequest:
+                description: PullRequest describes the pull request associated with
+                  Branch, when one exists.
+                properties:
+                  state:
+                    description: State is the pull request lifecycle state.
+                    enum:
+                    - Draft
+                    - Open
+                    - Merged
+                    - Closed
+                    type: string
+                  url:
+                    description: URL is the pull request web URL.
+                    type: string
+                required:
+                - state
+                - url
+                type: object
             type: object
         required:
         - spec
