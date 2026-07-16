@@ -376,6 +376,24 @@ func TestSessionComposerKeepsDraftsPerSession(t *testing.T) {
 	}
 }
 
+func TestSessionComposerAllowsMultilinePromptsOnTouchDevices(t *testing.T) {
+	source, err := webFiles.ReadFile("web/app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	javascript := string(source)
+	for description, expected := range map[string]string{
+		"touch device detection":  `window.matchMedia('(pointer: coarse)').matches`,
+		"touch composer hint":     "? `Tap ↑ to ${action} · Return for a new line`",
+		"desktop composer hint":   ": `Enter to ${action} · Shift+Enter for a new line`;",
+		"desktop-only Enter send": `!event.isComposing && !usesTouchComposer()`,
+	} {
+		if !strings.Contains(javascript, expected) {
+			t.Errorf("Session composer is missing %s: %s", description, expected)
+		}
+	}
+}
+
 func TestSessionAPIHappyPath(t *testing.T) {
 	server := testServer(t)
 	request := httptest.NewRequest(http.MethodGet, "/api/config", nil)
