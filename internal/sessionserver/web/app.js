@@ -46,6 +46,9 @@ const elements = {
   createButton: document.querySelector('#create-session'),
   deleteButton: document.querySelector('#delete-session'),
   sidebar: document.querySelector('#sidebar'),
+  openSidebar: document.querySelector('#open-sidebar'),
+  closeSidebar: document.querySelector('#close-sidebar'),
+  sidebarScrim: document.querySelector('#sidebar-scrim'),
   toast: document.querySelector('#toast'),
 };
 
@@ -807,6 +810,7 @@ function selectSession(session) {
   renderSessions();
   renderHeader();
   elements.sidebar.classList.remove('open');
+  if (elements.openSidebar) elements.openSidebar.setAttribute('aria-expanded', 'false');
   if (!session) {
     resetCurrentSessionView();
     state.replayingHistory = false;
@@ -2205,8 +2209,17 @@ document.querySelector('#logout').addEventListener('click', async () => {
   await api('/api/logout', {method: 'POST'}).catch(() => {});
   window.location.replace('/login');
 });
-document.querySelector('#open-sidebar').addEventListener('click', () => elements.sidebar.classList.add('open'));
-document.querySelector('#close-sidebar').addEventListener('click', () => elements.sidebar.classList.remove('open'));
+function setSidebarOpen(open) {
+  elements.sidebar.classList.toggle('open', open);
+  elements.openSidebar.setAttribute('aria-expanded', String(open));
+}
+
+elements.openSidebar.addEventListener('click', () => setSidebarOpen(true));
+elements.closeSidebar.addEventListener('click', () => setSidebarOpen(false));
+elements.sidebarScrim.addEventListener('click', () => setSidebarOpen(false));
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && elements.sidebar.classList.contains('open')) setSidebarOpen(false);
+});
 
 const configReady = loadConfig();
 configReady.then(() => Promise.all([loadOptions(), loadSessions()])).then(() => {
