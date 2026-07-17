@@ -7,13 +7,14 @@
 
 * { box-sizing: border-box; }
 
-body { margin: 0; min-height: 100vh; }
+body { margin: 0; min-height: 100vh; min-height: 100dvh; }
 
 .login-shell {
   min-height: 100vh;
+  min-height: 100dvh;
   display: grid;
   place-items: center;
-  padding: 32px 20px;
+  padding: calc(32px + env(safe-area-inset-top)) calc(20px + env(safe-area-inset-right)) calc(32px + env(safe-area-inset-bottom)) calc(20px + env(safe-area-inset-left));
   overflow: hidden;
   position: relative;
   background:
@@ -64,6 +65,13 @@ input { min-width: 0; flex: 1; padding: 14px 15px; border: 0; outline: 0; border
 
 @media (max-width: 520px) {
   .login-card { padding: 34px 25px; border-radius: 22px; }
+}
+
+@media (max-height: 620px) {
+  .login-shell { place-items: start center; overflow-y: auto; }
+  .login-card { padding-top: 28px; padding-bottom: 28px; }
+  .eyebrow { margin-top: 22px; }
+  .intro { margin-bottom: 23px; }
 }
 
 @media (prefers-color-scheme: dark) {

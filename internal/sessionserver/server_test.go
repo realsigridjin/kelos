@@ -510,6 +510,52 @@ func TestSessionComposerAllowsMultilinePromptsOnTouchDevices(t *testing.T) {
 	}
 }
 
+func TestSessionUIAdaptsToPhoneViewport(t *testing.T) {
+	index, err := webFiles.ReadFile("web/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	styles, err := webFiles.ReadFile("web/styles.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	javascript, err := webFiles.ReadFile("web/app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for description, expected := range map[string]string{
+		"edge-to-edge viewport support": `viewport-fit=cover`,
+		"Android keyboard resizing":     `interactive-widget=resizes-content`,
+		"dismissible sidebar backdrop":  `id="sidebar-scrim"`,
+	} {
+		if !strings.Contains(string(index), expected) {
+			t.Errorf("Session page is missing %s: %s", description, expected)
+		}
+	}
+	for description, expected := range map[string]string{
+		"dynamic viewport height":    `height: 100dvh`,
+		"landscape phone breakpoint": `(max-height: 500px) and (pointer: coarse)`,
+		"two-row phone header":       `grid-template-areas: "menu heading delete" "tabs tabs connection"`,
+		"48-pixel touch targets":     `.icon-button { width: 48px; height: 48px; }`,
+		"phone safe-area padding":    `env(safe-area-inset-bottom)`,
+		"non-zooming form fields":    `.composer textarea, .yaml-panel textarea, .form-grid input`,
+		"phone-sized dialog":         `max-height: calc(100dvh - 16px`,
+	} {
+		if !strings.Contains(string(styles), expected) {
+			t.Errorf("Session styles are missing %s: %s", description, expected)
+		}
+	}
+	for description, expected := range map[string]string{
+		"sidebar backdrop action": `elements.sidebarScrim.addEventListener('click', () => setSidebarOpen(false))`,
+		"sidebar Escape action":   `event.key === 'Escape' && elements.sidebar.classList.contains('open')`,
+	} {
+		if !strings.Contains(string(javascript), expected) {
+			t.Errorf("Session behavior is missing %s: %s", description, expected)
+		}
+	}
+}
+
 func TestSessionAPIHappyPath(t *testing.T) {
 	server := testServer(t)
 	request := httptest.NewRequest(http.MethodGet, "/api/config", nil)
