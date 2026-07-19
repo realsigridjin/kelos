@@ -118,6 +118,8 @@ type createSessionRequest struct {
 	Name                string                            `json:"name"`
 	Namespace           string                            `json:"namespace"`
 	Worker              kelos.WorkerSpec                  `json:"worker"`
+	InitialBranch       string                            `json:"initialBranch,omitempty"`
+	InitialPrompt       string                            `json:"initialPrompt,omitempty"`
 	VolumeClaimTemplate *corev1.PersistentVolumeClaimSpec `json:"volumeClaimTemplate,omitempty"`
 }
 
@@ -465,6 +467,8 @@ func (s *Server) createSession(writer http.ResponseWriter, request *http.Request
 		},
 		Spec: kelos.SessionSpec{
 			Worker:              payload.Worker,
+			InitialBranch:       payload.InitialBranch,
+			InitialPrompt:       payload.InitialPrompt,
 			VolumeClaimTemplate: payload.VolumeClaimTemplate,
 		},
 	}

@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 
@@ -77,6 +78,8 @@ func runServe() {
 		fmt.Fprintln(os.Stderr, "Invalid configuration: KELOS_AGENT_TYPE must be set")
 		os.Exit(1)
 	}
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer cancel()
 	sessionClient, sessionName, podUID, err := sessionClientFromEnvironment()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Invalid configuration: %v\n", err)
@@ -87,6 +90,11 @@ func runServe() {
 		fmt.Fprintf(os.Stderr, "Invalid configuration: %v\n", err)
 		os.Exit(1)
 	}
+	session, err := sessionClient.Get(ctx, sessionName, metav1.GetOptions{})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Loading Session %q failed: %v\n", sessionName, err)
+		os.Exit(1)
+	}
 	config := sessionruntime.Config{
 		SocketPath:           envOrDefault("KELOS_SESSION_SOCKET", sessionruntime.DefaultSocketPath),
 		StateDir:             envOrDefault("KELOS_SESSION_STATE_DIR", sessionruntime.DefaultStateDir),
@@ -95,14 +103,13 @@ func runServe() {
 		Model:                os.Getenv("KELOS_MODEL"),
 		Effort:               os.Getenv("KELOS_EFFORT"),
 		PluginDir:            os.Getenv("KELOS_PLUGIN_DIR"),
+		InitialPrompt:        session.Spec.InitialPrompt,
 		Environment:          os.Environ(),
 		PublishSessionStatus: publisher,
 		SessionName:          sessionName,
 		PodUID:               podUID,
 		SessionClient:        sessionClient,
 	}
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
-	defer cancel()
 	if err := sessionruntime.Run(ctx, config); err != nil {
 		fmt.Fprintf(os.Stderr, "Session runtime failed: %v\n", err)
 		os.Exit(1)

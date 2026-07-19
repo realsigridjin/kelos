@@ -43,6 +43,7 @@ type Config struct {
 	Model                string
 	Effort               string
 	PluginDir            string
+	InitialPrompt        string
 	Environment          []string
 	PublishSessionStatus SessionStatusPublisher
 	SessionName          string
@@ -245,6 +246,11 @@ func (s *Server) Serve(ctx context.Context) error {
 		go s.runSessionUpdateWatch(serveCtx)
 		go s.runSessionUpdateReporter(serveCtx)
 	}
+	go s.runTurns(serveCtx)
+	if err := s.deliverInitialPrompt(); err != nil {
+		return err
+	}
+
 	if err := os.MkdirAll(filepath.Dir(s.config.SocketPath), 0700); err != nil {
 		return fmt.Errorf("creating Session socket directory: %w", err)
 	}
@@ -267,7 +273,6 @@ func (s *Server) Serve(ctx context.Context) error {
 	}
 	s.requestWorkspaceStatusRefresh()
 	s.requestSessionStatusPublish()
-	go s.runTurns(serveCtx)
 	go func() {
 		select {
 		case <-serveCtx.Done():
@@ -296,6 +301,16 @@ func (s *Server) Serve(ctx context.Context) error {
 		}
 		go s.handleConnection(serveCtx, connection)
 	}
+}
+
+func (s *Server) deliverInitialPrompt() error {
+	if strings.TrimSpace(s.config.InitialPrompt) == "" || len(s.journal.Snapshot()) > 0 {
+		return nil
+	}
+	if err := s.submitMessage(s.config.InitialPrompt, "initial-prompt"); err != nil {
+		return fmt.Errorf("submitting initial Session prompt: %w", err)
+	}
+	return nil
 }
 
 func (s *Server) runTurns(ctx context.Context) {

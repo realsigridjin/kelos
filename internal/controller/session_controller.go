@@ -688,6 +688,7 @@ func (r *SessionReconciler) buildSessionStatefulSet(session *kelos.Session, work
 		Spec: kelos.TaskSpec{
 			Worker: worker,
 			Prompt: "session",
+			Branch: session.Spec.InitialBranch,
 		},
 	}
 

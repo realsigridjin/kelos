@@ -813,6 +813,61 @@ func TestSessionCodexPodUsesPersistentCodexHome(t *testing.T) {
 	t.Fatal("CODEX_HOME was not injected")
 }
 
+func TestSessionPodUsesInitialBranch(t *testing.T) {
+	t.Parallel()
+	session := testSession("issue-42", "codex")
+	session.Spec.Worker.WorkspaceRef = &kelos.WorkspaceReference{Name: "workspace"}
+	session.Spec.InitialBranch = "issue-42"
+	session.Spec.InitialPrompt = "Investigate $(ANTHROPIC_API_KEY) and $$HOME"
+	workspace := &kelos.WorkspaceSpec{
+		Repo: "https://github.com/kelos-dev/kelos.git",
+		Ref:  "main",
+	}
+
+	statefulSet, _, err := testSessionReconciler(nil, nil).buildSessionStatefulSet(session, workspace, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	podSpec := statefulSet.Spec.Template.Spec
+	mainEnv := map[string]string{}
+	for _, env := range podSpec.Containers[0].Env {
+		mainEnv[env.Name] = env.Value
+	}
+	if mainEnv["KELOS_BRANCH"] != "issue-42" {
+		t.Fatalf("KELOS_BRANCH = %q, want %q", mainEnv["KELOS_BRANCH"], "issue-42")
+	}
+	if _, found := mainEnv["KELOS_SESSION_INITIAL_PROMPT"]; found {
+		t.Fatal("KELOS_SESSION_INITIAL_PROMPT must not be set")
+	}
+	if args := podSpec.Containers[0].Args; len(args) != 1 || args[0] != "serve" {
+		t.Fatalf("Session runtime args = %v, want [serve]", args)
+	}
+
+	var branchSetup *corev1.Container
+	for i := range podSpec.InitContainers {
+		if podSpec.InitContainers[i].Name == "branch-setup" {
+			branchSetup = &podSpec.InitContainers[i]
+			break
+		}
+	}
+	if branchSetup == nil {
+		t.Fatal("Session Pod has no branch-setup init container")
+	}
+	if len(branchSetup.Command) != 3 || !strings.Contains(branchSetup.Command[2], sessionInitializedPath) {
+		t.Fatalf("branch-setup command = %v", branchSetup.Command)
+	}
+	branchFound := false
+	for _, env := range branchSetup.Env {
+		if env.Name == "KELOS_BRANCH" && env.Value == "issue-42" {
+			branchFound = true
+			break
+		}
+	}
+	if !branchFound {
+		t.Fatalf("branch-setup env = %#v, want KELOS_BRANCH=issue-42", branchSetup.Env)
+	}
+}
+
 func TestSessionClaudePodUsesPersistentConfig(t *testing.T) {
 	t.Parallel()
 	session := testSession("claude-chat", "claude-code")
