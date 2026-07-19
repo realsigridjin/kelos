@@ -89,6 +89,9 @@ func TestSessionFormUsesResourceSelectors(t *testing.T) {
 		`name="namespace" required value="default" autocomplete="off" readonly>`,
 		`id="credential-secret"`,
 		`id="workspace-select"`,
+		`name="initialBranch" id="session-initial-branch"`,
+		`name="initialPrompt" id="session-initial-prompt"`,
+		`With emptyDir, Pod replacement loses history and may submit this prompt again; use a persistent volume to prevent replay.`,
 		`id="agent-config-select"`,
 		`id="selected-agent-configs"`,
 		`id="session-mode-yaml"`,
@@ -115,6 +118,10 @@ func TestSessionSourceJavaScriptPreservesSelectedSource(t *testing.T) {
 		"explicit StorageClass tracking":      "state.sourceStorageClassNamePresent = Boolean(claim && 'storageClassName' in claim);",
 		"explicit empty StorageClass copy":    "if (storageClassName || state.sourceStorageClassNamePresent) {\n          payload.volumeClaimTemplate.storageClassName = storageClassName;\n        }",
 		"advanced reference warning":          "in YAML for additional namespace-scoped references.",
+		"source initial branch population":    "elements.form.elements.initialBranch.value = manifest.spec.initialBranch || '';",
+		"source initial prompt population":    "elements.form.elements.initialPrompt.value = manifest.spec.initialPrompt || '';",
+		"initial branch form submission":      "const initialBranch = values.get('initialBranch').trim();\n      if (initialBranch) payload.initialBranch = initialBranch;",
+		"initial prompt form submission":      "const initialPrompt = values.get('initialPrompt');\n      if (initialPrompt.trim()) payload.initialPrompt = initialPrompt;",
 	} {
 		if !strings.Contains(javascript, expected) {
 			t.Errorf("Session source JavaScript is missing %s: %s", description, expected)
@@ -311,7 +318,9 @@ func TestSessionFormAPICreatesPersistentSession(t *testing.T) {
 	payload := `{
 		"name":"persistent-chat",
 		"namespace":"default",
-		"worker":{"type":"codex","credentials":{"type":"none"}},
+		"worker":{"type":"codex","credentials":{"type":"none"},"workspaceRef":{"name":"workspace"}},
+		"initialBranch":"feature/persistent-chat",
+		"initialPrompt":"Investigate the issue interactively",
 		"volumeClaimTemplate":{
 			"accessModes":["ReadWriteOnce"],
 			"storageClassName":"fast",
@@ -334,6 +343,12 @@ func TestSessionFormAPICreatesPersistentSession(t *testing.T) {
 	if claim == nil {
 		t.Fatal("volumeClaimTemplate is nil")
 	}
+	if session.Spec.InitialBranch != "feature/persistent-chat" {
+		t.Fatalf("initialBranch = %q, want %q", session.Spec.InitialBranch, "feature/persistent-chat")
+	}
+	if session.Spec.InitialPrompt != "Investigate the issue interactively" {
+		t.Fatalf("initialPrompt = %q", session.Spec.InitialPrompt)
+	}
 	if len(claim.AccessModes) != 1 || claim.AccessModes[0] != corev1.ReadWriteOnce {
 		t.Fatalf("accessModes = %v", claim.AccessModes)
 	}
@@ -355,6 +370,8 @@ metadata:
   labels:
     source: web
 spec:
+  initialBranch: feature/yaml-chat
+  initialPrompt: Investigate the issue interactively
   volumeClaimTemplate:
     accessModes:
       - ReadWriteOnce
@@ -368,6 +385,8 @@ spec:
     model: gpt-5
     effort: high
     image: example.com/codex:latest
+    workspaceRef:
+      name: workspace
     podOverrides:
       serviceAccountName: kelos-controller
 `
@@ -392,6 +411,12 @@ spec:
 	}
 	if session.Spec.Worker.PodOverrides == nil || session.Spec.Worker.PodOverrides.ServiceAccountName != "kelos-controller" {
 		t.Fatalf("worker Pod overrides = %#v", session.Spec.Worker.PodOverrides)
+	}
+	if session.Spec.InitialBranch != "feature/yaml-chat" {
+		t.Fatalf("initialBranch = %q, want %q", session.Spec.InitialBranch, "feature/yaml-chat")
+	}
+	if session.Spec.InitialPrompt != "Investigate the issue interactively" {
+		t.Fatalf("initialPrompt = %q", session.Spec.InitialPrompt)
 	}
 	if session.Spec.VolumeClaimTemplate == nil {
 		t.Fatal("volumeClaimTemplate is nil")
@@ -970,6 +995,8 @@ func TestSessionSourceAPIReturnsReusableSpec(t *testing.T) {
 			Annotations: map[string]string{"owner": "platform"},
 		},
 		Spec: kelos.SessionSpec{
+			InitialBranch: "feature/codex-review",
+			InitialPrompt: "Investigate the issue interactively",
 			Worker: kelos.WorkerSpec{
 				Type: "codex",
 				Credentials: &kelos.Credentials{
@@ -1022,6 +1049,9 @@ func TestSessionSourceAPIReturnsReusableSpec(t *testing.T) {
 		t.Fatalf("Session manifest copied source metadata: labels %v annotations %v", manifest.Metadata.Labels, manifest.Metadata.Annotations)
 	}
 	worker := manifest.Spec.Worker
+	if manifest.Spec.InitialBranch != "feature/codex-review" || manifest.Spec.InitialPrompt != "Investigate the issue interactively" {
+		t.Fatalf("Session manifest initialBranch/prompt = %q/%q", manifest.Spec.InitialBranch, manifest.Spec.InitialPrompt)
+	}
 	if worker.Type != "codex" || worker.Model != "gpt-5" || worker.Effort != "high" || worker.Image != "example.com/codex:latest" || worker.Credentials == nil || worker.Credentials.SecretRef.Name != "codex-credentials" {
 		t.Fatalf("Session manifest worker = %#v", worker)
 	}
@@ -1050,6 +1080,8 @@ func TestSessionSourceAPIReturnsReusableSpec(t *testing.T) {
 		"effort: high",
 		"image: example.com/codex:latest",
 		"name: REVIEW_MODE",
+		"initialBranch: feature/codex-review",
+		"initialPrompt: Investigate the issue interactively",
 		`storageClassName: ""`,
 		"storage: 20Gi",
 	} {

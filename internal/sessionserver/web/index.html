@@ -154,6 +154,16 @@
           <span>Model <em>optional</em></span>
           <input name="model" placeholder="Provider default" autocomplete="off">
         </label>
+        <label class="form-wide">
+          <span>Initial branch <em>optional</em></span>
+          <input name="initialBranch" id="session-initial-branch" placeholder="feature/issue-42" autocomplete="off">
+          <small>Checks out an existing remote branch or creates it from the Workspace ref. Requires a Workspace.</small>
+        </label>
+        <label class="form-wide">
+          <span>Initial prompt <em>optional</em></span>
+          <textarea name="initialPrompt" id="session-initial-prompt" rows="4" placeholder="Describe the work to begin when the Session starts."></textarea>
+          <small>Submitted when no conversation history exists. With emptyDir, Pod replacement loses history and may submit this prompt again; use a persistent volume to prevent replay.</small>
+        </label>
         <div class="form-wide form-field">
           <span class="form-label">AgentConfigs <em>optional</em></span>
           <div class="option-picker">
@@ -170,7 +180,7 @@
               <input type="checkbox" name="persistentVolume" id="volume-claim-enabled">
               <span>
                 <strong>Persistent volume</strong>
-                <small>Keep the workspace and conversation history when the Session Pod is replaced.</small>
+                <small>Recommended outside development. Keeps the workspace and conversation history when the Session Pod is replaced.</small>
               </span>
             </label>
             <div class="nested-grid" id="volume-claim-fields" hidden>

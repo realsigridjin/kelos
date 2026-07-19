@@ -408,6 +408,85 @@ var _ = Describe("Session remote control", func() {
 		}, 2*time.Minute, time.Second).Should(Succeed())
 	})
 
+	It("round-trips initial branch and initial prompt through Session web creation", func() {
+		token := os.Getenv(sessionWebTokenEnv)
+		if token == "" {
+			Skip(sessionWebTokenEnv + " not set")
+		}
+
+		workspaceName := "web-options-workspace"
+		_, err := f.KelosClientset.ApiV1alpha2().Workspaces(f.Namespace).Create(context.TODO(), &kelos.Workspace{
+			ObjectMeta: metav1.ObjectMeta{Name: workspaceName, Namespace: f.Namespace},
+			Spec: kelos.WorkspaceSpec{
+				Repo: "https://github.com/kelos-dev/kelos.git",
+				Ref:  "main",
+			},
+		}, metav1.CreateOptions{})
+		Expect(err).NotTo(HaveOccurred())
+		DeferCleanup(func() {
+			_ = f.KelosClientset.ApiV1alpha2().Workspaces(f.Namespace).Delete(context.TODO(), workspaceName, metav1.DeleteOptions{})
+		})
+
+		baseURL := startSessionServerPortForward()
+		webClient := loginSessionWeb(baseURL, token)
+		initialBranch := "feature/web-options"
+		initialPrompt := "Investigate issue #42 interactively\nand summarize the next steps."
+		sourceName := "web-options-source"
+		createSessionThroughWeb(webClient, baseURL, map[string]any{
+			"name":      sourceName,
+			"namespace": f.Namespace,
+			"worker": kelos.WorkerSpec{
+				Type:         "codex",
+				Credentials:  &kelos.Credentials{Type: kelos.CredentialTypeNone},
+				WorkspaceRef: &kelos.WorkspaceReference{Name: workspaceName},
+			},
+			"initialBranch": initialBranch,
+			"initialPrompt": initialPrompt,
+		})
+		DeferCleanup(func() {
+			_ = f.KelosClientset.ApiV1alpha2().Sessions(f.Namespace).Delete(context.TODO(), sourceName, metav1.DeleteOptions{})
+		})
+
+		Eventually(func(g Gomega) {
+			session, err := f.KelosClientset.ApiV1alpha2().Sessions(f.Namespace).Get(context.TODO(), sourceName, metav1.GetOptions{})
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(session.Spec.InitialBranch).To(Equal(initialBranch))
+			g.Expect(session.Spec.InitialPrompt).To(Equal(initialPrompt))
+		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
+
+		response, err := webClient.Get(baseURL + "/api/sessions/" + url.PathEscape(f.Namespace) + "/" + url.PathEscape(sourceName))
+		Expect(err).NotTo(HaveOccurred())
+		defer response.Body.Close()
+		Expect(response.StatusCode).To(Equal(http.StatusOK))
+		var source struct {
+			Manifest struct {
+				Spec kelos.SessionSpec `json:"spec"`
+			} `json:"manifest"`
+		}
+		Expect(json.NewDecoder(response.Body).Decode(&source)).To(Succeed())
+		Expect(source.Manifest.Spec.InitialBranch).To(Equal(initialBranch))
+		Expect(source.Manifest.Spec.InitialPrompt).To(Equal(initialPrompt))
+
+		copyName := "web-options-copy"
+		createSessionThroughWeb(webClient, baseURL, map[string]any{
+			"name":          copyName,
+			"namespace":     f.Namespace,
+			"worker":        source.Manifest.Spec.Worker,
+			"initialBranch": source.Manifest.Spec.InitialBranch,
+			"initialPrompt": source.Manifest.Spec.InitialPrompt,
+		})
+		DeferCleanup(func() {
+			_ = f.KelosClientset.ApiV1alpha2().Sessions(f.Namespace).Delete(context.TODO(), copyName, metav1.DeleteOptions{})
+		})
+
+		Eventually(func(g Gomega) {
+			session, err := f.KelosClientset.ApiV1alpha2().Sessions(f.Namespace).Get(context.TODO(), copyName, metav1.GetOptions{})
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(session.Spec.InitialBranch).To(Equal(initialBranch))
+			g.Expect(session.Spec.InitialPrompt).To(Equal(initialPrompt))
+		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
+	})
+
 	It("runs an OpenCode conversation through terminal chat", func() {
 		sessionName := "opencode-session"
 		configMapName := sessionName + "-provider"
@@ -836,6 +915,17 @@ func loginSessionWeb(baseURL, token string) *http.Client {
 	defer response.Body.Close()
 	Expect(response.StatusCode).To(Equal(http.StatusOK))
 	return client
+}
+
+func createSessionThroughWeb(client *http.Client, baseURL string, payload any) {
+	data, err := json.Marshal(payload)
+	Expect(err).NotTo(HaveOccurred())
+	response, err := client.Post(baseURL+"/api/sessions", "application/json", bytes.NewReader(data))
+	Expect(err).NotTo(HaveOccurred())
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(response.StatusCode).To(Equal(http.StatusCreated), "Session web create response: %s", body)
 }
 
 func listWebSessions(client *http.Client, baseURL, namespace string) []string {

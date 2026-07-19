@@ -723,6 +723,8 @@ function populateSessionSource(detail) {
   elements.namespace.value = detail.namespace;
   elements.provider.value = worker.type;
   elements.form.elements.model.value = worker.model || '';
+  elements.form.elements.initialBranch.value = manifest.spec.initialBranch || '';
+  elements.form.elements.initialPrompt.value = manifest.spec.initialPrompt || '';
   setSourceCredential(worker.credentials);
   setSourceWorkspace(worker.workspaceRef);
   state.selectedAgentConfigs = (worker.agentConfigRefs || []).map(reference => reference.name);
@@ -2309,6 +2311,10 @@ elements.form.addEventListener('submit', async event => {
         namespace: values.get('namespace').trim(),
         worker,
       };
+      const initialBranch = values.get('initialBranch').trim();
+      if (initialBranch) payload.initialBranch = initialBranch;
+      const initialPrompt = values.get('initialPrompt');
+      if (initialPrompt.trim()) payload.initialPrompt = initialPrompt;
       if (values.get('persistentVolume')) {
         payload.volumeClaimTemplate = {
           accessModes: [values.get('accessMode')],

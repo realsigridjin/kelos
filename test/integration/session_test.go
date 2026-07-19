@@ -49,6 +49,8 @@ metadata:
   labels:
     source: web
 spec:
+  initialBranch: issue-42
+  initialPrompt: "Investigate issue #42 interactively"
   volumeClaimTemplate:
     accessModes:
       - ReadWriteOnce
@@ -59,6 +61,8 @@ spec:
     type: codex
     credentials:
       type: none
+    workspaceRef:
+      name: workspace
 `, namespace)
 
 		request := httptest.NewRequest(http.MethodPost, "/api/sessions/apply", strings.NewReader(manifest))
@@ -69,6 +73,8 @@ spec:
 
 		var session kelos.Session
 		Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: "yaml-chat"}, &session)).To(Succeed())
+		Expect(session.Spec.InitialBranch).To(Equal("issue-42"))
+		Expect(session.Spec.InitialPrompt).To(Equal("Investigate issue #42 interactively"))
 		Expect(session.Spec.VolumeClaimTemplate).NotTo(BeNil())
 		storage := session.Spec.VolumeClaimTemplate.Resources.Requests[corev1.ResourceStorage]
 		Expect(storage.Cmp(resource.MustParse("2Gi"))).To(Equal(0))
@@ -200,6 +206,10 @@ spec:
 		missingCredentials := validSession(namespace, "missing-credentials", "codex")
 		missingCredentials.Spec.Worker.Credentials = nil
 		Expect(k8sClient.Create(ctx, missingCredentials)).NotTo(Succeed())
+
+		branchWithoutWorkspace := validSession(namespace, "branch-without-workspace", "codex")
+		branchWithoutWorkspace.Spec.InitialBranch = "issue-42"
+		Expect(k8sClient.Create(ctx, branchWithoutWorkspace)).NotTo(Succeed())
 	})
 
 	It("requires a spec", func() {

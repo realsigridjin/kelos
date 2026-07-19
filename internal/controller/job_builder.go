@@ -604,17 +604,34 @@ func (b *JobBuilder) buildAgentJob(task *kelos.Task, workspace *kelos.WorkspaceS
 		}
 
 		if task.Spec.Branch != "" {
-			fetchCmd := `git fetch origin "$KELOS_BRANCH":"$KELOS_BRANCH" 2>/dev/null`
+			remoteGit := "git"
 			if workspace.SecretRef != nil {
 				credHelper := gitCredentialHelper()
-				fetchCmd = fmt.Sprintf(`git -c credential.helper= -c credential.helper='%s' fetch origin "$KELOS_BRANCH":"$KELOS_BRANCH" 2>/dev/null`, credHelper)
+				remoteGit = fmt.Sprintf(`git -c credential.helper= -c credential.helper='%s'`, credHelper)
 			}
 			branchSetupScript := fmt.Sprintf(
-				`cd %s/repo && %s; `+
-					`if git rev-parse --verify refs/heads/"$KELOS_BRANCH" >/dev/null 2>&1; then `+
-					`git checkout "$KELOS_BRANCH"; `+
-					`else git checkout -b "$KELOS_BRANCH"; fi`,
-				WorkspaceMountPath, fetchCmd,
+				`set -e
+cd %s/repo
+remote_status=0
+%s ls-remote --exit-code --heads origin "refs/heads/$KELOS_BRANCH" >/dev/null || remote_status=$?
+if [ "$remote_status" -eq 0 ]; then
+  %s fetch origin "refs/heads/$KELOS_BRANCH"
+  if git show-ref --verify --quiet "refs/heads/$KELOS_BRANCH"; then
+    git checkout "$KELOS_BRANCH"
+    git merge --ff-only FETCH_HEAD
+  else
+    git checkout -b "$KELOS_BRANCH" FETCH_HEAD
+  fi
+elif [ "$remote_status" -eq 2 ]; then
+  if git show-ref --verify --quiet "refs/heads/$KELOS_BRANCH"; then
+    git checkout "$KELOS_BRANCH"
+  else
+    git checkout -b "$KELOS_BRANCH"
+  fi
+else
+  exit "$remote_status"
+fi`,
+				WorkspaceMountPath, remoteGit, remoteGit,
 			)
 			branchEnv := make([]corev1.EnvVar, len(workspaceEnvVars), len(workspaceEnvVars)+1)
 			copy(branchEnv, workspaceEnvVars)

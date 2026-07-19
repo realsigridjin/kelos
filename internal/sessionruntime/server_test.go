@@ -348,6 +348,168 @@ func assertActivity(t *testing.T, activity <-chan bool, want bool) {
 	}
 }
 
+func TestServerSubmitsInitialPromptOnlyWithoutHistory(t *testing.T) {
+	t.Run("empty journal", func(t *testing.T) {
+		stateDir := shortRuntimeTempDir(t)
+		journal := NewJournal()
+		provider := &fakeProvider{}
+		server := NewServer(Config{
+			SocketPath:    filepath.Join(stateDir, "runtime.sock"),
+			StateDir:      stateDir,
+			WorkingDir:    stateDir,
+			AgentType:     "fake",
+			InitialPrompt: "Investigate issue #42",
+		}, journal, provider)
+		ctx, cancel := context.WithCancel(context.Background())
+		t.Cleanup(cancel)
+		serveDone := make(chan error, 1)
+		go func() { serveDone <- server.Serve(ctx) }()
+
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			provider.mu.Lock()
+			prompts := append([]string(nil), provider.prompts...)
+			provider.mu.Unlock()
+			if len(prompts) > 0 {
+				if !reflect.DeepEqual(prompts, []string{"Investigate issue #42"}) {
+					t.Fatalf("provider prompts = %v", prompts)
+				}
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("initial prompt was not submitted")
+			}
+			select {
+			case err := <-serveDone:
+				t.Fatalf("Serve() returned before submitting the initial prompt: %v", err)
+			case <-time.After(10 * time.Millisecond):
+			}
+		}
+
+		var initialMessage *Event
+		for _, event := range journal.Snapshot() {
+			if event.Type == EventUserMessage {
+				copy := event
+				initialMessage = &copy
+				break
+			}
+		}
+		if initialMessage == nil || initialMessage.RequestID != "initial-prompt" || initialMessage.Text != "Investigate issue #42" {
+			t.Fatalf("initial user message = %#v", initialMessage)
+		}
+
+		cancel()
+		if err := <-serveDone; err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("existing journal", func(t *testing.T) {
+		stateDir := shortRuntimeTempDir(t)
+		journal := NewJournal()
+		if err := journal.Append(Event{Type: EventUserMessage, Text: "Existing conversation"}); err != nil {
+			t.Fatal(err)
+		}
+		provider := &fakeProvider{}
+		server := NewServer(Config{
+			SocketPath:    filepath.Join(stateDir, "runtime.sock"),
+			StateDir:      stateDir,
+			WorkingDir:    stateDir,
+			AgentType:     "fake",
+			InitialPrompt: "Do not submit",
+		}, journal, provider)
+		ctx, cancel := context.WithCancel(context.Background())
+		t.Cleanup(cancel)
+		serveDone := make(chan error, 1)
+		go func() { serveDone <- server.Serve(ctx) }()
+		waitForRuntime(t, server.config.SocketPath)
+		time.Sleep(50 * time.Millisecond)
+		provider.mu.Lock()
+		prompts := append([]string(nil), provider.prompts...)
+		provider.mu.Unlock()
+		if len(prompts) != 0 {
+			t.Fatalf("provider prompts = %v, want none", prompts)
+		}
+		cancel()
+		if err := <-serveDone; err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+func TestServerHealthWaitsForInitialPromptSubmission(t *testing.T) {
+	stateDir := shortRuntimeTempDir(t)
+	journal := NewJournal()
+	provider := &fakeProvider{}
+	deliveryStarted := make(chan struct{})
+	release := make(chan struct{})
+	server := NewServer(Config{
+		SocketPath:    filepath.Join(stateDir, "runtime.sock"),
+		StateDir:      stateDir,
+		WorkingDir:    stateDir,
+		AgentType:     "fake",
+		InitialPrompt: "Investigate issue #42",
+	}, journal, provider)
+	appendMessage := server.appendMessage
+	server.appendMessage = func(event Event) error {
+		close(deliveryStarted)
+		<-release
+		return appendMessage(event)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	serveDone := make(chan error, 1)
+	go func() { serveDone <- server.Serve(ctx) }()
+
+	select {
+	case <-deliveryStarted:
+	case <-time.After(time.Second):
+		cancel()
+		close(release)
+		<-serveDone
+		t.Fatal("initial prompt submission did not start")
+	}
+	if err := Health(server.config.SocketPath); err == nil {
+		cancel()
+		close(release)
+		<-serveDone
+		t.Fatal("Session runtime reported healthy before initial prompt submission completed")
+	}
+	close(release)
+	waitForRuntime(t, server.config.SocketPath)
+	cancel()
+	if err := <-serveDone; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestServerClosesResourcesWhenInitialPromptFails(t *testing.T) {
+	stateDir := shortRuntimeTempDir(t)
+	journal := NewJournal()
+	provider := &fakeProvider{}
+	server := NewServer(Config{
+		SocketPath:    filepath.Join(stateDir, "runtime.sock"),
+		StateDir:      stateDir,
+		WorkingDir:    stateDir,
+		AgentType:     "fake",
+		InitialPrompt: "Investigate issue #42",
+	}, journal, provider)
+	server.appendMessage = func(Event) error { return errors.New("journal write failed") }
+
+	err := server.Serve(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "submitting initial Session prompt") {
+		t.Fatalf("Serve() error = %v", err)
+	}
+	provider.mu.Lock()
+	providerClosed := provider.closed
+	provider.mu.Unlock()
+	if !providerClosed {
+		t.Fatal("provider was not closed after initial prompt failure")
+	}
+	if err := journal.Append(Event{Type: EventUserMessage, Text: "after failure"}); err == nil || !strings.Contains(err.Error(), "closed") {
+		t.Fatalf("journal.Append() after Serve() = %v, want closed journal error", err)
+	}
+}
+
 func TestServerSharesConversationAcrossConnections(t *testing.T) {
 	stateDir := shortRuntimeTempDir(t)
 	journal := NewJournal()

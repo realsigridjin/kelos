@@ -196,8 +196,9 @@ the refreshed value on their next sync and are not supported.
 
 A Session is one interactive Claude Code, Codex, or OpenCode conversation that
 web and terminal clients can share and reconnect to. The spec is immutable.
-Conversation history is retained on the Session workspace rather than in the
-Kubernetes API.
+Conversation events and history are retained on the Session workspace rather
+than in the Kubernetes API. If configured, `spec.initialPrompt` also remains in
+the Session resource and is visible through the Kubernetes API.
 
 | Field | Description | Required |
 |-------|-------------|----------|
@@ -209,7 +210,9 @@ Kubernetes API.
 | `spec.worker.workspaceRef.name` | Workspace cloned into the Session Pod | No |
 | `spec.worker.agentConfigRefs[].name` | Ordered AgentConfig resources | No |
 | `spec.worker.podOverrides` | Pod resources, scheduling, environment, volumes, and sidecars | No |
-| `spec.volumeClaimTemplate` | PersistentVolumeClaimSpec for the Session workspace; omit to use `emptyDir` | No |
+| `spec.initialBranch` | Git branch used to initialize the Session workspace. Checks out the branch from `origin` when it exists, or creates it from the Workspace ref. Requires `spec.worker.workspaceRef` | No |
+| `spec.initialPrompt` | Prompt submitted when the Session starts without retained conversation history. An `emptyDir` workspace may submit it again after Pod replacement | No |
+| `spec.volumeClaimTemplate` | PersistentVolumeClaimSpec for the Session workspace. Recommended for durable Sessions; omit to use an ephemeral `emptyDir` workspace | No |
 | `status.phase` | Infrastructure phase: `Pending`, `Ready`, or `Failed` | Output |
 | `status.podName` | Session Pod name | Output |
 | `status.podUID` | Identity of the Pod running the live conversation | Output |
@@ -264,12 +267,26 @@ activity, newest first. Creation counts as the initial activity. It shows
 activity, `status.branch`, and the pull request with a colored, text-labeled state
 in both the Session sidebar and conversation header.
 
+When `spec.initialBranch` is set, workspace initialization fetches and checks
+out that branch from `origin`, or creates it from `Workspace.spec.ref` when the
+remote branch does not exist. This establishes the initial branch without
+resetting a persistent workspace after the agent has started working.
+
+When `spec.initialPrompt` is non-empty and the workspace has no conversation
+history, the runtime records and submits the prompt before becoming ready.
+This provides once-per-retained-conversation delivery, not once-per-Session
+delivery. Retained history prevents the prompt from being submitted again after
+a runtime restart. An `emptyDir` workspace loses that history when its Pod is
+replaced, so the replacement starts a new conversation and submits the initial
+prompt again.
+
 When `spec.volumeClaimTemplate` is set, conversation history and workspace
 changes survive Pod replacement. The claim remains until the Session is
 deleted, after which PersistentVolume retention follows the StorageClass
 reclaim policy. `Workspace.spec.setupCommand` runs again in each replacement
-container. When the field is omitted, the workspace uses `emptyDir`, so its
-history and changes do not survive Pod replacement.
+container. Persistent storage is recommended for durable Sessions. When the
+field is omitted, the workspace uses `emptyDir`, which is primarily useful for
+development because its history and changes do not survive Pod replacement.
 
 The shared web server can create, list, delete, and connect to Sessions across
 namespaces while the web application operates on one active namespace at a
@@ -280,10 +297,11 @@ Selecting an existing Session as a source populates both the form fields and the
 editable YAML manifest. Settings that the form cannot represent remain editable
 in YAML mode.
 The creation form accepts provider, credentials, model, Workspace, AgentConfig
-references, and an optional persistent volume claim. YAML mode server-side
+references, initial branch, initial prompt, and an optional persistent volume
+claim. YAML mode server-side
 applies one `kelos.dev/v1alpha2` Session manifest in the active namespace. The
-manifest may include labels, annotations, the complete `WorkerSpec`, and an
-optional persistent volume claim.
+manifest may include labels, annotations, `initialBranch`, `initialPrompt`, the complete
+`WorkerSpec`, and an optional persistent volume claim.
 
 ## WorkerPool
 

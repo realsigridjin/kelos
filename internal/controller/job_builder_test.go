@@ -3854,6 +3854,18 @@ func TestBuildJob_BranchSetupInitContainer(t *testing.T) {
 	if !strings.Contains(script, "git fetch") {
 		t.Error("Expected branch-setup script to include git fetch")
 	}
+	if !strings.Contains(script, `ls-remote --exit-code --heads origin "refs/heads/$KELOS_BRANCH"`) {
+		t.Error("Expected branch-setup script to check whether the remote branch exists")
+	}
+	if !strings.Contains(script, `elif [ "$remote_status" -eq 2 ]`) {
+		t.Error("Expected branch-setup script to create a branch only when the remote ref is absent")
+	}
+	if !strings.Contains(script, `exit "$remote_status"`) {
+		t.Error("Expected branch-setup script to propagate remote lookup failures")
+	}
+	if strings.Contains(script, "2>/dev/null") {
+		t.Error("Expected branch-setup script to retain git failure diagnostics")
+	}
 	// Without secretRef, no credential helper should be used.
 	if strings.Contains(script, "credential.helper") {
 		t.Error("Expected no credential helper without secretRef")

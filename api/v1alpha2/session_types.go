@@ -53,12 +53,29 @@ type SessionPullRequest struct {
 //
 // +kubebuilder:validation:XValidation:rule="has(self.worker.type) && self.worker.type in ['claude-code', 'codex', 'opencode']",message="worker.type must be claude-code, codex, or opencode"
 // +kubebuilder:validation:XValidation:rule="has(self.worker.credentials)",message="worker.credentials is required"
+// +kubebuilder:validation:XValidation:rule="!has(self.initialBranch) || size(self.initialBranch) == 0 || has(self.worker.workspaceRef)",message="worker.workspaceRef is required when initialBranch is set"
 type SessionSpec struct {
 	// Worker defines the agent and execution environment for this Session.
 	Worker WorkerSpec `json:"worker"`
 
+	// InitialBranch is the git branch to check out when initializing the Session
+	// workspace. If the branch exists on the origin remote, the Session checks
+	// it out; otherwise, it creates the branch from the Workspace ref.
+	// Requires worker.workspaceRef.
+	// +optional
+	InitialBranch string `json:"initialBranch,omitempty"`
+
+	// InitialPrompt is submitted automatically when the Session starts without
+	// retained conversation history. Persistent workspace history prevents it
+	// from being submitted again after Pod replacement. An emptyDir workspace
+	// loses that history and may submit the prompt again after Pod replacement.
+	// +optional
+	InitialPrompt string `json:"initialPrompt,omitempty"`
+
 	// VolumeClaimTemplate defines persistent storage for the Session workspace.
-	// Omit this field to use an emptyDir workspace.
+	// Persistent storage is recommended for Sessions that must retain conversation
+	// history and avoid replaying the initial prompt after Pod replacement. Omit
+	// this field to use an ephemeral emptyDir workspace, primarily for development.
 	// +optional
 	VolumeClaimTemplate *corev1.PersistentVolumeClaimSpec `json:"volumeClaimTemplate,omitempty"`
 }

@@ -1,7 +1,9 @@
 # Interactive Session
 
 This example creates one Claude Code conversation in a dedicated one-replica
-StatefulSet. Replace the API key placeholder, then apply both files:
+StatefulSet. It checks out an `interactive-review` branch and submits an initial
+prompt before a client connects. Replace the API key placeholder, then apply the
+files:
 
 ```bash
 kubectl apply -f examples/16-session/
