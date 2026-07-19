@@ -41,6 +41,7 @@ const installWaitTimeout = 2 * time.Minute
 var kelosCRDNames = []string{
 	"agentconfigs.kelos.dev",
 	"sessions.kelos.dev",
+	"sessionspawners.kelos.dev",
 	"tasks.kelos.dev",
 	"taskbudgets.kelos.dev",
 	"taskrecords.kelos.dev",
@@ -760,7 +761,7 @@ var errCertManagerRequired = fmt.Errorf("cert-manager is required but was not fo
 // before the controller and CRDs can be safely removed. Resources with
 // finalizers (tasks, taskspawners) must be deleted while the controller is
 // still running so it can process the finalizer removal.
-var kelosCRResources = []string{"tasks", "taskspawners", "sessions", "workspaces", "agentconfigs"}
+var kelosCRResources = []string{"tasks", "taskspawners", "sessionspawners", "sessions", "workspaces", "agentconfigs"}
 
 // kelosCRVersions are the served API versions to try for each resource, in
 // order. The v1alpha2 storage version is tried first so the common case needs

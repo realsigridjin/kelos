@@ -347,7 +347,7 @@ type Jira struct {
 	PollInterval string `json:"pollInterval,omitempty"`
 }
 
-// GitHubWebhook configures webhook-driven task spawning from GitHub events.
+// GitHubWebhook configures matching for GitHub webhook events.
 // +kubebuilder:validation:XValidation:rule="!has(self.reporting) || !has(self.reporting.checks) || self.events.exists(e, e in ['pull_request', 'pull_request_review', 'pull_request_review_comment', 'pull_request_target'])",message="checks reporting requires at least one pull-request event type"
 type GitHubWebhook struct {
 	// Events is the list of GitHub event types to listen for.
@@ -368,9 +368,9 @@ type GitHubWebhook struct {
 	// +optional
 	ExcludeAuthors []string `json:"excludeAuthors,omitempty"`
 
-	// Filters refine which events trigger tasks. If multiple filters match
-	// the same event type, any match triggers a task (OR semantics).
-	// If empty, all events in the Events list trigger tasks.
+	// Filters refine which events match. If multiple filters apply to the same
+	// event type, any matching filter accepts the event (OR semantics).
+	// If empty, all events in the Events list match.
 	// +optional
 	Filters []GitHubWebhookFilter `json:"filters,omitempty"`
 

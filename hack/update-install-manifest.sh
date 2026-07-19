@@ -286,6 +286,7 @@ generate_chart_crd_templates() {
 
   write_chart_crd_template "${source}" "CustomResourceDefinition" "agentconfigs.kelos.dev" "${CHART_CRD_DIR}/agentconfig-crd.yaml"
   write_chart_crd_template "${source}" "CustomResourceDefinition" "sessions.kelos.dev" "${CHART_CRD_DIR}/session-crd.yaml"
+  write_chart_crd_template "${source}" "CustomResourceDefinition" "sessionspawners.kelos.dev" "${CHART_CRD_DIR}/sessionspawner-crd.yaml"
   write_chart_crd_template "${source}" "CustomResourceDefinition" "taskbudgets.kelos.dev" "${CHART_CRD_DIR}/taskbudget-crd.yaml"
   write_chart_crd_template "${source}" "CustomResourceDefinition" "taskrecords.kelos.dev" "${CHART_CRD_DIR}/taskrecord-crd.yaml"
   write_chart_crd_template "${source}" "CustomResourceDefinition" "tasks.kelos.dev" "${CHART_CRD_DIR}/task-crd.yaml"

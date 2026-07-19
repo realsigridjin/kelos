@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,11 +15,16 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apiMeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 	"github.com/kelos-dev/kelos/internal/contextfetch"
 	"github.com/kelos-dev/kelos/internal/reporting"
+	"github.com/kelos-dev/kelos/internal/sessionbuilder"
 	"github.com/kelos-dev/kelos/internal/taskbuilder"
 )
 
@@ -103,6 +109,13 @@ func (d *DeliveryCache) CheckAndMark(deliveryID string) (alreadyProcessed bool) 
 	return false
 }
 
+// Forget allows a failed webhook delivery to be retried.
+func (d *DeliveryCache) Forget(deliveryID string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	delete(d.cache, deliveryID)
+}
+
 // cleanup removes entries older than 24 hours.
 func (d *DeliveryCache) cleanup() {
 	d.mu.Lock()
@@ -182,6 +195,10 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		eventType = r.Header.Get(GitHubEventHeader)
 		signature = r.Header.Get(GitHubSignatureHeader)
 		deliveryID = r.Header.Get(GitHubDeliveryHeader)
+		if deliveryID == "" {
+			sum := sha256.Sum256(body)
+			deliveryID = "github-" + hex.EncodeToString(sum[:])
+		}
 
 		log.Info("Processing GitHub webhook", "eventType", eventType, "deliveryID", deliveryID, "payloadSize", len(body))
 
@@ -249,6 +266,9 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// to avoid a redundant List call.
 	_, err = h.processWebhook(ctx, eventType, body, deliveryID, genericSpawners)
 	if err != nil {
+		if deliveryID != "" {
+			h.deliveryCache.Forget(deliveryID)
+		}
 		log.Error(err, "Failed to process webhook", "eventType", eventType, "deliveryID", deliveryID)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
@@ -337,13 +357,21 @@ func (h *WebhookHandler) processWebhook(ctx context.Context, eventType string, p
 			return false, fmt.Errorf("failed to get matching spawners: %w", err)
 		}
 	}
+	var sessionSpawners []*kelos.SessionSpawner
+	if h.source == GitHubSource {
+		var err error
+		sessionSpawners, err = h.getMatchingSessionSpawners(ctx)
+		if err != nil {
+			return false, fmt.Errorf("failed to get matching SessionSpawners: %w", err)
+		}
+	}
 
-	if len(spawners) == 0 {
-		log.Info("No matching TaskSpawners found for webhook")
+	if len(spawners) == 0 && len(sessionSpawners) == 0 {
+		log.Info("No matching spawners found for webhook")
 		return true, nil // Not an error, just nothing to do
 	}
 
-	log.Info("Found matching TaskSpawners", "count", len(spawners))
+	log.Info("Found matching spawners", "taskSpawners", len(spawners), "sessionSpawners", len(sessionSpawners))
 
 	// Lazily enrich the Branch field for issue_comment events on pull
 	// requests. The GitHub issue_comment payload does not include the PR's
@@ -389,21 +417,8 @@ func (h *WebhookHandler) processWebhook(ctx context.Context, eventType string, p
 			linearLabelsEnriched = true
 		}
 
-		// Lazily enrich ChangedFiles for PR events when a filter uses
-		// filePatterns. Push events already have ChangedFiles from the payload.
-		// Evaluating filters against incomplete data is unsafe, so skip
-		// the spawner entirely when file fetching fails.
-		if parsed.GitHub != nil && len(parsed.GitHub.ChangedFiles) == 0 && spawnerNeedsChangedFiles(spawner) {
-			files, fetchErr := h.enrichPRChangedFiles(ctx, spawner, parsed.GitHub)
-			if fetchErr != nil {
-				spawnerLog.Error(fetchErr, "Failed to fetch PR changed files, skipping spawner")
-				continue
-			}
-			parsed.GitHub.ChangedFiles = files
-		}
-
 		// Check if this webhook matches the spawner's filters
-		matches, err := h.matchesSpawner(spawner, eventType, parsed)
+		matches, err := h.matchesSpawner(ctx, spawner, eventType, parsed)
 		if err != nil {
 			spawnerLog.Error(err, "Failed to check spawner match")
 			continue
@@ -427,8 +442,22 @@ func (h *WebhookHandler) processWebhook(ctx context.Context, eventType string, p
 		spawnerLog.Info("Successfully created task from webhook")
 	}
 
-	log.Info("Webhook processing completed", "totalSpawners", len(spawners), "tasksCreated", tasksCreated)
-	return tasksCreated > 0, nil
+	sessionsProcessed := 0
+	var sessionErrors []error
+	for _, spawner := range sessionSpawners {
+		processed, err := h.processSessionSpawner(ctx, spawner, eventType, parsed.GitHub, deliveryID)
+		if err != nil {
+			h.log.Error(err, "Failed to process SessionSpawner", "sessionSpawner", spawner.Name, "namespace", spawner.Namespace)
+			sessionErrors = append(sessionErrors, err)
+			continue
+		}
+		if processed {
+			sessionsProcessed++
+		}
+	}
+
+	log.Info("Webhook processing completed", "taskSpawners", len(spawners), "sessionSpawners", len(sessionSpawners), "tasksCreated", tasksCreated, "sessionsProcessed", sessionsProcessed)
+	return tasksCreated > 0 || sessionsProcessed > 0, errors.Join(sessionErrors...)
 }
 
 // getMatchingSpawners returns TaskSpawners that match the webhook source.
@@ -461,22 +490,34 @@ func (h *WebhookHandler) getMatchingSpawners(ctx context.Context) ([]*kelos.Task
 	return matching, nil
 }
 
+// getMatchingSessionSpawners returns SessionSpawners configured for GitHub webhooks.
+func (h *WebhookHandler) getMatchingSessionSpawners(ctx context.Context) ([]*kelos.SessionSpawner, error) {
+	var spawnerList kelos.SessionSpawnerList
+	if err := h.client.List(ctx, &spawnerList); err != nil {
+		// Kelos installs missing CRDs after rolling out controller resources so
+		// existing conversion webhooks remain available during upgrades. Until
+		// the SessionSpawner CRD is installed, keep processing TaskSpawners.
+		if apiMeta.IsNoMatchError(err) || apierrors.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	matching := make([]*kelos.SessionSpawner, 0, len(spawnerList.Items))
+	for i := range spawnerList.Items {
+		if spawnerList.Items[i].Spec.When.GitHubWebhook != nil {
+			matching = append(matching, &spawnerList.Items[i])
+		}
+	}
+	return matching, nil
+}
+
 // matchesSpawner checks if the webhook matches the spawner's configuration.
-func (h *WebhookHandler) matchesSpawner(spawner *kelos.TaskSpawner, eventType string, parsed *ParsedWebhook) (bool, error) {
+func (h *WebhookHandler) matchesSpawner(ctx context.Context, spawner *kelos.TaskSpawner, eventType string, parsed *ParsedWebhook) (bool, error) {
 	switch h.source {
 	case GitHubSource:
-		if spawner.Spec.When.GitHubWebhook == nil {
-			return false, nil
-		}
-
-		// Check repository filter first
-		if spawner.Spec.When.GitHubWebhook.Repository != "" {
-			if parsed.GitHub.Repository != spawner.Spec.When.GitHubWebhook.Repository {
-				return false, nil
-			}
-		}
-
-		return MatchesGitHubEvent(spawner.Spec.When.GitHubWebhook, eventType, parsed.GitHub)
+		return h.matchesGitHubWebhook(ctx, spawner.Spec.When.GitHubWebhook, eventType, parsed.GitHub, func(ctx context.Context, eventData *GitHubEventData) ([]string, error) {
+			return h.enrichPRChangedFiles(ctx, spawner, eventData)
+		})
 
 	case LinearSource:
 		if spawner.Spec.When.LinearWebhook == nil {
@@ -543,16 +584,7 @@ func (h *WebhookHandler) createTask(ctx context.Context, spawner *kelos.TaskSpaw
 		templateVars["Context"] = contextData
 	}
 
-	// Build unique task name using a hash of the delivery ID to avoid collisions.
-	// Hashing gives uniform 12-hex-char suffix regardless of input length,
-	// avoiding the collision risk of simple prefix truncation.
-	sanitizedEventType := strings.ReplaceAll(eventType, "_", "-")
-	sum := sha256.Sum256([]byte(deliveryID))
-	shortHash := hex.EncodeToString(sum[:])[:12]
-	taskName := fmt.Sprintf("%s-%s-%s", spawner.Name, sanitizedEventType, shortHash)
-	if len(taskName) > 63 {
-		taskName = strings.TrimRight(taskName[:63], "-.")
-	}
+	taskName := webhookSpawnName(spawner.Name, eventType, deliveryID)
 
 	// Resolve GVK for the spawner owner reference
 	gvks, _, err := h.client.Scheme().ObjectKinds(spawner)
@@ -611,19 +643,150 @@ func (h *WebhookHandler) createTask(ctx context.Context, spawner *kelos.TaskSpaw
 	return nil
 }
 
-// spawnerNeedsChangedFiles returns true if any webhook filter uses filePatterns,
-// meaning changed file data must be fetched for PR events.
-func spawnerNeedsChangedFiles(spawner *kelos.TaskSpawner) bool {
-	ghw := spawner.Spec.When.GitHubWebhook
-	if ghw == nil {
-		return false
+// webhookSpawnName preserves the deterministic naming used for webhook-created
+// Tasks and applies the same behavior to Sessions.
+func webhookSpawnName(spawnerName, eventType, deliveryID string) string {
+	sanitizedEventType := strings.ReplaceAll(eventType, "_", "-")
+	sum := sha256.Sum256([]byte(deliveryID))
+	shortHash := hex.EncodeToString(sum[:])[:12]
+	name := fmt.Sprintf("%s-%s-%s", spawnerName, sanitizedEventType, shortHash)
+	if len(name) > 63 {
+		name = strings.TrimRight(name[:63], "-.")
 	}
-	for _, f := range ghw.Filters {
-		if f.FilePatterns != nil {
-			return true
+	return name
+}
+
+func (h *WebhookHandler) processSessionSpawner(ctx context.Context, spawner *kelos.SessionSpawner, eventType string, eventData *GitHubEventData, deliveryID string) (bool, error) {
+	githubWebhook := spawner.Spec.When.GitHubWebhook
+	matches, err := h.matchesGitHubWebhook(ctx, githubWebhook, eventType, eventData, func(ctx context.Context, eventData *GitHubEventData) ([]string, error) {
+		return h.enrichSessionSpawnerPRChangedFiles(ctx, spawner, eventData)
+	})
+	if err != nil {
+		reason := "FilterEvaluationFailed"
+		var changedFilesErr *githubChangedFilesFetchError
+		if errors.As(err, &changedFilesErr) {
+			reason = "ChangedFilesFetchFailed"
 		}
+		return false, h.recordSessionSpawnerFailure(ctx, spawner, reason, err)
 	}
-	return false
+	if !matches {
+		return false, nil
+	}
+
+	templateVars := ExtractGitHubWorkItem(eventData)
+	sessionName := webhookSpawnName(spawner.Name, eventType, deliveryID)
+	gvks, _, gvkErr := h.client.Scheme().ObjectKinds(spawner)
+	if gvkErr != nil {
+		err := fmt.Errorf("getting SessionSpawner GVK: %w", gvkErr)
+		return false, h.recordSessionSpawnerFailure(ctx, spawner, "SessionBuildFailed", err)
+	}
+	if len(gvks) == 0 {
+		err := errors.New("getting SessionSpawner GVK: no registered kind")
+		return false, h.recordSessionSpawnerFailure(ctx, spawner, "SessionBuildFailed", err)
+	}
+	session, buildErr := sessionbuilder.Build(
+		sessionName,
+		spawner.Namespace,
+		&spawner.Spec.SessionTemplate,
+		templateVars,
+		sessionbuilder.SpawnerRef{
+			Name:       spawner.Name,
+			UID:        spawner.UID,
+			APIVersion: gvks[0].GroupVersion().String(),
+			Kind:       gvks[0].Kind,
+		},
+	)
+	if buildErr != nil {
+		return false, h.recordSessionSpawnerFailure(ctx, spawner, "SessionBuildFailed", buildErr)
+	}
+	if createErr := h.client.Create(ctx, session); createErr != nil {
+		if apierrors.IsAlreadyExists(createErr) {
+			if statusErr := h.recordSessionSpawnerSuccess(ctx, spawner, sessionName, "DeliveryAlreadyProcessed", "Session already exists for webhook delivery"); statusErr != nil {
+				return false, statusErr
+			}
+			return true, nil
+		}
+		return false, h.recordSessionSpawnerFailure(ctx, spawner, "SessionCreateFailed", createErr)
+	}
+	if statusErr := h.recordSessionSpawnerSuccess(ctx, spawner, sessionName, "SessionCreated", "Created Session for matching webhook delivery"); statusErr != nil {
+		return false, statusErr
+	}
+	return true, nil
+}
+
+func (h *WebhookHandler) matchesGitHubWebhook(
+	ctx context.Context,
+	githubWebhook *kelos.GitHubWebhook,
+	eventType string,
+	eventData *GitHubEventData,
+	fetchChangedFiles func(context.Context, *GitHubEventData) ([]string, error),
+) (bool, error) {
+	if githubWebhook == nil || eventData == nil {
+		return false, nil
+	}
+	if githubWebhook.Repository != "" && githubWebhook.Repository != eventData.Repository {
+		return false, nil
+	}
+
+	matches, err := MatchesGitHubEvent(githubWebhook, eventType, eventData)
+	if err != nil || matches || len(eventData.ChangedFiles) > 0 || !githubWebhookNeedsChangedFiles(githubWebhook, eventType, eventData) {
+		return matches, err
+	}
+
+	files, err := fetchChangedFiles(ctx, eventData)
+	if err != nil {
+		return false, &githubChangedFilesFetchError{err: err}
+	}
+	eventData.ChangedFiles = files
+	return MatchesGitHubEvent(githubWebhook, eventType, eventData)
+}
+
+type githubChangedFilesFetchError struct {
+	err error
+}
+
+func (e *githubChangedFilesFetchError) Error() string {
+	return fmt.Sprintf("fetching pull request changed files: %v", e.err)
+}
+
+func (e *githubChangedFilesFetchError) Unwrap() error {
+	return e.err
+}
+
+func (h *WebhookHandler) recordSessionSpawnerSuccess(ctx context.Context, spawner *kelos.SessionSpawner, sessionName, reason, message string) error {
+	return h.updateSessionSpawnerDeliveryStatus(ctx, spawner, sessionName, metav1.ConditionTrue, reason, message)
+}
+
+func (h *WebhookHandler) recordSessionSpawnerFailure(ctx context.Context, spawner *kelos.SessionSpawner, reason string, deliveryErr error) error {
+	statusErr := h.updateSessionSpawnerDeliveryStatus(ctx, spawner, "", metav1.ConditionFalse, reason, deliveryErr.Error())
+	if statusErr != nil {
+		return errors.Join(deliveryErr, fmt.Errorf("updating SessionSpawner status: %w", statusErr))
+	}
+	return deliveryErr
+}
+
+func (h *WebhookHandler) updateSessionSpawnerDeliveryStatus(ctx context.Context, spawner *kelos.SessionSpawner, sessionName string, status metav1.ConditionStatus, reason, message string) error {
+	key := client.ObjectKeyFromObject(spawner)
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		var current kelos.SessionSpawner
+		if err := h.client.Get(ctx, key, &current); err != nil {
+			return err
+		}
+		original := current.DeepCopy()
+		if sessionName != "" {
+			current.Status.LastSessionName = sessionName
+		}
+		now := metav1.Now()
+		current.Status.LastDeliveryTime = &now
+		apiMeta.SetStatusCondition(&current.Status.Conditions, metav1.Condition{
+			Type:               kelos.SessionSpawnerConditionLastDeliverySucceeded,
+			Status:             status,
+			ObservedGeneration: spawner.Generation,
+			Reason:             reason,
+			Message:            message,
+		})
+		return h.client.Status().Patch(ctx, &current, client.MergeFrom(original))
+	})
 }
 
 // enrichPRChangedFiles fetches changed files for PR-related webhook events
@@ -633,6 +796,13 @@ func (h *WebhookHandler) enrichPRChangedFiles(ctx context.Context, spawner *kelo
 		return nil, nil
 	}
 	return fetchPRChangedFiles(ctx, h.client, spawner, h.githubAPIBaseURL, eventData.RepositoryOwner, eventData.RepositoryName, eventData.Number)
+}
+
+func (h *WebhookHandler) enrichSessionSpawnerPRChangedFiles(ctx context.Context, spawner *kelos.SessionSpawner, eventData *GitHubEventData) ([]string, error) {
+	if eventData.Number == 0 || eventData.Repository == "" {
+		return nil, nil
+	}
+	return fetchSessionSpawnerPRChangedFiles(ctx, h.client, spawner, h.githubAPIBaseURL, eventData.RepositoryOwner, eventData.RepositoryName, eventData.Number)
 }
 
 // getGenericSpawners returns all TaskSpawners that have a generic webhook

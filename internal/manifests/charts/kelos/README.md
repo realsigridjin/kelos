@@ -89,6 +89,7 @@ NAMESPACE=kelos-system
 for crd in \
   agentconfigs.kelos.dev \
   sessions.kelos.dev \
+  sessionspawners.kelos.dev \
   tasks.kelos.dev \
   taskbudgets.kelos.dev \
   taskrecords.kelos.dev \

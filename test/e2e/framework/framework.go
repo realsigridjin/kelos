@@ -8,7 +8,9 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -143,6 +145,13 @@ func (f *Framework) collectDebugInfo() {
 		}
 	}
 
+	sessionSpawners, err := f.KelosClientset.ApiV1alpha2().SessionSpawners(f.Namespace).List(ctx, metav1.ListOptions{})
+	if err == nil {
+		for _, spawner := range sessionSpawners.Items {
+			fmt.Fprintf(GinkgoWriter, "SessionSpawner %s: sessions=%d lastSession=%s\n", spawner.Name, spawner.Status.TotalSessions, spawner.Status.LastSessionName)
+		}
+	}
+
 	sessions, err := f.KelosClientset.ApiV1alpha2().Sessions(f.Namespace).List(ctx, metav1.ListOptions{})
 	if err == nil {
 		for _, session := range sessions.Items {
@@ -254,6 +263,16 @@ func (f *Framework) CreateTaskSpawner(ts *kelos.TaskSpawner) {
 	Expect(err).NotTo(HaveOccurred(), "Failed to create taskspawner %s", ts.Name)
 }
 
+// CreateSessionSpawner creates a SessionSpawner in the test namespace using the kelos clientset.
+func (f *Framework) CreateSessionSpawner(spawner *kelos.SessionSpawner) *kelos.SessionSpawner {
+	if spawner.Namespace == "" {
+		spawner.Namespace = f.Namespace
+	}
+	created, err := f.KelosClientset.ApiV1alpha2().SessionSpawners(spawner.Namespace).Create(context.TODO(), spawner, metav1.CreateOptions{})
+	Expect(err).NotTo(HaveOccurred(), "Failed to create sessionspawner %s", spawner.Name)
+	return created
+}
+
 // DeleteTask deletes a Task by name from the test namespace using the kelos clientset.
 func (f *Framework) DeleteTask(name string) {
 	err := f.KelosClientset.ApiV1alpha2().Tasks(f.Namespace).Delete(context.TODO(), name, metav1.DeleteOptions{})
@@ -349,6 +368,55 @@ func cloneStringMap(in map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
+}
+
+var portForwardAddressPattern = regexp.MustCompile(`Forwarding from 127\.0\.0\.1:([0-9]+) ->`)
+
+// StartServicePortForward starts kubectl port-forward for a Service and returns its local URL.
+func StartServicePortForward(namespace, service string, remotePort int) string {
+	ctx, cancel := context.WithCancel(context.Background())
+	command := exec.CommandContext(ctx, "kubectl", "--namespace", namespace, "port-forward", "--address", "127.0.0.1", "service/"+service, fmt.Sprintf(":%d", remotePort))
+	output := &lockedBuffer{}
+	command.Stdout = io.MultiWriter(GinkgoWriter, output)
+	command.Stderr = io.MultiWriter(GinkgoWriter, output)
+	Expect(command.Start()).To(Succeed())
+	done := make(chan error, 1)
+	go func() { done <- command.Wait() }()
+	DeferCleanup(func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			_ = command.Process.Kill()
+		}
+	})
+
+	var port string
+	Eventually(func() string {
+		match := portForwardAddressPattern.FindStringSubmatch(output.String())
+		if len(match) == 2 {
+			port = match[1]
+		}
+		return port
+	}, 30*time.Second, 100*time.Millisecond).ShouldNot(BeEmpty(), "kubectl port-forward output:\n%s", output.String())
+	return "http://127.0.0.1:" + port
+}
+
+type lockedBuffer struct {
+	mu     sync.Mutex
+	buffer bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(data []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buffer.Write(data)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buffer.String()
 }
 
 // GetTaskPhase returns the phase of a Task.

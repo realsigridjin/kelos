@@ -123,6 +123,54 @@ func TestFetchPRChangedFiles_PrefersWorkspaceToken(t *testing.T) {
 	}
 }
 
+func TestFetchSessionSpawnerPRChangedFiles_PrefersWorkspaceToken(t *testing.T) {
+	origResolver := githubTokenResolver
+	defer func() { githubTokenResolver = origResolver }()
+
+	var receivedAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]githubFile{{Filename: "session.go"}})
+	}))
+	defer srv.Close()
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "ws-secret", Namespace: "default"},
+		Data:       map[string][]byte{"GITHUB_TOKEN": []byte("session-workspace-token")},
+	}
+	workspace := &kelos.Workspace{
+		ObjectMeta: metav1.ObjectMeta{Name: "session-ws", Namespace: "default"},
+		Spec:       kelos.WorkspaceSpec{SecretRef: &kelos.SecretReference{Name: "ws-secret"}},
+	}
+	spawner := &kelos.SessionSpawner{
+		ObjectMeta: metav1.ObjectMeta{Name: "session-spawner", Namespace: "default"},
+		Spec: kelos.SessionSpawnerSpec{SessionTemplate: kelos.SessionTemplate{SessionSpec: kelos.SessionSpec{
+			Worker: kelos.WorkerSpec{WorkspaceRef: &kelos.WorkspaceReference{Name: "session-ws"}},
+		}}},
+	}
+
+	scheme := runtime.NewScheme()
+	_ = kelos.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret, workspace).Build()
+
+	githubTokenResolver = func(context.Context) (string, error) {
+		return "global-token-should-not-be-used", nil
+	}
+
+	files, err := fetchSessionSpawnerPRChangedFiles(context.Background(), cl, spawner, srv.URL, "org", "repo", 1)
+	if err != nil {
+		t.Fatalf("fetchSessionSpawnerPRChangedFiles() error = %v", err)
+	}
+	if len(files) != 1 || files[0] != "session.go" {
+		t.Fatalf("files = %v", files)
+	}
+	if receivedAuth != "token session-workspace-token" {
+		t.Errorf("expected SessionSpawner workspace token, got Authorization: %q", receivedAuth)
+	}
+}
+
 func TestFetchPRChangedFiles_UsesWorkerPoolWorkspaceToken(t *testing.T) {
 	origResolver := githubTokenResolver
 	defer func() { githubTokenResolver = origResolver }()

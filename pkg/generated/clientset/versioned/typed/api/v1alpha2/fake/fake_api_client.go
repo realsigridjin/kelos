@@ -36,6 +36,10 @@ func (c *FakeApiV1alpha2) Sessions(namespace string) v1alpha2.SessionInterface {
 	return newFakeSessions(c, namespace)
 }
 
+func (c *FakeApiV1alpha2) SessionSpawners(namespace string) v1alpha2.SessionSpawnerInterface {
+	return newFakeSessionSpawners(c, namespace)
+}
+
 func (c *FakeApiV1alpha2) Tasks(namespace string) v1alpha2.TaskInterface {
 	return newFakeTasks(c, namespace)
 }

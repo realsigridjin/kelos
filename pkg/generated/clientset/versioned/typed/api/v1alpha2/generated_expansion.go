@@ -22,6 +22,8 @@ type AgentConfigExpansion interface{}
 
 type SessionExpansion interface{}
 
+type SessionSpawnerExpansion interface{}
+
 type TaskExpansion interface{}
 
 type TaskBudgetExpansion interface{}

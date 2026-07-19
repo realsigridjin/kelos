@@ -851,11 +851,12 @@ func TestVersionCommand(t *testing.T) {
 
 // kelosListKinds maps kelos GVRs to their list kinds for the fake dynamic client.
 var kelosListKinds = map[schema.GroupVersionResource]string{
-	{Group: "kelos.dev", Version: "v1alpha2", Resource: "tasks"}:        "TaskList",
-	{Group: "kelos.dev", Version: "v1alpha2", Resource: "taskspawners"}: "TaskSpawnerList",
-	{Group: "kelos.dev", Version: "v1alpha2", Resource: "sessions"}:     "SessionList",
-	{Group: "kelos.dev", Version: "v1alpha2", Resource: "workspaces"}:   "WorkspaceList",
-	{Group: "kelos.dev", Version: "v1alpha2", Resource: "agentconfigs"}: "AgentConfigList",
+	{Group: "kelos.dev", Version: "v1alpha2", Resource: "tasks"}:           "TaskList",
+	{Group: "kelos.dev", Version: "v1alpha2", Resource: "taskspawners"}:    "TaskSpawnerList",
+	{Group: "kelos.dev", Version: "v1alpha2", Resource: "sessionspawners"}: "SessionSpawnerList",
+	{Group: "kelos.dev", Version: "v1alpha2", Resource: "sessions"}:        "SessionList",
+	{Group: "kelos.dev", Version: "v1alpha2", Resource: "workspaces"}:      "WorkspaceList",
+	{Group: "kelos.dev", Version: "v1alpha2", Resource: "agentconfigs"}:    "AgentConfigList",
 }
 
 func TestRequireCertManager(t *testing.T) {

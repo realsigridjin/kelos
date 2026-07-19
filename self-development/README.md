@@ -11,18 +11,18 @@ The nested [`kanon/`](kanon/README.md) directory does the same for the sibling
 
 [`cs`](cs) creates persistent interactive Codex environments for developing
 Kelos with the same Workspace, credentials, model, effort, and Git identity as
-the `kelos-workers` TaskSpawner.
+the `kelos-workers` SessionSpawner.
 
 ## How It Works
 
 <img width="2694" height="1966" alt="kelos-self-development" src="https://github.com/user-attachments/assets/10719599-426e-4c3d-87a0-cde43e1b3113" />
 
-Each TaskSpawner references an `AgentConfig` that defines git identity, comment signatures, and standard constraints. Some agents (triage, pr-responder, squash-commits, config-update) share the base `agentconfig.yaml` (`kelos-dev-agent`), while others (workers, planner, fake-user, fake-strategist, self-update, image-update) define their own `AgentConfig` inline.
+Each spawner references an `AgentConfig` that defines git identity, comment signatures, and standard constraints. Some agents (triage, pr-responder, squash-commits, config-update) share the base `agentconfig.yaml` (`kelos-dev-agent`), while others (workers, planner, fake-user, fake-strategist, self-update, image-update) define their own `AgentConfig` inline.
 
 Each self-development `AgentConfig`, including the nested Agora and Kanon
 configurations, also installs all skills from
 [`gjkim42/kanon-repo`](https://github.com/gjkim42/kanon-repo) through
-`spec.skills`, giving every TaskSpawner-created agent the same shared skill set.
+`spec.skills`, giving every spawner-created agent the same shared skill set.
 
 Autonomous discovery agents that publish GitHub issues maintain at most one
 open `generated-by-kelos` issue slot per TaskSpawner. The issue body includes a
@@ -33,9 +33,9 @@ issues and PRs are treated as ongoing human or agent work and are not updated by
 autonomous discovery jobs. This cap does not apply to follow-up issues created
 while a worker or PR responder is handling an explicitly requested issue or PR.
 
-## TaskSpawners
+## Spawners
 
-| TaskSpawner | Trigger | Agent | Description |
+| Spawner | Trigger | Agent | Description |
 |---|---|---|---|
 | **kelos-workers** | Webhook: issue comment `/kelos pick-up` | Codex | Picks up issues, creates or updates PRs, self-reviews, and ensures CI passes |
 | **kelos-planner** | Webhook: issue comment `/kelos plan` | Codex | Investigates an issue and posts a structured implementation plan — advisory only, no code changes |
@@ -54,27 +54,35 @@ while a worker or PR responder is handling an explicitly requested issue or PR.
 
 ### kelos-workers.yaml
 
-Picks up open GitHub issues when a maintainer posts `/kelos pick-up` and creates autonomous agent tasks to fix them.
+Picks up open GitHub issues when a maintainer posts `/kelos pick-up` and creates
+a durable Session for the requested work. Follow-ups can continue through the
+Session's web or terminal clients after the initial turn.
 
 | | |
 |---|---|
 | **Trigger** | GitHub `issue_comment` webhook with `/kelos pick-up` |
 | **Agent** | Codex |
-| **Concurrency** | 8 |
+| **Storage** | 10 GiB persistent volume per created Session |
 
 **Key features:**
 - Automatically checks for existing PRs and updates them incrementally
 - Self-reviews PRs before requesting human review
 - Ensures CI passes before completion
 - Requires a `/kelos pick-up` comment to pick up an issue (maintainer approval gate)
+- Keeps the Session available for later web or terminal follow-ups
 - Hands off PR review feedback to `kelos-pr-responder`
 - May create separate follow-up issues for out-of-scope discoveries; those
   follow-ups are exempt from the per-TaskSpawner issue slot cap
 
 **Deploy:**
 ```bash
+kubectl delete taskspawner kelos-workers --ignore-not-found
 kubectl apply -f self-development/kelos-workers.yaml
 ```
+
+The delete is required when migrating an existing installation because
+`TaskSpawner/kelos-workers` and `SessionSpawner/kelos-workers` are distinct
+Kubernetes objects. Leaving both installed would run both pickup flows.
 
 ### kelos-planner.yaml
 
@@ -468,7 +476,7 @@ The token needs these permissions:
 
 ### 3. GitHub Webhook Secret and Delivery
 
-The issue and pull request TaskSpawners in this directory are webhook-driven.
+The issue and pull request spawners in this directory are webhook-driven.
 Create a secret with the shared webhook secret GitHub will use:
 
 ```bash
@@ -482,7 +490,7 @@ Then:
 - Configure a repository webhook that uses the same secret
 - Subscribe the repository webhook to `issues`, `issue_comment`, and `pull_request_review`
 
-Webhook TaskSpawners only react to **new** events after deployment. If an issue
+Webhook spawners only react to **new** events after deployment. If an issue
 or PR was already in a matching state before the webhook server went live,
 retrigger it with a fresh comment or relabel after deployment.
 
@@ -602,12 +610,16 @@ To adapt these examples for your own repository:
 The key pattern in these examples is webhook-triggered handoff plus runtime re-validation:
 
 1. GitHub delivers an `issue_comment`, `issues`, or `pull_request_review` webhook
-2. The matching TaskSpawner creates a Task immediately from that event
+2. The matching TaskSpawner creates a Task, or `kelos-workers` creates a Session
 3. The agent re-reads the latest issue or PR state with `gh` before acting, so asynchronous label updates are respected
 4. If the agent needs human input, it posts a plain-English status comment describing what happened
 5. A fresh `/kelos pick-up`, `/kelos plan`, `/kelos review`, `/kelos glm-review`, `/kelos api-review`, `/kelos glm-api-review`, `/kelos squash-commits`, or relabel event retriggers automation later
 
-Each run is a discrete webhook event, so no "pause" comment is needed to prevent re-pickup of stale state. Bot status and review replies should not include trigger commands accidentally, but explicit worker handoff comments can intentionally retrigger reviewer spawners when those spawners include a matching bot-author filter.
+Each matching webhook delivery creates a discrete Task or Session. A created
+Session remains available for interactive follow-ups through Session clients.
+Bot status and review replies should not include trigger commands accidentally,
+but explicit worker handoff comments can intentionally retrigger reviewer
+spawners when those spawners include a matching bot-author filter.
 
 ## Troubleshooting
 
@@ -619,6 +631,12 @@ Each run is a discrete webhook event, so no "pause" comment is needed to prevent
 - Check webhook server logs: `kubectl logs -l app.kubernetes.io/component=webhook-github`
 - Review the repository webhook's recent deliveries in GitHub
 - If the issue or PR matched before you deployed the webhook server, retrigger it with a new comment or relabel
+
+**SessionSpawner not creating a Session:**
+- Check the SessionSpawner status: `kubectl get sessionspawner kelos-workers -o yaml`
+- Check created Sessions: `SPAWNER_UID=$(kubectl get sessionspawner kelos-workers -o jsonpath='{.metadata.uid}'); kubectl get sessions -l kelos.dev/sessionspawner="$SPAWNER_UID"`
+- Ensure the old `TaskSpawner/kelos-workers` was removed during migration
+- Check the same Workspace, credentials, webhook server, and recent-delivery details listed above
 
 **Tasks failing immediately:**
 - Verify the agent credentials are valid

@@ -275,25 +275,8 @@ func ParseGitHubWebhook(eventType string, payload []byte) (*GitHubEventData, err
 // MatchesGitHubEvent evaluates whether a GitHub webhook event matches the spawner's filters.
 // It accepts pre-parsed event data to avoid redundant parsing.
 func MatchesGitHubEvent(spawner *kelos.GitHubWebhook, eventType string, eventData *GitHubEventData) (bool, error) {
-	// Check if event type is in the allowed list
-	eventAllowed := false
-	for _, allowedEvent := range spawner.Events {
-		if allowedEvent == eventType {
-			eventAllowed = true
-			break
-		}
-	}
-	if !eventAllowed {
+	if !githubWebhookAllowsEvent(spawner, eventType, eventData) {
 		return false, nil
-	}
-
-	// Check top-level excluded authors before evaluating filters
-	if len(spawner.ExcludeAuthors) > 0 && eventData.Sender != "" {
-		for _, excluded := range spawner.ExcludeAuthors {
-			if excluded == eventData.Sender {
-				return false, nil
-			}
-		}
 	}
 
 	// If no filters, all events of the allowed types match
@@ -315,8 +298,58 @@ func MatchesGitHubEvent(spawner *kelos.GitHubWebhook, eventType string, eventDat
 	return false, nil
 }
 
+func githubWebhookAllowsEvent(spawner *kelos.GitHubWebhook, eventType string, eventData *GitHubEventData) bool {
+	if spawner == nil || eventData == nil {
+		return false
+	}
+
+	eventAllowed := false
+	for _, allowedEvent := range spawner.Events {
+		if allowedEvent == eventType {
+			eventAllowed = true
+			break
+		}
+	}
+	if !eventAllowed {
+		return false
+	}
+
+	if len(spawner.ExcludeAuthors) > 0 && eventData.Sender != "" {
+		for _, excluded := range spawner.ExcludeAuthors {
+			if excluded == eventData.Sender {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
+// githubWebhookNeedsChangedFiles reports whether a filter that could otherwise
+// match the event needs changed-file data to finish evaluation.
+func githubWebhookNeedsChangedFiles(spawner *kelos.GitHubWebhook, eventType string, eventData *GitHubEventData) bool {
+	if !githubWebhookAllowsEvent(spawner, eventType, eventData) {
+		return false
+	}
+
+	for _, filter := range spawner.Filters {
+		if filter.Event == eventType && filter.FilePatterns != nil && matchesFilterWithoutFilePatterns(filter, eventData) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // matchesFilter checks if event data matches a specific filter.
 func matchesFilter(filter kelos.GitHubWebhookFilter, eventData *GitHubEventData) bool {
+	if !matchesFilterWithoutFilePatterns(filter, eventData) {
+		return false
+	}
+	return filter.FilePatterns == nil || matchesWebhookFilePatterns(eventData.ChangedFiles, filter.FilePatterns)
+}
+
+func matchesFilterWithoutFilePatterns(filter kelos.GitHubWebhookFilter, eventData *GitHubEventData) bool {
 	// Action filter
 	if filter.Action != "" && filter.Action != eventData.Action {
 		return false
@@ -362,13 +395,6 @@ func matchesFilter(filter kelos.GitHubWebhookFilter, eventData *GitHubEventData)
 			return false
 		}
 		if !matched {
-			return false
-		}
-	}
-
-	// File patterns filter
-	if filter.FilePatterns != nil {
-		if !matchesWebhookFilePatterns(eventData.ChangedFiles, filter.FilePatterns) {
 			return false
 		}
 	}

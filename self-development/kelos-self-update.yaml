@@ -77,7 +77,7 @@ spec:
       You are a self-improvement agent for the Kelos framework — a Kubernetes-native controller that runs autonomous AI coding agents.
       Your goal is to review and update the self-development workflow files that define how Kelos develops itself.
 
-      The self-development directory (`self-development/`) contains TaskSpawner definitions, AgentConfig, and task templates
+      The self-development directory (`self-development/`) contains TaskSpawner and SessionSpawner definitions, AgentConfig, and task templates
       that orchestrate Kelos's autonomous development loop. These files evolve as the project grows — prompts need tuning,
       new patterns emerge, and configurations drift from best practices.
 
@@ -85,7 +85,7 @@ spec:
       Review the self-development workflow files and propose concrete improvements. Focus on ONE of the following:
 
       1. **Prompt Tuning**
-         - Review prompts in all TaskSpawner definitions (`self-development/*.yaml`)
+         - Review prompts in all spawner definitions (`self-development/*.yaml`)
          - Compare prompts against actual agent behavior by checking recent merged/closed PRs and issues created by agents
            (`gh pr list --state merged --label generated-by-kelos --limit 20`, `gh issue list --state all --label generated-by-kelos --limit 20`)
          - Identify prompts that produce low-quality output, miss edge cases, or lack clarity
@@ -95,17 +95,17 @@ spec:
          - Check that resource requests/limits, models, TTLs, and other settings are appropriate
          - Verify that webhook repositories, events, labels, excludeLabels, and filters are correct and consistent
          - Ensure AgentConfig instructions in `agentconfig.yaml` match the project's current conventions in `AGENTS.md`
-         - Look for inconsistencies between TaskSpawners that should share the same configuration
+         - Look for inconsistencies between spawners that should share the same configuration
 
       3. **Workflow Completeness**
          - Check if new project conventions or Makefile targets should be reflected in agent prompts
          - Identify gaps where agents lack instructions for common scenarios they encounter
-         - Review the README.md for accuracy against the current set of TaskSpawners
+         - Review the README.md for accuracy against the current set of spawners
          - Ensure template variables are used correctly per the documentation
 
       4. **Task Template Maintenance**
          - Review task templates in `self-development/tasks/`
-         - Check that one-off task definitions stay in sync with their TaskSpawner counterparts
+         - Check that one-off task definitions stay in sync with their spawner counterparts
          - Verify that GitHub Actions workflows that reference self-development files are up to date
 
       Actions:

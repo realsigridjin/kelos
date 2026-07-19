@@ -102,6 +102,7 @@ rules:
   - kelos.dev
   resources:
   - agentconfigs
+  - sessionspawners
   - taskbudgets
   - workspaces
   verbs:
@@ -121,6 +122,7 @@ rules:
   - kelos.dev
   resources:
   - sessions/status
+  - sessionspawners/status
   - taskbudgets/status
   - tasks/status
   - taskspawners/status
@@ -377,6 +379,7 @@ rules:
       - kelos.dev
     resources:
       - taskspawners
+      - sessionspawners
     verbs:
       - get
       - list
@@ -390,6 +393,20 @@ rules:
       - get
       - list
       - watch
+      - update
+  - apiGroups:
+      - kelos.dev
+    resources:
+      - sessions
+    verbs:
+      - create
+  - apiGroups:
+      - kelos.dev
+    resources:
+      - sessionspawners/status
+    verbs:
+      - get
+      - patch
       - update
   - apiGroups:
       - kelos.dev

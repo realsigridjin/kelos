@@ -34,6 +34,14 @@ type SessionListerExpansion interface{}
 // SessionNamespaceLister.
 type SessionNamespaceListerExpansion interface{}
 
+// SessionSpawnerListerExpansion allows custom methods to be added to
+// SessionSpawnerLister.
+type SessionSpawnerListerExpansion interface{}
+
+// SessionSpawnerNamespaceListerExpansion allows custom methods to be added to
+// SessionSpawnerNamespaceLister.
+type SessionSpawnerNamespaceListerExpansion interface{}
+
 // TaskListerExpansion allows custom methods to be added to
 // TaskLister.
 type TaskListerExpansion interface{}
