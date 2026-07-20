@@ -47,6 +47,7 @@ Kelos is built on a small set of resources:
 
 - **Tasks** — A single coding agent run: prompt, model, effort, credentials, and Pod-level overrides.
 - **Sessions** — A durable Claude Code, Codex, or OpenCode conversation shared by reconnecting web and terminal clients.
+- **SessionSpawners** — React to GitHub webhooks and create durable Session conversations automatically.
 - **TaskSpawners** — React to external triggers (GitHub Issues/PRs, webhooks, Linear, Jira, Cron, Generic Webhooks) and create Tasks automatically.
 
 ## Why Kelos?
@@ -516,7 +517,7 @@ See the [Integration guide](docs/integration.md) for examples of both approaches
 
 ## Case Study: Kelos Developing Kelos
 
-Kelos develops Kelos. TaskSpawners run 24/7, each handling a different part of the development lifecycle — triaging issues, planning implementations, fixing bugs, responding to PR feedback, reviewing code, squashing commits, updating agent images, testing DX, brainstorming improvements, and tuning their own prompts and configs.
+Kelos develops Kelos. TaskSpawners and SessionSpawners run 24/7, each handling a different part of the development lifecycle — triaging issues, planning implementations, fixing bugs, responding to PR feedback, reviewing code, squashing commits, updating agent images, testing DX, brainstorming improvements, and tuning their own prompts and configs.
 
 See the [`self-development/` README](self-development/README.md) for the full pipeline: manifests, triggers, models, and setup instructions. The same pattern develops sibling projects: [`kelos-dev/agora`](https://github.com/kelos-dev/agora) under [`self-development/agora/`](self-development/agora/README.md), and [`kelos-dev/kanon`](https://github.com/kelos-dev/kanon) under [`self-development/kanon/`](self-development/kanon/README.md).
 
@@ -526,6 +527,7 @@ See the [`self-development/` README](self-development/README.md) for the full pi
 |----------|-----------|-----------|
 | **Task** | `type`, `prompt`, `credentials`, `workspaceRef`, `dependsOn`, `branch` | [Reference](docs/reference.md#task) |
 | **Session** | `worker`, `volumeClaimTemplate` | [Reference](docs/reference.md#session) |
+| **SessionSpawner** | `when.githubWebhook`, `sessionTemplate` | [Reference](docs/reference.md#sessionspawner) |
 | **Workspace** | `repo`, `ref`, `secretRef` (PAT or GitHub App), `ghproxy`, `files`, `setupCommand` | [Reference](docs/reference.md#workspace) |
 | **AgentConfig** | `agentsMD`, `plugins`, `mcpServers` | [Reference](docs/reference.md#agentconfig) |
 | **TaskSpawner** | `when`, `taskTemplate`, per-source `pollInterval`, `maxConcurrency` | [Reference](docs/reference.md#taskspawner) |

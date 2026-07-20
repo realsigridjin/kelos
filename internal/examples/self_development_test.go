@@ -44,25 +44,19 @@ func TestSelfDevelopmentGitHubSpawnersUseWebhooks(t *testing.T) {
 		t.Run(tt.file, func(t *testing.T) {
 			t.Parallel()
 
-			ts := readSelfDevelopmentTaskSpawner(t, tt.file)
+			spawner := readGitHubWebhookFromDir(t, "self-development", tt.file)
 
-			if ts.Spec.When.GitHubWebhook == nil {
+			if spawner == nil {
 				t.Fatalf("expected %s to use githubWebhook", tt.file)
 			}
-			if ts.Spec.When.GitHubIssues != nil {
-				t.Fatalf("expected %s to stop using githubIssues", tt.file)
-			}
-			if ts.Spec.When.GitHubPullRequests != nil {
-				t.Fatalf("expected %s to stop using githubPullRequests", tt.file)
-			}
 
-			if got := ts.Spec.When.GitHubWebhook.Repository; got != "kelos-dev/kelos" {
+			if got := spawner.Repository; got != "kelos-dev/kelos" {
 				t.Fatalf("expected %s repository to be kelos-dev/kelos, got %q", tt.file, got)
 			}
-			if !reflect.DeepEqual(ts.Spec.When.GitHubWebhook.Events, tt.events) {
-				t.Fatalf("expected %s events %v, got %v", tt.file, tt.events, ts.Spec.When.GitHubWebhook.Events)
+			if !reflect.DeepEqual(spawner.Events, tt.events) {
+				t.Fatalf("expected %s events %v, got %v", tt.file, tt.events, spawner.Events)
 			}
-			if len(ts.Spec.When.GitHubWebhook.Filters) == 0 {
+			if len(spawner.Filters) == 0 {
 				t.Fatalf("expected %s to define webhook filters", tt.file)
 			}
 		})
@@ -86,7 +80,6 @@ func TestSelfDevelopmentAgentConfigsUseSharedSkills(t *testing.T) {
 		{dir: "self-development", file: "kelos-planner.yaml"},
 		{dir: "self-development", file: "kelos-reviewer.yaml"},
 		{dir: "self-development", file: "kelos-self-update.yaml"},
-		{dir: "self-development", file: "kelos-workers.yaml"},
 		{dir: "self-development/agora", file: "agentconfig.yaml"},
 		{dir: "self-development/agora", file: "agora-fake-strategist.yaml"},
 		{dir: "self-development/agora", file: "agora-fake-user.yaml"},
@@ -135,7 +128,6 @@ func TestDevelopmentTaskSpawnersIgnoreDisruptions(t *testing.T) {
 		{dir: "self-development", file: "kelos-self-update.yaml"},
 		{dir: "self-development", file: "kelos-squash-commits.yaml"},
 		{dir: "self-development", file: "kelos-triage.yaml"},
-		{dir: "self-development", file: "kelos-workers.yaml"},
 		{dir: "self-development/kanon", file: "kanon-config-update.yaml"},
 		{dir: "self-development/kanon", file: "kanon-fake-strategist.yaml"},
 		{dir: "self-development/kanon", file: "kanon-fake-user.yaml"},
@@ -156,6 +148,21 @@ func TestDevelopmentTaskSpawnersIgnoreDisruptions(t *testing.T) {
 			ts := readTaskSpawnerFromDir(t, tt.dir, tt.file)
 			assertIgnoresDisruptions(t, tt.dir+"/"+tt.file, ts.Spec.TaskTemplate.PodFailurePolicy)
 		})
+	}
+}
+
+func TestDevelopmentSessionSpawnerUsesPersistentWorkspace(t *testing.T) {
+	t.Parallel()
+
+	_, spawner := readSpawnerFromDir(t, "self-development", "kelos-workers.yaml")
+	if spawner == nil {
+		t.Fatal("SessionSpawner is nil")
+	}
+	if spawner.Spec.SessionTemplate.VolumeClaimTemplate == nil {
+		t.Fatal("SessionSpawner sessionTemplate.volumeClaimTemplate is nil")
+	}
+	if spawner.Spec.SessionTemplate.InitialPrompt == "" {
+		t.Fatal("SessionSpawner sessionTemplate.initialPrompt is empty")
 	}
 }
 
@@ -187,8 +194,7 @@ func TestDevelopmentCommandPatternsMatchCommandLines(t *testing.T) {
 		t.Run(tt.dir+"/"+tt.file, func(t *testing.T) {
 			t.Parallel()
 
-			ts := readTaskSpawnerFromDir(t, tt.dir, tt.file)
-			spawner := ts.Spec.When.GitHubWebhook
+			spawner := readGitHubWebhookFromDir(t, tt.dir, tt.file)
 			if spawner == nil {
 				t.Fatalf("expected %s/%s to use githubWebhook", tt.dir, tt.file)
 			}
@@ -643,12 +649,9 @@ func TestDevelopmentTaskSpawnersSetExpectedEffort(t *testing.T) {
 		t.Run(tt.dir+"/"+tt.file, func(t *testing.T) {
 			t.Parallel()
 
-			ts := readTaskSpawnerFromDir(t, tt.dir, tt.file)
-			if ts.Spec.TaskTemplate.Worker == nil {
-				t.Fatal("TaskTemplate.Worker is nil")
-			}
-			if ts.Spec.TaskTemplate.Worker.Effort != tt.effort {
-				t.Fatalf("TaskTemplate.Worker.Effort = %q, want %q", ts.Spec.TaskTemplate.Worker.Effort, tt.effort)
+			worker := readSpawnerWorkerFromDir(t, tt.dir, tt.file)
+			if worker.Effort != tt.effort {
+				t.Fatalf("Worker.Effort = %q, want %q", worker.Effort, tt.effort)
 			}
 		})
 	}
@@ -862,6 +865,12 @@ func assertSelfDevelopmentYAMLUsesWorkerSpec(t *testing.T, path string) {
 			}
 			assertNoLegacyAgentConfigRef(t, path, raw, "spec", "taskTemplate")
 			assertTaskTemplateUsesWorkerSpec(t, path, ts.Spec.TaskTemplate)
+		case "SessionSpawner":
+			var spawner kelos.SessionSpawner
+			if err := sigyaml.Unmarshal(doc, &spawner); err != nil {
+				t.Fatalf("decoding SessionSpawner from %s: %v", path, err)
+			}
+			assertWorkerSpecComplete(t, path, spawner.Spec.SessionTemplate.Worker)
 		case "Task":
 			var task kelos.Task
 			if err := sigyaml.Unmarshal(doc, &task); err != nil {
@@ -980,6 +989,39 @@ func assertWorkerSpecComplete(t *testing.T, path string, worker kelos.WorkerSpec
 func readTaskSpawnerFromDir(t *testing.T, dir, file string) *kelos.TaskSpawner {
 	t.Helper()
 
+	taskSpawner, _ := readSpawnerFromDir(t, dir, file)
+	if taskSpawner == nil {
+		t.Fatalf("no TaskSpawner found in %s", filepath.Join("..", "..", dir, file))
+	}
+	return taskSpawner
+}
+
+func readGitHubWebhookFromDir(t *testing.T, dir, file string) *kelos.GitHubWebhook {
+	t.Helper()
+
+	taskSpawner, sessionSpawner := readSpawnerFromDir(t, dir, file)
+	if taskSpawner != nil {
+		return taskSpawner.Spec.When.GitHubWebhook
+	}
+	return sessionSpawner.Spec.When.GitHubWebhook
+}
+
+func readSpawnerWorkerFromDir(t *testing.T, dir, file string) *kelos.WorkerSpec {
+	t.Helper()
+
+	taskSpawner, sessionSpawner := readSpawnerFromDir(t, dir, file)
+	if taskSpawner != nil {
+		if taskSpawner.Spec.TaskTemplate.Worker == nil {
+			t.Fatal("TaskTemplate.Worker is nil")
+		}
+		return taskSpawner.Spec.TaskTemplate.Worker
+	}
+	return &sessionSpawner.Spec.SessionTemplate.Worker
+}
+
+func readSpawnerFromDir(t *testing.T, dir, file string) (*kelos.TaskSpawner, *kelos.SessionSpawner) {
+	t.Helper()
+
 	path := filepath.Join("..", "..", dir, file)
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -1007,19 +1049,24 @@ func readTaskSpawnerFromDir(t *testing.T, dir, file string) *kelos.TaskSpawner {
 		if err := sigyaml.Unmarshal(doc, &meta); err != nil {
 			t.Fatalf("decoding document metadata from %s: %v", path, err)
 		}
-		if meta.Kind != "TaskSpawner" {
-			continue
+		switch meta.Kind {
+		case "TaskSpawner":
+			var spawner kelos.TaskSpawner
+			if err := sigyaml.Unmarshal(doc, &spawner); err != nil {
+				t.Fatalf("decoding TaskSpawner from %s: %v", path, err)
+			}
+			return &spawner, nil
+		case "SessionSpawner":
+			var spawner kelos.SessionSpawner
+			if err := sigyaml.Unmarshal(doc, &spawner); err != nil {
+				t.Fatalf("decoding SessionSpawner from %s: %v", path, err)
+			}
+			return nil, &spawner
 		}
-
-		var ts kelos.TaskSpawner
-		if err := sigyaml.Unmarshal(doc, &ts); err != nil {
-			t.Fatalf("decoding TaskSpawner from %s: %v", path, err)
-		}
-		return &ts
 	}
 
-	t.Fatalf("no TaskSpawner found in %s", path)
-	return nil
+	t.Fatalf("no TaskSpawner or SessionSpawner found in %s", path)
+	return nil, nil
 }
 
 func readAgentConfigFromDir(t *testing.T, dir, file string) *kelos.AgentConfig {

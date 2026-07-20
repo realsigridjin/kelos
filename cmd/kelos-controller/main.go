@@ -292,6 +292,13 @@ func main() {
 		setupLog.Error(err, "Unable to create controller", "controller", "Session")
 		os.Exit(1)
 	}
+	if err = (&controller.SessionSpawnerReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "Unable to create controller", "controller", "SessionSpawner")
+		os.Exit(1)
+	}
 
 	deploymentBuilder := controller.NewDeploymentBuilder()
 	deploymentBuilder.SpawnerImage = spawnerImage

@@ -22804,9 +22804,9 @@ spec:
                         type: array
                       filters:
                         description: |-
-                          Filters refine which events trigger tasks. If multiple filters match
-                          the same event type, any match triggers a task (OR semantics).
-                          If empty, all events in the Events list trigger tasks.
+                          Filters refine which events match. If multiple filters apply to the same
+                          event type, any matching filter accepts the event (OR semantics).
+                          If empty, all events in the Events list match.
                         items:
                           description: GitHubWebhookFilter defines filtering criteria
                             for GitHub webhook events.

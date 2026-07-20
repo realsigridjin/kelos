@@ -279,15 +279,17 @@ func TestRender_DisableCRDs(t *testing.T) {
 	}
 }
 
-func TestRender_IncludesSessionCRD(t *testing.T) {
+func TestRender_IncludesSessionCRDs(t *testing.T) {
 	data, err := Render(manifests.ChartFS, map[string]interface{}{
 		"crds": map[string]interface{}{"install": true},
 	})
 	if err != nil {
 		t.Fatalf("rendering chart: %v", err)
 	}
-	if !strings.Contains(string(data), "name: sessions.kelos.dev") {
-		t.Fatal("expected rendered chart to include the Session CRD")
+	for _, name := range []string{"sessions.kelos.dev", "sessionspawners.kelos.dev"} {
+		if !strings.Contains(string(data), "name: "+name) {
+			t.Errorf("expected rendered chart to include the %s CRD", name)
+		}
 	}
 }
 

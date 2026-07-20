@@ -35,7 +35,19 @@ func fetchPRChangedFiles(ctx context.Context, cl client.Client, spawner *kelos.T
 	if err != nil {
 		return nil, fmt.Errorf("resolving GitHub token for PR files: %w", err)
 	}
+	return fetchPRChangedFilesWithToken(ctx, token, apiBaseURL, owner, repo, number)
+}
 
+func fetchSessionSpawnerPRChangedFiles(ctx context.Context, cl client.Client, spawner *kelos.SessionSpawner, apiBaseURL, owner, repo string, number int) ([]string, error) {
+	token, err := resolveGitHubTokenFromWorkspaceRef(ctx, cl, spawner.Namespace, spawner.Spec.SessionTemplate.Worker.WorkspaceRef, apiBaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("resolving GitHub token for PR files: %w", err)
+	}
+	return fetchPRChangedFilesWithToken(ctx, token, apiBaseURL, owner, repo, number)
+}
+
+func fetchPRChangedFilesWithToken(ctx context.Context, token, apiBaseURL, owner, repo string, number int) ([]string, error) {
+	var err error
 	if token == "" && githubTokenResolver != nil {
 		token, err = githubTokenResolver(ctx)
 		if err != nil {
@@ -84,6 +96,10 @@ func resolveGitHubTokenFromWorkspace(ctx context.Context, cl client.Client, spaw
 	if err != nil {
 		return "", err
 	}
+	return resolveGitHubTokenFromWorkspaceRef(ctx, cl, spawner.Namespace, wsRef, apiBaseURL)
+}
+
+func resolveGitHubTokenFromWorkspaceRef(ctx context.Context, cl client.Client, namespace string, wsRef *kelos.WorkspaceReference, apiBaseURL string) (string, error) {
 	if wsRef == nil {
 		return "", nil
 	}
@@ -91,7 +107,7 @@ func resolveGitHubTokenFromWorkspace(ctx context.Context, cl client.Client, spaw
 	var ws kelos.Workspace
 	if err := cl.Get(ctx, types.NamespacedName{
 		Name:      wsRef.Name,
-		Namespace: spawner.Namespace,
+		Namespace: namespace,
 	}, &ws); err != nil {
 		return "", fmt.Errorf("fetching workspace %s: %w", wsRef.Name, err)
 	}
@@ -103,7 +119,7 @@ func resolveGitHubTokenFromWorkspace(ctx context.Context, cl client.Client, spaw
 	var secret corev1.Secret
 	if err := cl.Get(ctx, types.NamespacedName{
 		Name:      ws.Spec.SecretRef.Name,
-		Namespace: spawner.Namespace,
+		Namespace: namespace,
 	}, &secret); err != nil {
 		return "", fmt.Errorf("fetching secret %s: %w", ws.Spec.SecretRef.Name, err)
 	}

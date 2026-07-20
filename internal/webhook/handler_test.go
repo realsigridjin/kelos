@@ -6,21 +6,40 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/go-logr/logr"
+	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
 	"github.com/kelos-dev/kelos/internal/reporting"
+	"github.com/kelos-dev/kelos/internal/sessionbuilder"
 	"github.com/kelos-dev/kelos/internal/taskbuilder"
 )
+
+type sessionSpawnerNoMatchClient struct {
+	client.Client
+}
+
+func (c sessionSpawnerNoMatchClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	if _, ok := list.(*kelos.SessionSpawnerList); ok {
+		return &apiMeta.NoKindMatchError{
+			GroupKind:        schema.GroupKind{Group: "kelos.dev", Kind: "SessionSpawner"},
+			SearchedVersions: []string{"v1alpha2"},
+		}
+	}
+	return c.Client.List(ctx, list, opts...)
+}
 
 // newGenericTestHandler creates a WebhookHandler for generic webhooks backed by a fake client.
 func newGenericTestHandler(t *testing.T, objs ...client.Object) *WebhookHandler {
@@ -33,7 +52,7 @@ func newGenericTestHandler(t *testing.T, objs ...client.Object) *WebhookHandler 
 	fakeClient := fake.NewClientBuilder().
 		WithScheme(scheme).
 		WithObjects(objs...).
-		WithStatusSubresource(&kelos.TaskSpawner{}).
+		WithStatusSubresource(&kelos.TaskSpawner{}, &kelos.SessionSpawner{}).
 		Build()
 
 	tb, err := taskbuilder.NewTaskBuilder(fakeClient)
@@ -71,7 +90,7 @@ func newTestHandler(t *testing.T, objs ...client.Object) *WebhookHandler {
 	fakeClient := fake.NewClientBuilder().
 		WithScheme(scheme).
 		WithObjects(objs...).
-		WithStatusSubresource(&kelos.TaskSpawner{}).
+		WithStatusSubresource(&kelos.TaskSpawner{}, &kelos.Session{}, &kelos.SessionSpawner{}).
 		Build()
 
 	tb, err := taskbuilder.NewTaskBuilder(fakeClient)
@@ -101,6 +120,24 @@ const issuesPayload = `{
 		"html_url": "https://github.com/org/repo/issues/42",
 		"state": "open",
 		"labels": []
+	}
+}`
+
+const issueCommentPayload = `{
+	"action": "created",
+	"sender": {"login": "gjkim42"},
+	"repository": {"full_name": "kelos-dev/kelos", "name": "kelos", "owner": {"login": "kelos-dev"}},
+	"issue": {
+		"number": 1520,
+		"title": "Add SessionSpawner",
+		"body": "Keep follow-up work in one Session",
+		"html_url": "https://github.com/kelos-dev/kelos/issues/1520",
+		"state": "open",
+		"labels": []
+	},
+	"comment": {
+		"body": "/kelos pick-up",
+		"html_url": "https://github.com/kelos-dev/kelos/issues/1520#issuecomment-1"
 	}
 }`
 
@@ -150,6 +187,35 @@ func TestServeHTTP_AcceptsValidSignature(t *testing.T) {
 
 	if rr.Code != http.StatusOK {
 		t.Errorf("Expected %d, got %d", http.StatusOK, rr.Code)
+	}
+}
+
+func TestServeHTTP_TaskSpawnerWorksWhileSessionSpawnerCRDIsMissing(t *testing.T) {
+	spawner := &kelos.TaskSpawner{
+		ObjectMeta: metav1.ObjectMeta{Name: "workers", Namespace: "default", UID: "workers-uid"},
+		Spec: kelos.TaskSpawnerSpec{
+			When: kelos.When{GitHubWebhook: &kelos.GitHubWebhook{
+				Events: []string{"issues"},
+			}},
+			TaskTemplate: kelos.TaskTemplate{
+				Type:           "claude-code",
+				Credentials:    &kelos.Credentials{Type: "api-key"},
+				WorkspaceRef:   &kelos.WorkspaceReference{Name: "test-workspace"},
+				PromptTemplate: "{{.Title}}",
+			},
+		},
+	}
+	handler := newTestHandler(t, spawner)
+	handler.client = sessionSpawnerNoMatchClient{Client: handler.client}
+
+	serveGitHubWebhook(t, handler, "issues", "upgrade-delivery", issuesPayload, http.StatusOK)
+
+	var tasks kelos.TaskList
+	if err := handler.client.List(context.Background(), &tasks); err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks.Items) != 1 {
+		t.Fatalf("Tasks = %d, want 1", len(tasks.Items))
 	}
 }
 
@@ -222,6 +288,236 @@ func TestServeHTTP_DuplicateDeliveryIsIdempotent(t *testing.T) {
 	}
 	if len(taskList.Items) != 1 {
 		t.Errorf("Expected still 1 task after duplicate request, got %d", len(taskList.Items))
+	}
+}
+
+func TestServeHTTP_SessionSpawnerCreatesSessionForMatchingDelivery(t *testing.T) {
+	spawner := newSessionSpawner("workers")
+	handler := newTestHandler(t, spawner)
+
+	serveGitHubWebhook(t, handler, "issue_comment", "session-delivery-1", issueCommentPayload, http.StatusOK)
+
+	var sessions kelos.SessionList
+	if err := handler.client.List(context.Background(), &sessions); err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions.Items) != 1 {
+		t.Fatalf("Sessions = %d, want 1", len(sessions.Items))
+	}
+	session := sessions.Items[0]
+	if session.Spec.InitialBranch != "kelos-task-1520" {
+		t.Fatalf("Session.spec.initialBranch = %q", session.Spec.InitialBranch)
+	}
+	wantPrompt := "Handle kelos-dev/kelos#1520 from gjkim42: https://github.com/kelos-dev/kelos/issues/1520"
+	if session.Spec.InitialPrompt != wantPrompt {
+		t.Fatalf("Session.spec.initialPrompt = %q, want %q", session.Spec.InitialPrompt, wantPrompt)
+	}
+	if session.Labels[sessionbuilder.LabelSessionSpawner] != string(spawner.UID) {
+		t.Fatalf("Session %s label = %q", sessionbuilder.LabelSessionSpawner, session.Labels[sessionbuilder.LabelSessionSpawner])
+	}
+	if session.Annotations[sessionbuilder.AnnotationSessionSpawnerName] != spawner.Name {
+		t.Fatalf("Session %s annotation = %q", sessionbuilder.AnnotationSessionSpawnerName, session.Annotations[sessionbuilder.AnnotationSessionSpawnerName])
+	}
+	if session.Name != webhookSpawnName("workers", "issue_comment", "session-delivery-1") {
+		t.Fatalf("Session name = %q", session.Name)
+	}
+
+	// Simulate a webhook-server restart. The deterministic Create returns
+	// AlreadyExists and still suppresses the redelivery.
+	handler.deliveryCache = NewDeliveryCache(context.Background())
+	serveGitHubWebhook(t, handler, "issue_comment", "session-delivery-1", issueCommentPayload, http.StatusOK)
+	if err := handler.client.List(context.Background(), &sessions); err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions.Items) != 1 {
+		t.Fatalf("Sessions after redelivery = %d, want 1", len(sessions.Items))
+	}
+}
+
+func TestServeHTTP_SessionSpawnerCreatesSessionPerDistinctDelivery(t *testing.T) {
+	spawner := newSessionSpawner("workers")
+	handler := newTestHandler(t, spawner)
+	serveGitHubWebhook(t, handler, "issue_comment", "session-delivery-1", issueCommentPayload, http.StatusOK)
+	serveGitHubWebhook(t, handler, "issue_comment", "session-delivery-2", issueCommentPayload, http.StatusOK)
+
+	var sessions kelos.SessionList
+	if err := handler.client.List(context.Background(), &sessions); err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions.Items) != 2 {
+		t.Fatalf("Sessions = %d, want 2", len(sessions.Items))
+	}
+
+	var updatedSpawner kelos.SessionSpawner
+	if err := handler.client.Get(context.Background(), client.ObjectKeyFromObject(spawner), &updatedSpawner); err != nil {
+		t.Fatal(err)
+	}
+	lastDeliverySucceeded := apiMeta.FindStatusCondition(updatedSpawner.Status.Conditions, kelos.SessionSpawnerConditionLastDeliverySucceeded)
+	if lastDeliverySucceeded == nil || lastDeliverySucceeded.Status != metav1.ConditionTrue || lastDeliverySucceeded.Reason != "SessionCreated" {
+		t.Fatalf("SessionSpawner LastDeliverySucceeded condition = %#v", lastDeliverySucceeded)
+	}
+	if updatedSpawner.Status.LastSessionName != webhookSpawnName("workers", "issue_comment", "session-delivery-2") {
+		t.Fatalf("lastSessionName = %q", updatedSpawner.Status.LastSessionName)
+	}
+}
+
+func TestServeHTTP_SessionSpawnerTreatsExistingNameAsProcessed(t *testing.T) {
+	spawner := newSessionSpawner("workers")
+	sessionName := webhookSpawnName(spawner.Name, "issue_comment", "session-delivery-1")
+	foreignSession := &kelos.Session{ObjectMeta: metav1.ObjectMeta{Name: sessionName, Namespace: spawner.Namespace}}
+	handler := newTestHandler(t, spawner, foreignSession)
+
+	serveGitHubWebhook(t, handler, "issue_comment", "session-delivery-1", issueCommentPayload, http.StatusOK)
+
+	var updatedSpawner kelos.SessionSpawner
+	if err := handler.client.Get(context.Background(), client.ObjectKeyFromObject(spawner), &updatedSpawner); err != nil {
+		t.Fatal(err)
+	}
+	lastDeliverySucceeded := apiMeta.FindStatusCondition(updatedSpawner.Status.Conditions, kelos.SessionSpawnerConditionLastDeliverySucceeded)
+	if lastDeliverySucceeded == nil || lastDeliverySucceeded.Status != metav1.ConditionTrue || lastDeliverySucceeded.Reason != "DeliveryAlreadyProcessed" {
+		t.Fatalf("SessionSpawner LastDeliverySucceeded condition = %#v", lastDeliverySucceeded)
+	}
+}
+
+func TestWebhookSpawnNamePreservesTaskSpawnerNaming(t *testing.T) {
+	tests := []struct {
+		name        string
+		spawnerName string
+		want        string
+	}{
+		{
+			name:        "name fits",
+			spawnerName: "workers",
+			want:        "workers-issue-comment-0b220df19691",
+		},
+		{
+			name:        "name is truncated",
+			spawnerName: strings.Repeat("a", 47) + "x",
+			want:        strings.Repeat("a", 47) + "x-issue-comment",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := webhookSpawnName(tt.spawnerName, "issue_comment", "delivery-1"); got != tt.want {
+				t.Fatalf("webhookSpawnName() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestServeHTTP_SessionSpawnerFailureDoesNotRecordSessionName(t *testing.T) {
+	spawner := newSessionSpawner("workers")
+	spawner.Status.LastSessionName = "previous-session"
+	spawner.Spec.SessionTemplate.InitialPrompt = "{{.Missing}}"
+	handler := newTestHandler(t, spawner)
+
+	serveGitHubWebhook(t, handler, "issue_comment", "failed-delivery", issueCommentPayload, http.StatusInternalServerError)
+
+	var updatedSpawner kelos.SessionSpawner
+	if err := handler.client.Get(context.Background(), client.ObjectKeyFromObject(spawner), &updatedSpawner); err != nil {
+		t.Fatal(err)
+	}
+	if updatedSpawner.Status.LastSessionName != "previous-session" {
+		t.Fatalf("lastSessionName = %q, want previous-session", updatedSpawner.Status.LastSessionName)
+	}
+	lastDeliverySucceeded := apiMeta.FindStatusCondition(updatedSpawner.Status.Conditions, kelos.SessionSpawnerConditionLastDeliverySucceeded)
+	if lastDeliverySucceeded == nil || lastDeliverySucceeded.Status != metav1.ConditionFalse || lastDeliverySucceeded.Reason != "SessionBuildFailed" {
+		t.Fatalf("SessionSpawner LastDeliverySucceeded condition = %#v", lastDeliverySucceeded)
+	}
+}
+
+func TestSessionSpawnerDeliveryStatusUsesProcessedGeneration(t *testing.T) {
+	current := newSessionSpawner("workers")
+	current.Generation = 2
+	current.Status.ObservedGeneration = 2
+	handler := newTestHandler(t, current)
+	processed := current.DeepCopy()
+	processed.Generation = 1
+
+	if err := handler.recordSessionSpawnerSuccess(context.Background(), processed, "workers-issue-comment-delivery", "SessionCreated", "Created Session"); err != nil {
+		t.Fatal(err)
+	}
+
+	var updated kelos.SessionSpawner
+	if err := handler.client.Get(context.Background(), client.ObjectKeyFromObject(current), &updated); err != nil {
+		t.Fatal(err)
+	}
+	if updated.Status.ObservedGeneration != 2 {
+		t.Fatalf("observedGeneration = %d, want controller-owned value 2", updated.Status.ObservedGeneration)
+	}
+	condition := apiMeta.FindStatusCondition(updated.Status.Conditions, kelos.SessionSpawnerConditionLastDeliverySucceeded)
+	if condition == nil || condition.ObservedGeneration != 1 {
+		t.Fatalf("LastDeliverySucceeded condition = %#v, want observedGeneration 1", condition)
+	}
+}
+
+func TestServeHTTP_SessionSpawnerSupportsOtherGitHubEvents(t *testing.T) {
+	spawner := newSessionSpawner("workers")
+	spawner.Spec.When.GitHubWebhook.Repository = "org/repo"
+	spawner.Spec.When.GitHubWebhook.Events = []string{"issues"}
+	spawner.Spec.When.GitHubWebhook.Filters = []kelos.GitHubWebhookFilter{{Event: "issues", Action: "opened"}}
+	spawner.Spec.SessionTemplate.InitialBranch = "issue-{{.Number}}"
+	spawner.Spec.SessionTemplate.InitialPrompt = "Handle {{.Event}} #{{.Number}}"
+	handler := newTestHandler(t, spawner)
+
+	serveGitHubWebhook(t, handler, "issues", "issues-delivery-1", issuesPayload, http.StatusOK)
+
+	var sessions kelos.SessionList
+	if err := handler.client.List(context.Background(), &sessions); err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions.Items) != 1 {
+		t.Fatalf("Sessions = %d, want 1", len(sessions.Items))
+	}
+	if sessions.Items[0].Spec.InitialBranch != "issue-42" || sessions.Items[0].Spec.InitialPrompt != "Handle issues #42" {
+		t.Fatalf("Session spec = %#v", sessions.Items[0].Spec)
+	}
+}
+
+func newSessionSpawner(name string) *kelos.SessionSpawner {
+	return &kelos.SessionSpawner{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default", UID: types.UID(name + "-uid")},
+		Spec: kelos.SessionSpawnerSpec{
+			When: kelos.SessionSpawnerWhen{GitHubWebhook: &kelos.GitHubWebhook{
+				Repository:     "kelos-dev/kelos",
+				Events:         []string{"issue_comment"},
+				ExcludeAuthors: []string{"kelos-bot[bot]"},
+				Filters: []kelos.GitHubWebhookFilter{{
+					Event:       "issue_comment",
+					Action:      "created",
+					BodyPattern: `(?m)^/kelos pick-up[ \t]*\r?$`,
+					CommentOn:   kelos.CommentOnIssue,
+					State:       "open",
+					Author:      "gjkim42",
+				}},
+			}},
+			SessionTemplate: kelos.SessionTemplate{
+				SessionSpec: kelos.SessionSpec{
+					Worker: kelos.WorkerSpec{
+						Type:         "codex",
+						Credentials:  &kelos.Credentials{Type: kelos.CredentialTypeOAuth},
+						WorkspaceRef: &kelos.WorkspaceReference{Name: "kelos-agent"},
+					},
+					InitialBranch: "kelos-task-{{.Number}}",
+					InitialPrompt: "Handle {{.Repository}}#{{.Number}} from {{.Sender}}: {{.URL}}",
+				},
+			},
+		},
+	}
+}
+
+func serveGitHubWebhook(t *testing.T, handler *WebhookHandler, eventType, deliveryID, payload string, wantStatus int) {
+	t.Helper()
+	body := []byte(payload)
+	request := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+	request.Header.Set(GitHubEventHeader, eventType)
+	request.Header.Set(GitHubSignatureHeader, signPayload(body, []byte(testSecret)))
+	request.Header.Set(GitHubDeliveryHeader, deliveryID)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != wantStatus {
+		t.Fatalf("webhook status = %d, want %d; body = %s", response.Code, wantStatus, response.Body.String())
 	}
 }
 
@@ -873,67 +1169,95 @@ func TestServeHTTP_IssueCommentOnPR_EnrichesBranch(t *testing.T) {
 	}
 }
 
-func TestSpawnerNeedsChangedFiles(t *testing.T) {
+func TestMatchesGitHubWebhookChangedFileEnrichment(t *testing.T) {
+	filePatterns := &kelos.FilePatterns{Include: []string{"internal/**"}}
+	fetchErr := errors.New("GitHub API unavailable")
 	tests := []struct {
-		name    string
-		spawner *kelos.TaskSpawner
-		want    bool
+		name           string
+		webhook        *kelos.GitHubWebhook
+		eventType      string
+		eventData      *GitHubEventData
+		files          []string
+		fetchErr       error
+		wantMatch      bool
+		wantFetches    int
+		wantFetchError bool
 	}{
 		{
-			name: "filePatterns in filter",
-			spawner: &kelos.TaskSpawner{
-				Spec: kelos.TaskSpawnerSpec{
-					When: kelos.When{
-						GitHubWebhook: &kelos.GitHubWebhook{
-							Events: []string{"push"},
-							Filters: []kelos.GitHubWebhookFilter{
-								{
-									Event: "push",
-									FilePatterns: &kelos.FilePatterns{
-										Include: []string{"*.go"},
-									},
-								},
-							},
-						},
-					},
-					TaskTemplate: kelos.TaskTemplate{},
+			name: "matching ordinary filter skips enrichment required by another OR filter",
+			webhook: &kelos.GitHubWebhook{
+				Events: []string{"pull_request"},
+				Filters: []kelos.GitHubWebhookFilter{
+					{Event: "pull_request", Action: "opened"},
+					{Event: "pull_request", Action: "opened", FilePatterns: filePatterns},
 				},
 			},
-			want: true,
+			eventType:   "pull_request",
+			eventData:   &GitHubEventData{Action: "opened", Repository: "org/repo"},
+			fetchErr:    fetchErr,
+			wantMatch:   true,
+			wantFetches: 0,
 		},
 		{
-			name: "no filePatterns in filters",
-			spawner: &kelos.TaskSpawner{
-				Spec: kelos.TaskSpawnerSpec{
-					When: kelos.When{
-						GitHubWebhook: &kelos.GitHubWebhook{
-							Events: []string{"push"},
-						},
-					},
-					TaskTemplate: kelos.TaskTemplate{
-						PromptTemplate: "{{.Title}}",
-					},
+			name: "file filter fetches changed files before matching",
+			webhook: &kelos.GitHubWebhook{
+				Events: []string{"pull_request"},
+				Filters: []kelos.GitHubWebhookFilter{
+					{Event: "pull_request", Action: "opened", FilePatterns: filePatterns},
 				},
 			},
-			want: false,
+			eventType:   "pull_request",
+			eventData:   &GitHubEventData{Action: "opened", Repository: "org/repo"},
+			files:       []string{"internal/webhook/handler.go"},
+			wantMatch:   true,
+			wantFetches: 1,
 		},
 		{
-			name: "nil GitHubWebhook",
-			spawner: &kelos.TaskSpawner{
-				Spec: kelos.TaskSpawnerSpec{
-					When:         kelos.When{},
-					TaskTemplate: kelos.TaskTemplate{},
+			name: "non-file criteria reject event without enrichment",
+			webhook: &kelos.GitHubWebhook{
+				Events: []string{"pull_request"},
+				Filters: []kelos.GitHubWebhookFilter{
+					{Event: "pull_request", Action: "closed", FilePatterns: filePatterns},
 				},
 			},
-			want: false,
+			eventType:   "pull_request",
+			eventData:   &GitHubEventData{Action: "opened", Repository: "org/repo"},
+			fetchErr:    fetchErr,
+			wantFetches: 0,
+		},
+		{
+			name: "changed-file fetch error is identifiable",
+			webhook: &kelos.GitHubWebhook{
+				Events: []string{"pull_request"},
+				Filters: []kelos.GitHubWebhookFilter{
+					{Event: "pull_request", Action: "opened", FilePatterns: filePatterns},
+				},
+			},
+			eventType:      "pull_request",
+			eventData:      &GitHubEventData{Action: "opened", Repository: "org/repo"},
+			fetchErr:       fetchErr,
+			wantFetches:    1,
+			wantFetchError: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := spawnerNeedsChangedFiles(tt.spawner)
-			if got != tt.want {
-				t.Errorf("spawnerNeedsChangedFiles() = %v, want %v", got, tt.want)
+			handler := &WebhookHandler{}
+			fetches := 0
+			got, err := handler.matchesGitHubWebhook(context.Background(), tt.webhook, tt.eventType, tt.eventData, func(context.Context, *GitHubEventData) ([]string, error) {
+				fetches++
+				return tt.files, tt.fetchErr
+			})
+			if got != tt.wantMatch {
+				t.Errorf("matchesGitHubWebhook() = %v, want %v", got, tt.wantMatch)
+			}
+			if fetches != tt.wantFetches {
+				t.Errorf("changed-file fetches = %d, want %d", fetches, tt.wantFetches)
+			}
+			var gotFetchErr *githubChangedFilesFetchError
+			if errors.As(err, &gotFetchErr) != tt.wantFetchError {
+				t.Errorf("errors.As(err, *githubChangedFilesFetchError) = %v, want %v (err = %v)", errors.As(err, &gotFetchErr), tt.wantFetchError, err)
 			}
 		})
 	}

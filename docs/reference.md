@@ -306,6 +306,59 @@ applies one `kelos.dev/v1alpha2` Session manifest in the active namespace. The
 manifest may include labels, annotations, `initialBranch`, `initialPrompt`, the complete
 `WorkerSpec`, and an optional persistent volume claim.
 
+## SessionSpawner
+
+A SessionSpawner turns matching GitHub webhooks into durable Session
+conversations. Each matching webhook delivery attempts to create one Session from
+`spec.sessionTemplate`, using the same event and filter mechanism as a
+webhook-driven TaskSpawner.
+
+| Field | Description | Required |
+|-------|-------------|----------|
+| `spec.when.githubWebhook.events` | GitHub event types to listen for, using the same values as TaskSpawner | Yes |
+| `spec.when.githubWebhook.repository` | Repository filter in `owner/repo` format; omit to accept any repository | No |
+| `spec.when.githubWebhook.excludeAuthors` | GitHub senders ignored before filter evaluation | No |
+| `spec.when.githubWebhook.filters` | GitHub webhook filters using the same fields and OR semantics as TaskSpawner | No |
+| `spec.sessionTemplate.worker` | Worker configuration copied to each Session | Yes |
+| `spec.sessionTemplate.worker.workspaceRef.name` | Workspace cloned into each Session | Yes |
+| `spec.sessionTemplate.initialBranch` | Go text/template rendered for the Session's initial branch | No |
+| `spec.sessionTemplate.initialPrompt` | Go text/template submitted when the created Session starts | Yes |
+| `spec.sessionTemplate.volumeClaimTemplate` | Persistent workspace for each Session; recommended so conversation history survives Pod replacement | No |
+| `status.observedGeneration` | Most recent generation observed by the controller | Output |
+| `status.totalSessions` | Current number of Sessions associated with this spawner | Output |
+| `status.lastSessionName` | Session most recently created or confirmed to exist | Output |
+| `status.lastDeliveryTime` | Time of the most recently attempted matching delivery | Output |
+| `status.conditions[type=LastDeliverySucceeded]` | Result of the most recent attempted matching delivery; absent until one is attempted | Output |
+
+`initialPrompt` and `initialBranch` support the same GitHub webhook template
+values as TaskSpawner `promptTemplate` and `branch`. Templates use strict
+missing-key handling; use `{{with index . "Branch"}}{{.}}{{else}}main{{end}}`
+when an event may not provide `Branch`.
+
+Session names use the same deterministic naming behavior as webhook-driven
+TaskSpawners: the SessionSpawner name, event type, and delivery-ID hash are
+combined and then truncated to the Kubernetes 63-character limit. A redelivery
+therefore attempts to create the same Session and is treated as already
+processed. If a long SessionSpawner name causes the delivery hash to be
+truncated, distinct deliveries can resolve to the same name and the later
+delivery is also treated as already processed. Use a shorter SessionSpawner
+name until [collision-safe truncation](https://github.com/kelos-dev/kelos/issues/1527)
+is implemented.
+Created Sessions have a `kelos.dev/sessionspawner` label whose value is the
+SessionSpawner UID, a `kelos.dev/sessionspawner-name` annotation for the
+human-readable name, and a controller owner reference to the SessionSpawner.
+
+Before the first matching delivery, the SessionSpawner
+`LastDeliverySucceeded` condition is absent. A creation failure returns an
+error to the webhook sender so it can retry and sets the condition to `False`
+with an actionable reason and message. Successful creation sets it to `True`;
+an individual Session's runtime health is reported on that Session.
+
+An `emptyDir` Session remains supported for development, but its conversation
+history is lost on Pod replacement. Use
+`spec.sessionTemplate.volumeClaimTemplate` for SessionSpawner workflows that
+must retain a conversation across Pod recovery.
+
 ## WorkerPool
 
 A WorkerPool manages a fleet of persistent worker pods backed by a StatefulSet. Tasks reference a WorkerPool via `spec.workerPoolRef` to execute on pre-warmed infrastructure instead of creating per-task Jobs.

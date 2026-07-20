@@ -56,7 +56,7 @@ spec:
       Agent configuration includes:
       - `AGENTS.md` — project-level conventions and instructions for all agents
       - `self-development/agentconfig.yaml` — shared AgentConfig (agentsMD, plugins, skills, subagents, commands)
-      - `self-development/*.yaml` — TaskSpawner prompt templates that guide each agent's behavior
+      - `self-development/*.yaml` — TaskSpawner and SessionSpawner prompt templates that guide each agent's behavior
 
       Task:
       1. **Gather recent PR data**
@@ -84,7 +84,7 @@ spec:
          - Update `self-development/agentconfig.yaml` if the feedback is about shared agent behavior
 
          **Task-specific changes** (affect a specific agent):
-         - Update the relevant TaskSpawner prompt in `self-development/*.yaml`
+         - Update the relevant spawner prompt in `self-development/*.yaml`
          - If a specific agent needs its own configuration, create or update an AgentConfig for it
 
       4. **Create a PR with the changes**

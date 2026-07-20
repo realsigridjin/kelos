@@ -28,6 +28,8 @@ type Interface interface {
 	AgentConfigs() AgentConfigInformer
 	// Sessions returns a SessionInformer.
 	Sessions() SessionInformer
+	// SessionSpawners returns a SessionSpawnerInformer.
+	SessionSpawners() SessionSpawnerInformer
 	// Tasks returns a TaskInformer.
 	Tasks() TaskInformer
 	// TaskBudgets returns a TaskBudgetInformer.
@@ -61,6 +63,11 @@ func (v *version) AgentConfigs() AgentConfigInformer {
 // Sessions returns a SessionInformer.
 func (v *version) Sessions() SessionInformer {
 	return &sessionInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
+// SessionSpawners returns a SessionSpawnerInformer.
+func (v *version) SessionSpawners() SessionSpawnerInformer {
+	return &sessionSpawnerInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
 // Tasks returns a TaskInformer.

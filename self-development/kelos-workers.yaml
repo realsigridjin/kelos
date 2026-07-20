@@ -52,7 +52,7 @@ spec:
       - Do not include manual PR branch checkout instructions in prompts — Kelos already checks out the PR branch automatically
 ---
 apiVersion: kelos.dev/v1alpha2
-kind: TaskSpawner
+kind: SessionSpawner
 metadata:
   name: kelos-workers
 spec:
@@ -70,52 +70,9 @@ spec:
           commentOn: Issue
           state: open
           author: gjkim42
-      reporting:
-        enabled: true
-  maxConcurrency: 8
-  taskTemplate:
-    worker:
-      workspaceRef:
-        name: kelos-agent
-      model: gpt-5.6-sol
-      effort: xhigh
-      type: codex
-      credentials:
-        type: oauth
-        secretRef:
-          name: kelos-credentials
-      podOverrides:
-        resources:
-          requests:
-            cpu: "250m"
-            memory: "512Mi"
-            ephemeral-storage: "4Gi"
-          limits:
-            ephemeral-storage: "4Gi"
-        env:
-          - name: GIT_AUTHOR_NAME
-            value: "Gunju Kim"
-          - name: GIT_AUTHOR_EMAIL
-            value: "gjkim042@gmail.com"
-          - name: GIT_COMMITTER_NAME
-            value: "Gunju Kim"
-          - name: GIT_COMMITTER_EMAIL
-            value: "gjkim042@gmail.com"
-      agentConfigRefs:
-        - name: kelos-workers-agent
-    ttlSecondsAfterFinished: 864000
-    podFailurePolicy:
-      rules:
-        - action: Ignore
-          onPodConditions:
-            - type: DisruptionTarget
-              status: "True"
-        - action: FailJob
-          onExitCodes:
-            operator: NotIn
-            values: [0]
-    branch: "kelos-task-{{.Number}}"
-    promptTemplate: |
+  sessionTemplate:
+    initialBranch: "kelos-task-{{.Number}}"
+    initialPrompt: |
       You are a coding agent. You either
       - create a PR to fix the issue
       - update an existing PR to fix the issue
@@ -130,7 +87,7 @@ spec:
       Task:
       - 0. Refresh the latest issue state:
         - Re-read the issue and all comments: `gh issue view {{.Number}} --comments`
-      - 1. Set up your working branch. Run this exactly:
+      - 1. Fetch and rebase on the latest main branch:
         ```
         git fetch --unshallow || true; git fetch origin main; git rebase origin/main
         ```
@@ -173,3 +130,38 @@ spec:
         - First check existing issues with `gh issue list` to avoid duplicates.
         - Keep the follow-up narrowly scoped and label it `generated-by-kelos`.
         - Follow-up issues are exempt from the per-TaskSpawner issue slot cap.
+    volumeClaimTemplate:
+      accessModes:
+        - ReadWriteOnce
+      resources:
+        requests:
+          storage: 10Gi
+    worker:
+      workspaceRef:
+        name: kelos-agent
+      model: gpt-5.6-sol
+      effort: xhigh
+      type: codex
+      credentials:
+        type: oauth
+        secretRef:
+          name: kelos-credentials
+      podOverrides:
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "512Mi"
+            ephemeral-storage: "4Gi"
+          limits:
+            ephemeral-storage: "4Gi"
+        env:
+          - name: GIT_AUTHOR_NAME
+            value: "Gunju Kim"
+          - name: GIT_AUTHOR_EMAIL
+            value: "gjkim042@gmail.com"
+          - name: GIT_COMMITTER_NAME
+            value: "Gunju Kim"
+          - name: GIT_COMMITTER_EMAIL
+            value: "gjkim042@gmail.com"
+      agentConfigRefs:
+        - name: kelos-workers-agent
