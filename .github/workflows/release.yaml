@@ -53,7 +53,7 @@ jobs:
       - name: Build and push image
         env:
           VERSION: ${{ needs.determine-version.outputs.version }}
-        run: make image IMAGE_PLATFORMS=linux/${{ matrix.arch }} PUSH=true VERSION="$VERSION-${{ matrix.arch }}" KELOS_VERSION="$VERSION"
+        run: make image REGISTRY=ghcr.io/${{ github.repository_owner }} IMAGE_PLATFORMS=linux/${{ matrix.arch }} PUSH=true VERSION="$VERSION-${{ matrix.arch }}" KELOS_VERSION="$VERSION"
 
   merge-manifests:
     needs: [determine-version, build-images]
@@ -77,13 +77,13 @@ jobs:
       - name: Create and push multi-arch manifests
         env:
           VERSION: ${{ needs.determine-version.outputs.version }}
-        run: make manifest IMAGE_PLATFORMS=linux/amd64,linux/arm64 VERSION="$VERSION"
+        run: make manifest REGISTRY=ghcr.io/${{ github.repository_owner }} IMAGE_PLATFORMS=linux/amd64,linux/arm64 VERSION="$VERSION"
 
       - name: Create and push latest manifests
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           VERSION: ${{ needs.determine-version.outputs.version }}
-        run: make manifest IMAGE_PLATFORMS=linux/amd64,linux/arm64 VERSION=latest SOURCE_VERSION="$VERSION"
+        run: make manifest REGISTRY=ghcr.io/${{ github.repository_owner }} IMAGE_PLATFORMS=linux/amd64,linux/arm64 VERSION=latest SOURCE_VERSION="$VERSION"
 
   release-artifacts:
     needs: [determine-version, merge-manifests]
@@ -166,4 +166,4 @@ jobs:
 
       - name: Push Helm chart to GHCR
         run: |
-          helm push /tmp/charts/kelos-${{ steps.version.outputs.version }}.tgz oci://ghcr.io/kelos-dev/charts
+          helm push /tmp/charts/kelos-${{ steps.version.outputs.version }}.tgz oci://ghcr.io/${{ github.repository_owner }}/charts
