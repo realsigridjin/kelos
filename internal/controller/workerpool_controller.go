@@ -83,6 +83,8 @@ type WorkerPoolReconciler struct {
 	ClaudeCodeImagePullPolicy   corev1.PullPolicy
 	CodexImage                  string
 	CodexImagePullPolicy        corev1.PullPolicy
+	SenpiImage                  string
+	SenpiImagePullPolicy        corev1.PullPolicy
 	GeminiImage                 string
 	GeminiImagePullPolicy       corev1.PullPolicy
 	OpenCodeImage               string
@@ -1517,6 +1519,11 @@ func (r *WorkerPoolReconciler) agentImage(agentType string) string {
 			return r.CodexImage
 		}
 		return CodexImage
+	case AgentTypeSenpi:
+		if r.SenpiImage != "" {
+			return r.SenpiImage
+		}
+		return SenpiImage
 	case AgentTypeGemini:
 		if r.GeminiImage != "" {
 			return r.GeminiImage
@@ -1543,6 +1550,8 @@ func (r *WorkerPoolReconciler) agentImagePullPolicy(agentType string) corev1.Pul
 		return r.ClaudeCodeImagePullPolicy
 	case AgentTypeCodex:
 		return r.CodexImagePullPolicy
+	case AgentTypeSenpi:
+		return r.SenpiImagePullPolicy
 	case AgentTypeGemini:
 		return r.GeminiImagePullPolicy
 	case AgentTypeOpenCode:

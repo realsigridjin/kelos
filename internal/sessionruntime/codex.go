@@ -31,13 +31,18 @@ type codexTurnResult struct {
 }
 
 type codexRequestError struct {
-	method  string
-	code    int
-	message string
+	provider string
+	method   string
+	code     int
+	message  string
 }
 
 func (e *codexRequestError) Error() string {
-	return fmt.Sprintf("Codex request %s failed (%d): %s", e.method, e.code, e.message)
+	provider := e.provider
+	if provider == "" {
+		provider = "Codex"
+	}
+	return fmt.Sprintf("%s request %s failed (%d): %s", provider, e.method, e.code, e.message)
 }
 
 // CodexProvider owns one Codex app-server thread.
@@ -47,6 +52,9 @@ type CodexProvider struct {
 	cancel context.CancelFunc
 	cmd    *exec.Cmd
 	stdin  io.WriteCloser
+
+	providerName    string
+	threadStateFile string
 
 	writeMu   sync.Mutex
 	nextID    atomic.Int64
@@ -69,33 +77,53 @@ type CodexProvider struct {
 
 // NewCodexProvider starts Codex app-server and opens one resumable thread.
 func NewCodexProvider(ctx context.Context, config ProviderConfig) (*CodexProvider, error) {
+	return newAppServerProvider(ctx, config, "Codex", "codex", []string{"app-server", "--stdio"}, "codex-thread-id")
+}
+
+// NewSenpiProvider starts senpi's Codex-compatible app-server and opens one
+// resumable thread. Senpi deliberately uses the same wire protocol as Codex so
+// the Session runtime can share the provider implementation.
+func NewSenpiProvider(ctx context.Context, config ProviderConfig) (*CodexProvider, error) {
+	return newAppServerProvider(ctx, config, "senpi", "senpi", []string{"app-server", "--listen", "stdio://"}, "senpi-thread-id")
+}
+
+func newAppServerProvider(
+	ctx context.Context,
+	config ProviderConfig,
+	providerName string,
+	commandName string,
+	commandArgs []string,
+	threadStateFile string,
+) (*CodexProvider, error) {
 	providerCtx, cancel := context.WithCancel(ctx)
-	command := exec.CommandContext(providerCtx, "codex", "app-server", "--stdio")
+	command := exec.CommandContext(providerCtx, commandName, commandArgs...)
 	command.Dir = config.WorkingDir
 	stdin, err := command.StdinPipe()
 	if err != nil {
 		cancel()
-		return nil, fmt.Errorf("opening Codex app-server input: %w", err)
+		return nil, fmt.Errorf("opening %s app-server input: %w", providerName, err)
 	}
 	stdout, err := command.StdoutPipe()
 	if err != nil {
 		cancel()
-		return nil, fmt.Errorf("opening Codex app-server output: %w", err)
+		return nil, fmt.Errorf("opening %s app-server output: %w", providerName, err)
 	}
 	command.Stderr = os.Stderr
 	if err := command.Start(); err != nil {
 		cancel()
-		return nil, fmt.Errorf("starting Codex app-server: %w", err)
+		return nil, fmt.Errorf("starting %s app-server: %w", providerName, err)
 	}
 
 	provider := &CodexProvider{
-		config:  config,
-		ctx:     providerCtx,
-		cancel:  cancel,
-		cmd:     command,
-		stdin:   stdin,
-		pending: map[string]chan codexResponse{},
-		done:    make(chan struct{}),
+		config:          config,
+		ctx:             providerCtx,
+		cancel:          cancel,
+		cmd:             command,
+		stdin:           stdin,
+		providerName:    providerName,
+		threadStateFile: threadStateFile,
+		pending:         map[string]chan codexResponse{},
+		done:            make(chan struct{}),
 	}
 	go provider.readLoop(stdout)
 
@@ -110,11 +138,11 @@ func NewCodexProvider(ctx context.Context, config ProviderConfig) (*CodexProvide
 		},
 	}); err != nil {
 		provider.Close()
-		return nil, fmt.Errorf("initializing Codex app-server: %w", err)
+		return nil, fmt.Errorf("initializing %s app-server: %w", providerName, err)
 	}
 	if err := provider.write(map[string]any{"method": "initialized"}); err != nil {
 		provider.Close()
-		return nil, fmt.Errorf("confirming Codex app-server initialization: %w", err)
+		return nil, fmt.Errorf("confirming %s app-server initialization: %w", providerName, err)
 	}
 	if err := provider.openThread(initCtx); err != nil {
 		provider.Close()
@@ -124,7 +152,11 @@ func NewCodexProvider(ctx context.Context, config ProviderConfig) (*CodexProvide
 }
 
 func (p *CodexProvider) openThread(ctx context.Context) error {
-	statePath := filepath.Join(p.config.StateDir, "codex-thread-id")
+	stateFile := p.threadStateFile
+	if stateFile == "" {
+		stateFile = "codex-thread-id"
+	}
+	statePath := filepath.Join(p.config.StateDir, stateFile)
 	if data, err := os.ReadFile(statePath); err == nil {
 		threadID := strings.TrimSpace(string(data))
 		if threadID != "" {
@@ -349,7 +381,12 @@ func (p *CodexProvider) request(ctx context.Context, method string, params any) 
 	select {
 	case value := <-response:
 		if value.Error != nil {
-			return nil, &codexRequestError{method: method, code: value.Error.Code, message: value.Error.Message}
+			return nil, &codexRequestError{
+				provider: p.providerName,
+				method:   method,
+				code:     value.Error.Code,
+				message:  value.Error.Message,
+			}
 		}
 		return value.Result, nil
 	case <-ctx.Done():

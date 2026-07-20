@@ -18,6 +18,7 @@ import (
 const (
 	ClaudeCodeImageRepository = "ghcr.io/kelos-dev/claude-code"
 	CodexImageRepository      = "ghcr.io/kelos-dev/codex"
+	SenpiImageRepository      = "ghcr.io/realsigridjin/senpi"
 	GeminiImageRepository     = "ghcr.io/kelos-dev/gemini"
 	OpenCodeImageRepository   = "ghcr.io/kelos-dev/opencode"
 	CursorImageRepository     = "ghcr.io/kelos-dev/cursor"
@@ -27,6 +28,9 @@ const (
 
 	// CodexImage is the default image for OpenAI Codex agent.
 	CodexImage = CodexImageRepository + ":latest"
+
+	// SenpiImage is the default image for senpi agent.
+	SenpiImage = SenpiImageRepository + ":latest"
 
 	// GeminiImage is the default image for Google Gemini CLI agent.
 	GeminiImage = GeminiImageRepository + ":latest"
@@ -42,6 +46,9 @@ const (
 
 	// AgentTypeCodex is the agent type for OpenAI Codex.
 	AgentTypeCodex = "codex"
+
+	// AgentTypeSenpi is the agent type for senpi.
+	AgentTypeSenpi = "senpi"
 
 	// AgentTypeGemini is the agent type for Google Gemini CLI.
 	AgentTypeGemini = "gemini"
@@ -134,6 +141,8 @@ type JobBuilder struct {
 	ClaudeCodeImagePullPolicy corev1.PullPolicy
 	CodexImage                string
 	CodexImagePullPolicy      corev1.PullPolicy
+	SenpiImage                string
+	SenpiImagePullPolicy      corev1.PullPolicy
 	GeminiImage               string
 	GeminiImagePullPolicy     corev1.PullPolicy
 	OpenCodeImage             string
@@ -147,6 +156,7 @@ func NewJobBuilder() *JobBuilder {
 	return &JobBuilder{
 		ClaudeCodeImage: ClaudeCodeImage,
 		CodexImage:      CodexImage,
+		SenpiImage:      SenpiImage,
 		GeminiImage:     GeminiImage,
 		OpenCodeImage:   OpenCodeImage,
 		CursorImage:     CursorImage,
@@ -225,6 +235,8 @@ func (b *JobBuilder) Build(task *kelos.Task, workspace *kelos.WorkspaceSpec, age
 		return b.buildAgentJob(task, workspace, agentConfig, b.ClaudeCodeImage, b.ClaudeCodeImagePullPolicy, prompt)
 	case AgentTypeCodex:
 		return b.buildAgentJob(task, workspace, agentConfig, b.CodexImage, b.CodexImagePullPolicy, prompt)
+	case AgentTypeSenpi:
+		return b.buildAgentJob(task, workspace, agentConfig, b.SenpiImage, b.SenpiImagePullPolicy, prompt)
 	case AgentTypeGemini:
 		return b.buildAgentJob(task, workspace, agentConfig, b.GeminiImage, b.GeminiImagePullPolicy, prompt)
 	case AgentTypeOpenCode:
@@ -244,6 +256,11 @@ func apiKeyEnvVar(agentType string) string {
 		// CODEX_API_KEY is the environment variable that codex exec reads
 		// for non-interactive authentication.
 		return "CODEX_API_KEY"
+	case AgentTypeSenpi:
+		// senpi accepts --api-key; the image entrypoint maps this variable
+		// to that flag so provider-specific environment names stay out of
+		// the controller contract.
+		return "SENPI_API_KEY"
 	case AgentTypeGemini:
 		// GEMINI_API_KEY is the environment variable that the gemini CLI
 		// reads for API key authentication.

@@ -15,6 +15,51 @@ import (
 	"k8s.io/utils/ptr"
 )
 
+func TestBuildSenpiJob_DefaultImageAndCredential(t *testing.T) {
+	builder := NewJobBuilder()
+	task := &kelos.Task{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "senpi-task",
+			Namespace: "default",
+		},
+		Spec: kelos.TaskSpec{
+			Type:   AgentTypeSenpi,
+			Prompt: "Inspect the repository",
+			Credentials: &kelos.Credentials{
+				Type:      kelos.CredentialTypeAPIKey,
+				SecretRef: &kelos.SecretReference{Name: "senpi-credentials"},
+			},
+		},
+	}
+
+	job, err := builder.Build(task, nil, nil, task.Spec.Prompt)
+	if err != nil {
+		t.Fatalf("Build() returned error: %v", err)
+	}
+
+	container := job.Spec.Template.Spec.Containers[0]
+	if container.Image != SenpiImage {
+		t.Fatalf("container image = %q, want %q", container.Image, SenpiImage)
+	}
+
+	var found bool
+	for _, env := range container.Env {
+		if env.Name != "SENPI_API_KEY" {
+			continue
+		}
+		found = true
+		if env.ValueFrom == nil || env.ValueFrom.SecretKeyRef == nil {
+			t.Fatal("SENPI_API_KEY is not backed by a SecretKeyRef")
+		}
+		if env.ValueFrom.SecretKeyRef.Name != "senpi-credentials" || env.ValueFrom.SecretKeyRef.Key != "SENPI_API_KEY" {
+			t.Fatalf("SENPI_API_KEY secret ref = %#v, want senpi-credentials/SENPI_API_KEY", env.ValueFrom.SecretKeyRef)
+		}
+	}
+	if !found {
+		t.Fatal("SENPI_API_KEY environment variable was not injected")
+	}
+}
+
 func TestBuildClaudeCodeJob_DefaultImage(t *testing.T) {
 	builder := NewJobBuilder()
 	task := &kelos.Task{

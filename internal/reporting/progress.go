@@ -51,6 +51,8 @@ func ExtractLatestAssistantText(r io.Reader, agentType string) string {
 	switch agentType {
 	case "codex":
 		return extractCodexText(r)
+	case "senpi":
+		return extractCodexText(r)
 	case "gemini":
 		return extractGeminiText(r)
 	case "opencode":

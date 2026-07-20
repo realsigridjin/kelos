@@ -51,7 +51,7 @@ type SessionPullRequest struct {
 
 // SessionSpec defines the desired state of a Session.
 //
-// +kubebuilder:validation:XValidation:rule="has(self.worker.type) && self.worker.type in ['claude-code', 'codex', 'opencode']",message="worker.type must be claude-code, codex, or opencode"
+// +kubebuilder:validation:XValidation:rule="has(self.worker.type) && self.worker.type in ['claude-code', 'codex', 'senpi', 'opencode']",message="worker.type must be claude-code, codex, senpi, or opencode"
 // +kubebuilder:validation:XValidation:rule="has(self.worker.credentials)",message="worker.credentials is required"
 // +kubebuilder:validation:XValidation:rule="!has(self.initialBranch) || size(self.initialBranch) == 0 || has(self.worker.workspaceRef)",message="worker.workspaceRef is required when initialBranch is set"
 type SessionSpec struct {

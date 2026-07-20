@@ -40,6 +40,7 @@ const (
 	sessionRuntimeBinary        = sessionRuntimeMountPath + "/kelos-session-runtime"
 	sessionClaudeConfigDir      = "/workspace/.kelos/session/claude-config"
 	sessionCodexHome            = "/workspace/.kelos/session/codex-home"
+	sessionSenpiAgentDir        = "/workspace/.kelos/session/senpi-agent"
 	sessionOpenCodeConfigDir    = "/workspace/.kelos/session/opencode-config"
 	sessionOpenCodeDataDir      = "/workspace/.kelos/session/opencode-data"
 	sessionInitializedPath      = "/workspace/.kelos/session/initialized"
@@ -752,6 +753,8 @@ func (r *SessionReconciler) buildSessionStatefulSet(session *kelos.Session, work
 		setSessionContainerEnv(mainContainer, "CLAUDE_CONFIG_DIR", sessionClaudeConfigDir)
 	case "codex":
 		setSessionContainerEnv(mainContainer, "CODEX_HOME", sessionCodexHome)
+	case "senpi":
+		setSessionContainerEnv(mainContainer, "SENPI_CODING_AGENT_DIR", sessionSenpiAgentDir)
 	case "opencode":
 		setSessionContainerEnv(mainContainer, "OPENCODE_CONFIG_DIR", sessionOpenCodeConfigDir)
 		setSessionContainerEnv(mainContainer, "XDG_DATA_HOME", sessionOpenCodeDataDir)

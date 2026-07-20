@@ -252,6 +252,8 @@ func parseAgentLogs(agentType string, stream io.Reader) error {
 	switch agentType {
 	case "codex":
 		return ParseAndFormatCodexLogs(stream, os.Stdout, os.Stderr)
+	case "senpi":
+		return ParseAndFormatCodexLogs(stream, os.Stdout, os.Stderr)
 	case "gemini":
 		return ParseAndFormatGeminiLogs(stream, os.Stdout, os.Stderr)
 	case "opencode":

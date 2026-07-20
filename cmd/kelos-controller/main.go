@@ -80,6 +80,8 @@ func main() {
 	var claudeCodeImagePullPolicy string
 	var codexImage string
 	var codexImagePullPolicy string
+	var senpiImage string
+	var senpiImagePullPolicy string
 	var geminiImage string
 	var geminiImagePullPolicy string
 	var openCodeImage string
@@ -114,6 +116,8 @@ func main() {
 	flag.StringVar(&claudeCodeImagePullPolicy, "claude-code-image-pull-policy", "", "The image pull policy for Claude Code agent containers (e.g., Always, Never, IfNotPresent).")
 	flag.StringVar(&codexImage, "codex-image", controller.CodexImageRepository, "The image repository or tagged image to use for Codex agent containers.")
 	flag.StringVar(&codexImagePullPolicy, "codex-image-pull-policy", "", "The image pull policy for Codex agent containers (e.g., Always, Never, IfNotPresent).")
+	flag.StringVar(&senpiImage, "senpi-image", controller.SenpiImageRepository, "The image repository or tagged image to use for senpi agent containers.")
+	flag.StringVar(&senpiImagePullPolicy, "senpi-image-pull-policy", "", "The image pull policy for senpi agent containers (e.g., Always, Never, IfNotPresent).")
 	flag.StringVar(&geminiImage, "gemini-image", controller.GeminiImageRepository, "The image repository or tagged image to use for Gemini CLI agent containers.")
 	flag.StringVar(&geminiImagePullPolicy, "gemini-image-pull-policy", "", "The image pull policy for Gemini CLI agent containers (e.g., Always, Never, IfNotPresent).")
 	flag.StringVar(&openCodeImage, "opencode-image", controller.OpenCodeImageRepository, "The image repository or tagged image to use for OpenCode agent containers.")
@@ -155,6 +159,7 @@ func main() {
 	}{
 		{name: "claude-code-image", value: &claudeCodeImage},
 		{name: "codex-image", value: &codexImage},
+		{name: "senpi-image", value: &senpiImage},
 		{name: "gemini-image", value: &geminiImage},
 		{name: "opencode-image", value: &openCodeImage},
 		{name: "cursor-image", value: &cursorImage},
@@ -262,6 +267,8 @@ func main() {
 	jobBuilder.ClaudeCodeImagePullPolicy = corev1.PullPolicy(claudeCodeImagePullPolicy)
 	jobBuilder.CodexImage = codexImage
 	jobBuilder.CodexImagePullPolicy = corev1.PullPolicy(codexImagePullPolicy)
+	jobBuilder.SenpiImage = senpiImage
+	jobBuilder.SenpiImagePullPolicy = corev1.PullPolicy(senpiImagePullPolicy)
 	jobBuilder.GeminiImage = geminiImage
 	jobBuilder.GeminiImagePullPolicy = corev1.PullPolicy(geminiImagePullPolicy)
 	jobBuilder.OpenCodeImage = openCodeImage
@@ -365,6 +372,8 @@ func main() {
 		ClaudeCodeImagePullPolicy:   corev1.PullPolicy(claudeCodeImagePullPolicy),
 		CodexImage:                  codexImage,
 		CodexImagePullPolicy:        corev1.PullPolicy(codexImagePullPolicy),
+		SenpiImage:                  senpiImage,
+		SenpiImagePullPolicy:        corev1.PullPolicy(senpiImagePullPolicy),
 		GeminiImage:                 geminiImage,
 		GeminiImagePullPolicy:       corev1.PullPolicy(geminiImagePullPolicy),
 		OpenCodeImage:               openCodeImage,

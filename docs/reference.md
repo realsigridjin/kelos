@@ -131,6 +131,8 @@ The secret referenced by `spec.credentials.secretRef.name` must contain a single
 | `claude-code` | `oauth` | `CLAUDE_CODE_OAUTH_TOKEN` |
 | `codex` | `api-key` | `CODEX_API_KEY` |
 | `codex` | `oauth` | `CODEX_AUTH_JSON` (full `~/.codex/auth.json` content) |
+| `senpi` | `api-key` | `SENPI_API_KEY` (passed to `senpi --api-key`) |
+| `senpi` | `oauth` | `SENPI_API_KEY` (provider-specific auth may be supplied through `podOverrides.env`) |
 | `gemini` | `api-key` or `oauth` | `GEMINI_API_KEY` |
 | `opencode` | `api-key` or `oauth` | `OPENCODE_API_KEY` |
 | `cursor` | `api-key` or `oauth` | `CURSOR_API_KEY` |
@@ -182,7 +184,7 @@ the refreshed value on their next sync and are not supported.
 
 | Field | Description | Required |
 |-------|-------------|----------|
-| `worker.type` | Agent type (`claude-code`, `codex`, `gemini`, `opencode`, or `cursor`) | Yes for inline Task execution (CEL-enforced) |
+| `worker.type` | Agent type (`claude-code`, `codex`, `senpi`, `gemini`, `opencode`, or `cursor`) | Yes for inline Task execution (CEL-enforced) |
 | `worker.credentials.type` | `api-key`, `oauth`, or `none` | Yes for inline Task execution (CEL-enforced) |
 | `worker.credentials.secretRef.name` | Secret name (not required when `type` is `none`) | Conditional |
 | `worker.model` | Model override passed as `KELOS_MODEL` | No |
@@ -194,7 +196,7 @@ the refreshed value on their next sync and are not supported.
 
 ## Session
 
-A Session is one interactive Claude Code, Codex, or OpenCode conversation that
+A Session is one interactive Claude Code, Codex, senpi, or OpenCode conversation that
 web and terminal clients can share and reconnect to. The spec is immutable.
 Conversation events and history are retained on the Session workspace rather
 than in the Kubernetes API. If configured, `spec.initialPrompt` also remains in
@@ -202,7 +204,7 @@ the Session resource and is visible through the Kubernetes API.
 
 | Field | Description | Required |
 |-------|-------------|----------|
-| `spec.worker.type` | Agent provider: `claude-code`, `codex`, or `opencode` | Yes |
+| `spec.worker.type` | Agent provider: `claude-code`, `codex`, `senpi`, or `opencode` | Yes |
 | `spec.worker.credentials` | Provider credentials (`api-key`, `oauth`, or `none`) | Yes |
 | `spec.worker.model` | Provider model override | No |
 | `spec.worker.effort` | Provider reasoning-effort override | No |
@@ -464,7 +466,7 @@ to receive refreshed credentials during long-running work.
 
 | Field | Description | Required |
 |-------|-------------|----------|
-| `spec.agentsMD` | Agent instructions written to the agent's user-level instructions file, additive with repo files. The destination depends on the agent type: `~/.claude/CLAUDE.md` (Claude Code), `~/.gemini/GEMINI.md` (Gemini), `~/.codex/AGENTS.md` (Codex), `~/.config/opencode/AGENTS.md` (OpenCode), `~/.cursor/AGENTS.md` (Cursor) | No |
+| `spec.agentsMD` | Agent instructions written to the agent's user-level instructions file, additive with repo files. The destination depends on the agent type: `~/.claude/CLAUDE.md` (Claude Code), `~/.gemini/GEMINI.md` (Gemini), `~/.codex/AGENTS.md` (Codex), `~/.senpi/agent/AGENTS.md` (senpi), `~/.config/opencode/AGENTS.md` (OpenCode), `~/.cursor/AGENTS.md` (Cursor) | No |
 | `spec.plugins[].name` | Plugin name (used as directory name and namespace) | Yes (per plugin) |
 | `spec.plugins[].skills[].name` | Skill name (becomes `skills/<name>/SKILL.md`) | Yes (per skill) |
 | `spec.plugins[].skills[].content` | Skill content (markdown with frontmatter) | Yes (per skill) |
@@ -900,7 +902,7 @@ The `token` and `githubApp` fields are mutually exclusive. If both `name` and `r
 
 | Field | Description |
 |-------|-------------|
-| `type` | Default agent type (`claude-code`, `codex`, `gemini`, `opencode`, or `cursor`) |
+| `type` | Default agent type (`claude-code`, `codex`, `senpi`, `gemini`, `opencode`, or `cursor`) |
 | `model` | Default model override |
 | `effort` | Default agent reasoning effort |
 | `namespace` | Default Kubernetes namespace |

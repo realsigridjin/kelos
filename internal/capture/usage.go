@@ -29,6 +29,8 @@ func newUsageAccumulator(agentType string) usageAccumulator {
 		return &lastResultAccumulator{extract: extractClaudeCode}
 	case "codex":
 		return &sumAccumulator{event: "turn.completed", extract: extractCodexUsage, extractResponse: extractCodexResponse}
+	case "senpi":
+		return &sumAccumulator{event: "turn.completed", extract: extractCodexUsage, extractResponse: extractCodexResponse}
 	case "gemini":
 		return &lastResultAccumulator{extract: extractGemini, extractResponse: extractGeminiResponse}
 	case "opencode":

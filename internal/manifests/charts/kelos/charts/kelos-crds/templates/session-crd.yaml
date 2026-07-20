@@ -7131,6 +7131,7 @@ spec:
                     enum:
                     - claude-code
                     - codex
+                    - senpi
                     - gemini
                     - opencode
                     - cursor
@@ -7158,9 +7159,9 @@ spec:
             x-kubernetes-validations:
             - message: Session spec is immutable after creation
               rule: self == oldSelf
-            - message: worker.type must be claude-code, codex, or opencode
+            - message: worker.type must be claude-code, codex, senpi, or opencode
               rule: has(self.worker.type) && self.worker.type in ['claude-code', 'codex',
-                'opencode']
+                'senpi', 'opencode']
             - message: worker.credentials is required
               rule: has(self.worker.credentials)
             - message: worker.workspaceRef is required when initialBranch is set

@@ -41,6 +41,8 @@ func NewProvider(ctx context.Context, config ProviderConfig) (Provider, error) {
 		return NewClaudeProvider(ctx, config)
 	case "codex":
 		return NewCodexProvider(ctx, config)
+	case "senpi":
+		return NewSenpiProvider(ctx, config)
 	case "opencode":
 		return NewOpenCodeProvider(ctx, config)
 	default:

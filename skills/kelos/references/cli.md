@@ -94,6 +94,7 @@ kelos delete session my-session
 | --- | --- | --- |
 | `claude-code` | `claude` | `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` |
 | `codex` | `codex` | `CODEX_API_KEY` or `CODEX_AUTH_JSON` |
+| `senpi` | `senpi` | `SENPI_API_KEY` |
 | `gemini` | `gemini` | `GEMINI_API_KEY` |
 | `opencode` | `opencode` | `OPENCODE_API_KEY` |
 | `cursor` | `agent` (Cursor) | `CURSOR_API_KEY` |

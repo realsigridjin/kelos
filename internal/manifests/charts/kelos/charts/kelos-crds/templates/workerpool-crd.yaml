@@ -7136,6 +7136,7 @@ spec:
                     enum:
                     - claude-code
                     - codex
+                    - senpi
                     - gemini
                     - opencode
                     - cursor

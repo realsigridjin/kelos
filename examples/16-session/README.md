@@ -32,6 +32,6 @@ conversation:
 kelos delete session interactive-review
 ```
 
-To use another supported provider, set `spec.worker.type` to `codex` or
-`opencode` and provide a credentials Secret with the corresponding
-`CODEX_API_KEY` or `OPENCODE_API_KEY` key.
+To use another supported provider, set `spec.worker.type` to `codex`, `senpi`,
+or `opencode` and provide a credentials Secret with the corresponding
+`CODEX_API_KEY`, `SENPI_API_KEY`, or `OPENCODE_API_KEY` key.

@@ -1,0 +1,22 @@
+apiVersion: kelos.dev/v1alpha2
+kind: Session
+metadata:
+  name: senpi-session
+  namespace: default
+spec:
+  initialPrompt: |
+    Inspect this repository and ask what I would like to work on.
+  volumeClaimTemplate:
+    accessModes:
+      - ReadWriteOnce
+    resources:
+      requests:
+        storage: 10Gi
+  worker:
+    type: senpi
+    credentials:
+      type: api-key
+      secretRef:
+        name: senpi-credentials
+    workspaceRef:
+      name: kelos

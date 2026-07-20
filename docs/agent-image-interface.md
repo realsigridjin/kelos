@@ -32,7 +32,7 @@ starts, including in a replacement Pod, because setup can install into the
 container's writable layer. Setup commands must therefore be safe to run again.
 The built-in repository clone, remotes, branch, and workspace-file initialization
 are skipped when a replacement Pod resumes an initialized workspace.
-The corresponding `claude`, `codex`, or `opencode` executable must remain available on
+The corresponding `claude`, `codex`, `senpi`, or `opencode` executable must remain available on
 `PATH` for the Session runtime.
 
 The provider-state paths below are stored on the Session workspace. They survive
@@ -48,6 +48,10 @@ For Codex Sessions, Kelos sets `CODEX_HOME` to the Session workspace so the
 app-server thread can resume from retained state. Codex-compatible entrypoints
 must write authentication, configuration, instructions, and skills under
 `CODEX_HOME` when it is set.
+
+For senpi Sessions, Kelos sets `SENPI_CODING_AGENT_DIR` to the Session workspace
+so senpi instructions, credentials, and conversation state can be reused by a
+restarted runtime. Senpi-compatible entrypoints must honor this variable.
 
 For OpenCode Sessions, Kelos sets `OPENCODE_CONFIG_DIR` and `XDG_DATA_HOME` to
 the Session workspace so configuration and the provider conversation can be
@@ -65,6 +69,7 @@ Kelos sets the following reserved environment variables on agent containers:
 | `ANTHROPIC_API_KEY` | API key for Anthropic (`claude-code` agent, api-key credential type) | When credential type is `api-key` and agent type is `claude-code` |
 | `CODEX_API_KEY` | API key for OpenAI Codex (`codex` agent, `api-key` credential type) | When credential type is `api-key` and agent type is `codex` |
 | `CODEX_AUTH_JSON` | Contents of `~/.codex/auth.json` (`codex` agent, `oauth` credential type) | When credential type is `oauth` and agent type is `codex` |
+| `SENPI_API_KEY` | Provider API key passed to senpi's `--api-key` option (`senpi` agent, `api-key` credential type) | When credential type is `api-key` and agent type is `senpi` |
 | `GEMINI_API_KEY` | API key for Google Gemini (`gemini` agent, api-key or oauth credential type) | When agent type is `gemini` |
 | `OPENCODE_API_KEY` | API key for OpenCode (`opencode` agent, api-key or oauth credential type). The OpenCode entrypoint maps this for supported provider prefixes, including `ZHIPU_API_KEY` for `zai/*` models. | When agent type is `opencode` |
 | `CURSOR_API_KEY` | API key for Cursor CLI (`cursor` agent, api-key or oauth credential type) | When agent type is `cursor` |
@@ -74,7 +79,7 @@ Kelos sets the following reserved environment variables on agent containers:
 | `GH_ENTERPRISE_TOKEN` | GitHub token for `gh` CLI (GitHub Enterprise). Same freshness caveat as `GH_TOKEN`. | When workspace has a `secretRef` and repo is on a GitHub Enterprise host |
 | `GH_HOST` | Hostname for GitHub Enterprise | When repo is on a GitHub Enterprise host |
 | `KELOS_GITHUB_TOKEN_FILE` | Path to a file containing the current GitHub token. The file is kubelet-synced from the underlying Secret, so re-reading it on each GitHub call picks up refreshed installation tokens without a pod restart. **Recommended source of truth for custom agent images.** | When workspace has a `secretRef` |
-| `KELOS_AGENT_TYPE` | The agent type (`claude-code`, `codex`, `gemini`, `opencode`, `cursor`) | Always |
+| `KELOS_AGENT_TYPE` | The agent type (`claude-code`, `codex`, `senpi`, `gemini`, `opencode`, `cursor`) | Always |
 | `KELOS_BASE_BRANCH` | The base branch (workspace `ref`) for the task | When workspace has a non-empty `ref` |
 | `KELOS_AGENTS_MD` | User-level instructions from AgentConfig | When `agentConfigRefs` is set and `agentsMD` is non-empty |
 | `KELOS_PLUGIN_DIR` | Path to plugin directory containing skills and agents. Each subdirectory is one plugin in the `<plugin>/skills/<skill>/SKILL.md` layout; skills.sh packages from `spec.skills` appear under the `skills-sh` plugin | When `agentConfigRefs` is set and `plugins` or `skills` is non-empty |

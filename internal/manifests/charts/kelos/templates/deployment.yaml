@@ -47,6 +47,10 @@ spec:
             {{- if .Values.image.pullPolicy }}
             - --codex-image-pull-policy={{ .Values.image.pullPolicy }}
             {{- end }}
+            - --senpi-image={{ .Values.senpiImage }}
+            {{- if .Values.image.pullPolicy }}
+            - --senpi-image-pull-policy={{ .Values.image.pullPolicy }}
+            {{- end }}
             - --gemini-image={{ .Values.geminiImage }}
             {{- if .Values.image.pullPolicy }}
             - --gemini-image-pull-policy={{ .Values.image.pullPolicy }}

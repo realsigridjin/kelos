@@ -85,6 +85,8 @@ func ExtractActivity(r io.Reader, agentType string) string {
 	switch agentType {
 	case "codex":
 		return extractCodexActivity(r)
+	case "senpi":
+		return extractCodexActivity(r)
 	case "gemini":
 		return extractGeminiActivity(r)
 	case "opencode":

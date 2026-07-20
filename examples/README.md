@@ -26,7 +26,8 @@ Ready-to-use patterns and YAML manifests for orchestrating AI agents with Kelos.
 | [13-taskspawner-generic-webhook](13-taskspawner-generic-webhook/) | Respond to arbitrary HTTP POST events (Sentry, Notion, Slack, etc.) using JSONPath field mapping and filters |
 | [14-task-budget](14-task-budget/) | Set observed-spend admission limits for matching Tasks |
 | [15-workerpool](15-workerpool/) | Run Tasks on pre-warmed WorkerPool pods instead of creating per-task Jobs |
-| [16-session](16-session/) | Keep one interactive Claude Code, Codex, or OpenCode conversation across web and terminal chat |
+| [16-session](16-session/) | Keep one interactive Claude Code, Codex, senpi, or OpenCode conversation across web and terminal chat |
+| [17-senpi-session](17-senpi-session/) | Run a persistent senpi conversation with the shared Session runtime |
 
 ## Additional Guides
 

@@ -15436,6 +15436,7 @@ spec:
                     enum:
                     - claude-code
                     - codex
+                    - senpi
                     - gemini
                     - opencode
                     - cursor
@@ -22360,6 +22361,7 @@ spec:
                         enum:
                         - claude-code
                         - codex
+                        - senpi
                         - gemini
                         - opencode
                         - cursor

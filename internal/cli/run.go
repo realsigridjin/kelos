@@ -457,6 +457,8 @@ func apiKeySecretKey(agentType string) string {
 	switch agentType {
 	case "codex":
 		return "CODEX_API_KEY"
+	case "senpi":
+		return "SENPI_API_KEY"
 	case "gemini":
 		return "GEMINI_API_KEY"
 	case "opencode":
@@ -474,6 +476,8 @@ func oauthSecretKey(agentType string) string {
 	switch agentType {
 	case "codex":
 		return "CODEX_AUTH_JSON"
+	case "senpi":
+		return "SENPI_API_KEY"
 	case "gemini":
 		return "GEMINI_API_KEY"
 	case "opencode":

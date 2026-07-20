@@ -26,7 +26,7 @@ Kelos is a Kubernetes-native framework for coding agent workflows. Define the ag
 1. **Environment as specs** — Model, credentials, git workspace, instructions, plugins, MCP servers, and Pod resources are version-controlled Kubernetes resources.
 2. **Workflow as specs** — Run individual Tasks, keep long-lived Sessions, react to external events with TaskSpawners, and connect work into pipelines.
 
-Kelos supports **Claude Code**, **OpenAI Codex**, **Google Gemini**, **OpenCode**, **Cursor**, and [custom agent images](docs/agent-image-interface.md). Claude Code, Codex, and OpenCode can also run as durable Sessions shared by reconnecting web and terminal clients.
+Kelos supports **Claude Code**, **OpenAI Codex**, **senpi**, **Google Gemini**, **OpenCode**, **Cursor**, and [custom agent images](docs/agent-image-interface.md). Claude Code, Codex, senpi, and OpenCode can also run as durable Sessions shared by reconnecting web and terminal clients.
 
 ## How It Works
 
@@ -46,7 +46,7 @@ Kelos is built on a small set of resources:
 **Workloads and workflows**
 
 - **Tasks** — A single coding agent run: prompt, model, effort, credentials, and Pod-level overrides.
-- **Sessions** — A durable Claude Code, Codex, or OpenCode conversation shared by reconnecting web and terminal clients.
+- **Sessions** — A durable Claude Code, Codex, senpi, or OpenCode conversation shared by reconnecting web and terminal clients.
 - **SessionSpawners** — React to GitHub webhooks and create durable Session conversations automatically.
 - **TaskSpawners** — React to external triggers (GitHub Issues/PRs, webhooks, Linear, Jira, Cron, Generic Webhooks) and create Tasks automatically.
 
@@ -57,7 +57,7 @@ Kelos makes coding agent work part of the Kubernetes declarative control plane i
 - **Workflow and environment as YAML** — Define agents, runtime environments, triggers, dependencies, and handoffs declaratively. Version-control the specs, review them in PRs, and GitOps them like any other infrastructure.
 - **Orchestration, not just execution** — Don't just run an agent; manage its entire lifecycle. Chain tasks with `dependsOn` and pass results (branch names, PR URLs, token usage) between pipeline stages. Use `TaskSpawner` to build event-driven workers that react to GitHub issues, PRs, or schedules.
 - **Host-isolated execution** — Tasks run in isolated, ephemeral Pods, while Sessions run in dedicated StatefulSets and can use persistent workspaces. Agents have no access to your host machine — use [scoped tokens and branch protection](#security-considerations) to control repository access.
-- **Standardized interface** — Plug in any agent (Claude, Codex, Gemini, OpenCode, Cursor, or your own) using a simple [container interface](docs/agent-image-interface.md). Kelos handles credential injection, workspace management, and Kubernetes plumbing.
+- **Standardized interface** — Plug in any agent (Claude, Codex, senpi, Gemini, OpenCode, Cursor, or your own) using a simple [container interface](docs/agent-image-interface.md). Kelos handles credential injection, workspace management, and Kubernetes plumbing.
 - **Scalable parallelism** — Fan out agents across multiple repositories. Kubernetes handles scheduling, resource management, and queueing — scale is limited by your cluster capacity and API provider quotas.
 - **Observable & CI-native** — Tasks and Sessions are first-class Kubernetes resources. Task outputs (branch names, PR URLs, commit SHAs, token usage) are captured into status. Monitor via `kubectl`, manage via the `kelos` CLI or declarative YAML (GitOps-ready), and integrate with ArgoCD or GitHub Actions.
 
@@ -476,7 +476,7 @@ spec:
 kelos run -p "Fix the bug" --agent-config my-config
 ```
 
-- `agentsMD` is written to the agent's user-level instructions file (additive with the repo's own instructions). The destination depends on the agent type: `~/.claude/CLAUDE.md` for Claude Code, `~/.gemini/GEMINI.md` for Gemini, `~/.codex/AGENTS.md` for Codex, `~/.config/opencode/AGENTS.md` for OpenCode, and `~/.cursor/AGENTS.md` for Cursor.
+- `agentsMD` is written to the agent's user-level instructions file (additive with the repo's own instructions). The destination depends on the agent type: `~/.claude/CLAUDE.md` for Claude Code, `~/.gemini/GEMINI.md` for Gemini, `~/.codex/AGENTS.md` for Codex, `~/.senpi/agent/AGENTS.md` for senpi, `~/.config/opencode/AGENTS.md` for OpenCode, and `~/.cursor/AGENTS.md` for Cursor.
 - `plugins` are mounted as plugin directories and passed via `--plugin-dir`.
 - `mcpServers` are written to the agent's native MCP configuration. Supports `stdio`, `http`, and `sse` transport types.
 
@@ -618,7 +618,7 @@ kelos resume taskspawner my-spawner
 <details>
 <summary><strong>What agents does Kelos support?</strong></summary>
 
-Kelos supports **Claude Code**, **OpenAI Codex**, **Google Gemini**, **OpenCode**, and **Cursor** out of the box. You can also bring your own agent image using the [container interface](docs/agent-image-interface.md).
+Kelos supports **Claude Code**, **OpenAI Codex**, **senpi**, **Google Gemini**, **OpenCode**, and **Cursor** out of the box. You can also bring your own agent image using the [container interface](docs/agent-image-interface.md).
 
 </details>
 
