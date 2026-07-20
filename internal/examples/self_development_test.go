@@ -18,6 +18,7 @@ import (
 	sigyaml "sigs.k8s.io/yaml"
 
 	kelos "github.com/kelos-dev/kelos/api/v1alpha2"
+	"github.com/kelos-dev/kelos/internal/sessionbuilder"
 	"github.com/kelos-dev/kelos/internal/webhook"
 )
 
@@ -154,6 +155,14 @@ func TestDevelopmentTaskSpawnersIgnoreDisruptions(t *testing.T) {
 func TestDevelopmentSessionSpawnerUsesPersistentWorkspace(t *testing.T) {
 	t.Parallel()
 
+	config := readAgentConfigFromDir(t, "self-development", "agentconfig.yaml")
+	if !strings.Contains(config.Spec.AgentsMD, "Runtime storage lifecycle depends on the workload") {
+		t.Fatal("kelos-dev-agent does not use lifecycle-neutral persistence guidance")
+	}
+	if strings.Contains(config.Spec.AgentsMD, "ephemeral container environment") {
+		t.Fatal("kelos-dev-agent assumes every workload is ephemeral")
+	}
+
 	_, spawner := readSpawnerFromDir(t, "self-development", "kelos-workers.yaml")
 	if spawner == nil {
 		t.Fatal("SessionSpawner is nil")
@@ -163,6 +172,105 @@ func TestDevelopmentSessionSpawnerUsesPersistentWorkspace(t *testing.T) {
 	}
 	if spawner.Spec.SessionTemplate.InitialPrompt == "" {
 		t.Fatal("SessionSpawner sessionTemplate.initialPrompt is empty")
+	}
+	if !strings.Contains(spawner.Spec.SessionTemplate.InitialPrompt, "Your workspace is backed by a PVC") {
+		t.Fatal("SessionSpawner initialPrompt does not describe its persistent workspace")
+	}
+	wantAgentConfigs := []kelos.AgentConfigReference{{Name: "kelos-dev-agent"}}
+	if !reflect.DeepEqual(spawner.Spec.SessionTemplate.Worker.AgentConfigRefs, wantAgentConfigs) {
+		t.Fatalf("SessionSpawner agentConfigRefs = %v, want %v", spawner.Spec.SessionTemplate.Worker.AgentConfigRefs, wantAgentConfigs)
+	}
+}
+
+func TestDevelopmentSessionSpawnerMatchesEveryIssueAndPullRequestComment(t *testing.T) {
+	t.Parallel()
+
+	_, sessionSpawner := readSpawnerFromDir(t, "self-development", "kelos-workers.yaml")
+	if sessionSpawner == nil {
+		t.Fatal("SessionSpawner is nil")
+	}
+	spawner := sessionSpawner.Spec.When.GitHubWebhook
+	if spawner == nil {
+		t.Fatal("SessionSpawner spec.when.githubWebhook is nil")
+	}
+	if !reflect.DeepEqual(spawner.ExcludeAuthors, []string{"kelos-bot[bot]"}) {
+		t.Fatalf("excludeAuthors = %v, want [kelos-bot[bot]]", spawner.ExcludeAuthors)
+	}
+	if len(spawner.Filters) != 1 {
+		t.Fatalf("filters length = %d, want 1", len(spawner.Filters))
+	}
+	filter := spawner.Filters[0]
+	wantFilter := kelos.GitHubWebhookFilter{Event: "issue_comment", Action: "created"}
+	if !reflect.DeepEqual(filter, wantFilter) {
+		t.Fatalf("filter = %#v, want %#v", filter, wantFilter)
+	}
+
+	for _, commentOn := range []string{kelos.CommentOnIssue, kelos.CommentOnPullRequest} {
+		commentOn := commentOn
+		for _, body := range []string{"Please investigate this", "/kelos pick-up"} {
+			body := body
+			t.Run(commentOn+"/"+body, func(t *testing.T) {
+				payloadFilter := filter
+				payloadFilter.CommentOn = commentOn
+				payload := developmentWebhookPayload(t, spawner.Repository, payloadFilter, body)
+				eventData, err := webhook.ParseGitHubWebhook("issue_comment", payload)
+				if err != nil {
+					t.Fatalf("ParseGitHubWebhook() error = %v", err)
+				}
+
+				got, err := webhook.MatchesGitHubEvent(spawner, "issue_comment", eventData)
+				if err != nil {
+					t.Fatalf("MatchesGitHubEvent() error = %v", err)
+				}
+				if !got {
+					t.Fatal("MatchesGitHubEvent() = false, want true")
+				}
+			})
+		}
+	}
+
+	botFilter := filter
+	botFilter.Author = "kelos-bot[bot]"
+	botPayload := developmentWebhookPayload(t, spawner.Repository, botFilter, "/kelos pick-up")
+	botEvent, err := webhook.ParseGitHubWebhook("issue_comment", botPayload)
+	if err != nil {
+		t.Fatalf("ParseGitHubWebhook(bot) error = %v", err)
+	}
+	if got, err := webhook.MatchesGitHubEvent(spawner, "issue_comment", botEvent); err != nil || got {
+		t.Fatalf("MatchesGitHubEvent(bot) = %v, %v, want false, nil", got, err)
+	}
+}
+
+func TestDevelopmentSessionSpawnerUsesPRBranchAndIssueFallback(t *testing.T) {
+	t.Parallel()
+
+	_, spawner := readSpawnerFromDir(t, "self-development", "kelos-workers.yaml")
+	if spawner == nil {
+		t.Fatal("SessionSpawner is nil")
+	}
+
+	tests := []struct {
+		name   string
+		branch string
+		want   string
+	}{
+		{name: "pull request", branch: "feature-branch", want: "feature-branch"},
+		{name: "issue", branch: "", want: "kelos-task-42"},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := sessionbuilder.Render("initialBranch", spawner.Spec.SessionTemplate.InitialBranch, map[string]interface{}{
+				"Branch": tt.branch,
+				"Number": 42,
+			})
+			if err != nil {
+				t.Fatalf("Render() error = %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("initialBranch = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 
@@ -174,7 +282,6 @@ func TestDevelopmentCommandPatternsMatchCommandLines(t *testing.T) {
 		file    string
 		command string
 	}{
-		{dir: "self-development", file: "kelos-workers.yaml", command: "/kelos pick-up"},
 		{dir: "self-development", file: "kelos-planner.yaml", command: "/kelos plan"},
 		{dir: "self-development", file: "kelos-reviewer.yaml", command: "/kelos review"},
 		{dir: "self-development", file: "kelos-api-reviewer.yaml", command: "/kelos api-review"},

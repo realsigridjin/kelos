@@ -8,10 +8,10 @@ spec:
   agentsMD: |
     # Kelos Development Agent
 
-    ## Environment
-    You are running in an ephemeral container environment. Your file system
-    changes disappear after the task completes. Persist work by creating PRs,
-    issues, or comments.
+    ## Persistence
+    Runtime storage lifecycle depends on the workload. Do not rely on local
+    files as the sole copy of completed work. Persist work that must outlive the
+    current Task or Session with commits, pushes, PRs, issues, or comments.
 
     ## Identity
     - When commenting on issues or PRs, always start with "🤖 **Kelos Agent** @gjkim42\n\n"
