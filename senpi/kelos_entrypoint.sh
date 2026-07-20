@@ -39,6 +39,9 @@ fi
 if [[ -n "${KELOS_EFFORT:-}" ]]; then
   args+=(--thinking "$KELOS_EFFORT")
 fi
+if [[ -n "${SENPI_PROVIDER:-}" ]]; then
+  args+=(--provider "$SENPI_PROVIDER")
+fi
 if [[ -n "${SENPI_API_KEY:-}" ]]; then
   args+=(--api-key "$SENPI_API_KEY")
 fi
