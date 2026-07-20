@@ -16,7 +16,7 @@ RUN npm install --global --ignore-scripts \
       "@code-yeongyu/senpi@${SENPI_VERSION}" \
   && npm cache clean --force
 
-COPY --chmod=755 kelos_entrypoint.sh /kelos_entrypoint.sh
+COPY --chmod=755 senpi/kelos_entrypoint.sh /kelos_entrypoint.sh
 COPY --chmod=755 bin/kelos-capture-linux-${TARGETARCH} /kelos/kelos-capture
 
 RUN useradd --uid 61100 --create-home --shell /bin/bash agent \
