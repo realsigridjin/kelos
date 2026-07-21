@@ -7,9 +7,18 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     bash \
     ca-certificates \
+    curl \
     git \
+    gnupg \
     python3 \
     ripgrep \
+  && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+       -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
+  && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
+  && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+       > /etc/apt/sources.list.d/github-cli.list \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends gh \
   && rm -rf /var/lib/apt/lists/*
 
 RUN npm install --prefix /opt/senpi --install-strategy=nested \
@@ -43,6 +52,7 @@ RUN npm install \
       "cross-spawn@7.0.6"
 
 COPY --chmod=755 senpi/kelos_entrypoint.sh /kelos_entrypoint.sh
+COPY --chmod=755 hack/agent-gh-wrapper.sh /usr/local/bin/gh
 COPY --chmod=755 bin/kelos-capture-linux-${TARGETARCH} /kelos/kelos-capture
 
 RUN useradd --uid 61100 --create-home --shell /bin/bash agent \
