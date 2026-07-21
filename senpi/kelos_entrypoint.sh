@@ -62,7 +62,11 @@ fi
 
 args=(--mode json --print)
 if [[ -n "${KELOS_MODEL:-}" ]]; then
-  args+=(--model "$KELOS_MODEL")
+  model="$KELOS_MODEL"
+  if [[ "${SENPI_PROVIDER:-}" == "kimi" && "$model" == kimi/* ]]; then
+    model="${model#*/}"
+  fi
+  args+=(--model "$model")
 fi
 if [[ -n "${KELOS_EFFORT:-}" ]]; then
   args+=(--thinking "$KELOS_EFFORT")
