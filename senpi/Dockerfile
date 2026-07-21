@@ -29,3 +29,5 @@ ENV HOME=/home/agent \
 
 USER 61100
 WORKDIR /workspace
+
+ENTRYPOINT ["tail", "-f", "/dev/null"]
