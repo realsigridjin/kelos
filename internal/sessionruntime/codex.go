@@ -84,14 +84,57 @@ func NewCodexProvider(ctx context.Context, config ProviderConfig) (*CodexProvide
 // resumable thread. Senpi deliberately uses the same wire protocol as Codex so
 // the Session runtime can share the provider implementation.
 func NewSenpiProvider(ctx context.Context, config ProviderConfig) (*CodexProvider, error) {
-	args := []string{"app-server", "--listen", "stdio://"}
-	if provider := os.Getenv("SENPI_PROVIDER"); provider != "" {
-		args = append(args, "--provider", provider)
+	if err := ensureSenpiProviderConfig(config); err != nil {
+		return nil, err
 	}
-	if apiKey := os.Getenv("SENPI_API_KEY"); apiKey != "" {
-		args = append(args, "--api-key", apiKey)
+	return newAppServerProvider(ctx, config, "senpi", "senpi", []string{"app-server", "--listen", "stdio://"}, "senpi-thread-id")
+}
+
+func ensureSenpiProviderConfig(config ProviderConfig) error {
+	if os.Getenv("SENPI_PROVIDER") != "kimi" {
+		return nil
 	}
-	return newAppServerProvider(ctx, config, "senpi", "senpi", args, "senpi-thread-id")
+
+	modelsPath := filepath.Join(config.StateDir, "models.json")
+	if _, err := os.Stat(modelsPath); err == nil {
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("checking senpi models config: %w", err)
+	}
+
+	model := config.Model
+	if model == "" {
+		model = os.Getenv("SENPI_MODEL")
+	}
+	if model == "" {
+		model = "kimi-k2.5"
+	}
+	baseURL := os.Getenv("SENPI_BASE_URL")
+	if baseURL == "" {
+		baseURL = "https://api.moonshot.ai/v1"
+	}
+
+	configData := map[string]any{
+		"providers": map[string]any{
+			"kimi": map[string]any{
+				"api":     "openai-completions",
+				"apiKey":  "$SENPI_API_KEY",
+				"baseUrl": baseURL,
+				"models": []map[string]any{{
+					"id":   model,
+					"name": "Kimi",
+				}},
+			},
+		},
+	}
+	data, err := json.MarshalIndent(configData, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encoding senpi models config: %w", err)
+	}
+	if err := os.WriteFile(modelsPath, append(data, '\n'), 0o600); err != nil {
+		return fmt.Errorf("writing senpi models config: %w", err)
+	}
+	return nil
 }
 
 func newAppServerProvider(
