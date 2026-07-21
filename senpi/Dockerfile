@@ -36,6 +36,12 @@ NODE
 
 RUN npm cache clean --force
 
+RUN npm install \
+      --prefix /opt/senpi/node_modules/@code-yeongyu/senpi \
+      --install-strategy=nested \
+      --no-save \
+      "cross-spawn@7.0.6"
+
 COPY --chmod=755 senpi/kelos_entrypoint.sh /kelos_entrypoint.sh
 COPY --chmod=755 bin/kelos-capture-linux-${TARGETARCH} /kelos/kelos-capture
 
