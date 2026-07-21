@@ -84,7 +84,14 @@ func NewCodexProvider(ctx context.Context, config ProviderConfig) (*CodexProvide
 // resumable thread. Senpi deliberately uses the same wire protocol as Codex so
 // the Session runtime can share the provider implementation.
 func NewSenpiProvider(ctx context.Context, config ProviderConfig) (*CodexProvider, error) {
-	return newAppServerProvider(ctx, config, "senpi", "senpi", []string{"app-server", "--listen", "stdio://"}, "senpi-thread-id")
+	args := []string{"app-server", "--listen", "stdio://"}
+	if provider := os.Getenv("SENPI_PROVIDER"); provider != "" {
+		args = append(args, "--provider", provider)
+	}
+	if apiKey := os.Getenv("SENPI_API_KEY"); apiKey != "" {
+		args = append(args, "--api-key", apiKey)
+	}
+	return newAppServerProvider(ctx, config, "senpi", "senpi", args, "senpi-thread-id")
 }
 
 func newAppServerProvider(
