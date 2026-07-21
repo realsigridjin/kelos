@@ -12,7 +12,7 @@ RUN apt-get update \
     ripgrep \
   && rm -rf /var/lib/apt/lists/*
 
-RUN npm install --global \
+RUN npm install --global --install-strategy=nested \
       "@code-yeongyu/senpi@${SENPI_VERSION}" \
   && npm cache clean --force
 
