@@ -95,7 +95,11 @@ func ensureSenpiProviderConfig(config ProviderConfig) error {
 		return nil
 	}
 
-	modelsPath := filepath.Join(config.StateDir, "models.json")
+	configDir := os.Getenv("SENPI_CODING_AGENT_DIR")
+	if configDir == "" {
+		configDir = config.StateDir
+	}
+	modelsPath := filepath.Join(configDir, "models.json")
 	if _, err := os.Stat(modelsPath); err == nil {
 		return nil
 	} else if !errors.Is(err, os.ErrNotExist) {
