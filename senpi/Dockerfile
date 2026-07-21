@@ -14,8 +14,27 @@ RUN apt-get update \
 
 RUN npm install --prefix /opt/senpi --install-strategy=nested \
       "@code-yeongyu/senpi@${SENPI_VERSION}" \
-  && ln -s /opt/senpi/node_modules/.bin/senpi /usr/local/bin/senpi \
-  && npm cache clean --force
+  && ln -s /opt/senpi/node_modules/.bin/senpi /usr/local/bin/senpi
+
+RUN node <<'NODE'
+const fs = require("node:fs");
+const path = require("node:path");
+
+const packageRoot = "/opt/senpi/node_modules/@code-yeongyu/senpi";
+const packageJSON = JSON.parse(
+  fs.readFileSync(path.join(packageRoot, "package.json"), "utf8"),
+);
+const dependencies = Object.keys(packageJSON.dependencies ?? {});
+for (const dependency of dependencies) {
+  const source = path.join("/opt/senpi/node_modules", dependency);
+  const target = path.join(packageRoot, "node_modules", dependency);
+  if (!fs.existsSync(source) || fs.existsSync(target)) continue;
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.symlinkSync(source, target, "dir");
+}
+NODE
+
+RUN npm cache clean --force
 
 COPY --chmod=755 senpi/kelos_entrypoint.sh /kelos_entrypoint.sh
 COPY --chmod=755 bin/kelos-capture-linux-${TARGETARCH} /kelos/kelos-capture
