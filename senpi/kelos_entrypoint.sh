@@ -4,6 +4,34 @@ set -uo pipefail
 senpi_dir="${SENPI_CODING_AGENT_DIR:-$HOME/.senpi/agent}"
 mkdir -p "$senpi_dir"
 
+if [[ -z "${SENPI_PROVIDER:-}" && "${KELOS_MODEL:-}" == kimi/* ]]; then
+  export SENPI_PROVIDER=kimi
+fi
+
+if [[ "${SENPI_PROVIDER:-}" == "kimi" && ! -f "$senpi_dir/models.json" ]]; then
+  python3 - "$senpi_dir/models.json" "${KELOS_MODEL:-kimi/kimi-k2.5}" "${SENPI_BASE_URL:-https://api.moonshot.ai/v1}" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+model = sys.argv[2].split("/", 1)[-1]
+base_url = sys.argv[3]
+config = {
+    "providers": {
+        "kimi": {
+            "api": "openai-completions",
+            "apiKey": "$SENPI_API_KEY",
+            "baseUrl": base_url,
+            "models": [{"id": model, "name": "Kimi"}],
+        }
+    }
+}
+path.write_text(json.dumps(config, indent=2) + "\n")
+path.chmod(0o600)
+PY
+fi
+
 if [[ -n "${KELOS_AGENTS_MD:-}" ]]; then
   printf '%s' "$KELOS_AGENTS_MD" >"$senpi_dir/AGENTS.md"
 fi
