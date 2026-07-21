@@ -14,6 +14,10 @@ RUN apt-get update \
 
 RUN npm install --global --install-strategy=nested \
       "@code-yeongyu/senpi@${SENPI_VERSION}" \
+      "cross-spawn@7.0.6" \
+  && mkdir -p /usr/local/lib/node_modules/@code-yeongyu/senpi/node_modules \
+  && ln -s /usr/local/lib/node_modules/cross-spawn \
+      /usr/local/lib/node_modules/@code-yeongyu/senpi/node_modules/cross-spawn \
   && npm cache clean --force
 
 COPY --chmod=755 senpi/kelos_entrypoint.sh /kelos_entrypoint.sh
